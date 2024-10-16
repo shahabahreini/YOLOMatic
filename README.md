@@ -3,12 +3,13 @@
 
 ## Overview
 
-Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
+Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
 
 ## Features
 
-- Support for multiple YOLO versions: YOLOv10, YOLOv9, YOLOv8, and YOLOX
+- Support for multiple YOLO versions: YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX
 - User-friendly command-line interface for model and dataset selection
+- Enhanced UI with professional-looking headers and improved table styling
 - Integration with ClearML for experiment tracking and management
 - Configurable training parameters via YAML configuration
 - ONNX export with optimization options
@@ -64,7 +65,6 @@ To use ClearML for experiment tracking, follow these steps:
          secret_key: "YOUR_SECRET_KEY"
    ```
 
-
 ## Usage
 
 1. Prepare your dataset in the following structure:
@@ -82,20 +82,17 @@ datasets/
         └── labels/
 ```
 
-
-
 2. Run the configuration script:
 ```sh
 python3 run.py
 ```
 
-This interactive script will guide you through selecting a YOLO model and dataset.
+This interactive script will guide you through selecting a YOLO model and dataset, with an improved user interface featuring stylized headers and enhanced table presentations.
 
 3. Start the training process:
 ```sh
 python3 Yolov_trainer.py
 ```
-
 
 ## Configuration
 
@@ -111,7 +108,7 @@ Modify this file to customize your training process.
 
 ## Files
 
-- `run.py`: Interactive script for model and dataset selection
+- `run.py`: Interactive script for model and dataset selection with enhanced UI
 - `Yolov_trainer.py`: Main training script
 - `requirements.txt`: List of Python dependencies
 - `LICENSE.md`: Apache License 2.0
@@ -128,4 +125,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 - [Ultralytics](https://github.com/ultralytics/ultralytics) for YOLO implementations
 - [ClearML](https://github.com/allegroai/clearml) for experiment tracking
-
