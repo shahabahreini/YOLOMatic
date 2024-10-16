@@ -136,11 +136,20 @@ yolox_data = [
     {"Model": "YOLOX-X", "Params (M)": 99.1, "FLOPs (G)": 281.9, "Size (pixels)": 640, "FPS": 58, "APtest / val 50-95": "51.5% / 51.1%"},
 ]
 
+yolov11_data = [
+    {"Model": "YOLO11n", "Input Size": 640, "APval": 39.5, "FLOPs (B)": 6.5, "Latency (ms)": 1.5, "params (M)": 2.6, "CPU ONNX (ms)": 56.1},
+    {"Model": "YOLO11s", "Input Size": 640, "APval": 47.0, "FLOPs (B)": 21.5, "Latency (ms)": 2.5, "params (M)": 9.4, "CPU ONNX (ms)": 90.0},
+    {"Model": "YOLO11m", "Input Size": 640, "APval": 51.5, "FLOPs (B)": 68.0, "Latency (ms)": 4.7, "params (M)": 20.1, "CPU ONNX (ms)": 183.2},
+    {"Model": "YOLO11l", "Input Size": 640, "APval": 53.4, "FLOPs (B)": 86.9, "Latency (ms)": 6.2, "params (M)": 25.3, "CPU ONNX (ms)": 238.6},
+    {"Model": "YOLO11x", "Input Size": 640, "APval": 54.7, "FLOPs (B)": 194.9, "Latency (ms)": 11.3, "params (M)": 56.9, "CPU ONNX (ms)": 462.8},
+]
+
+# Update the main function to include YOLOv11
 def main():
     while True:
         clear_screen()
         print_header("Choose a YOLO version:")
-        options = ["YOLOv10", "YOLOv9", "YOLOv8", "YOLOX", "Exit"]
+        options = ["YOLOv11", "YOLOv10", "YOLOv9", "YOLOv8", "YOLOX", "Exit"]
         for i, option in enumerate(options, 1):
             print(f"{i}. {option}")
 
@@ -153,7 +162,9 @@ def main():
         clear_screen()
         print_header(f"{choice} Models:")
 
-        if choice == "YOLOv10":
+        if choice == "YOLOv11":
+            print_model_info(yolov11_data)
+        elif choice == "YOLOv10":
             print_model_info(yolov10_data)
         elif choice == "YOLOv9":
             print_model_info(yolov9_data)
