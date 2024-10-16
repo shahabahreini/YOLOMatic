@@ -9,3 +9,4 @@ onnxruntime
 tabulate
 termcolor
 ruamel.yaml
+terminaltables
