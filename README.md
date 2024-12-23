@@ -1,4 +1,4 @@
-# AutoYolo 
+# YOLOmatic 
 [ Automated Yolo Training ]
 
 ## Overview
