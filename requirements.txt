@@ -10,3 +10,5 @@ tabulate
 termcolor
 ruamel.yaml
 terminaltables
+blessed
+rich
