@@ -1,9 +1,14 @@
 # YOLOmatic 
 [ Automated Yolo Training ]
 
+
 ## Overview
 
 Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
+
+
+https://github.com/user-attachments/assets/d7c1e7b6-cf1b-43ca-90c6-8357e37b4638
+
 
 ## Features
 
