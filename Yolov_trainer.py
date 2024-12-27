@@ -3,27 +3,30 @@ import yaml
 from datetime import datetime
 from ultralytics import YOLO
 from clearml import Task
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+# Initialize Rich console
+console = Console()
 
 
 def load_dataset_config(dataset_name):
     """Load dataset configuration from data.yaml file."""
-    # Look for data.yaml in the dataset folder
-
-    # Get the absolute path for the dataset directory
     dataset_path = os.path.abspath(os.path.join("datasets", dataset_name))
-    # Get the absolute path for the data.yaml file
     data_yaml_path = os.path.abspath(os.path.join(dataset_path, "data.yaml"))
 
     if not os.path.exists(data_yaml_path):
+        console.print(
+            f"[bold red]Error: data.yaml not found in {dataset_path}[/bold red]"
+        )
         raise FileNotFoundError(f"data.yaml not found in {dataset_path}")
 
     with open(data_yaml_path, "r") as file:
         dataset_config = yaml.safe_load(file)
 
-    # Convert relative paths to absolute paths within the dataset directory
     base_path = os.path.dirname(data_yaml_path)
     for key in ["train", "val", "test"]:
-        # Strip any leading slashes and join with base path
         relative_path = dataset_config[key].lstrip("/")
         dataset_config[key] = os.path.join(base_path, relative_path)
 
@@ -42,6 +45,11 @@ def verify_directories(dataset_config):
             missing_dirs.append(f"{dir_type} directory: {dir_path}")
 
     if missing_dirs:
+        console.print(
+            "[bold red]Error: The following directories are missing:[/bold red]"
+        )
+        for dir in missing_dirs:
+            console.print(f" - {dir}")
         raise FileNotFoundError(
             "The following directories are missing:\n" + "\n".join(missing_dirs)
         )
@@ -51,99 +59,104 @@ def select_config():
     """Select configuration file from configs directory."""
     config_folder = "configs"
     if not os.path.exists(config_folder):
+        console.print(
+            f"[bold red]Error: Config folder '{config_folder}' not found.[/bold red]"
+        )
         raise FileNotFoundError(f"Config folder '{config_folder}' not found.")
 
     yaml_files = [f for f in os.listdir(config_folder) if f.endswith(".yaml")]
 
     if not yaml_files:
+        console.print(
+            "[bold red]Error: No YAML files found in the configs folder.[/bold red]"
+        )
         raise FileNotFoundError("No YAML files found in the configs folder.")
 
-    print("\nAvailable configuration files:")
+    console.print("\n[bold]Available configuration files:[/bold]")
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Number", style="dim", width=12)
+    table.add_column("File Name")
     for i, file in enumerate(yaml_files, 1):
-        print(f"{i}. {file}")
+        table.add_row(str(i), file)
+    console.print(table)
 
     while True:
         try:
             choice = int(input("\nEnter the number of the configuration file to use: "))
             if 1 <= choice <= len(yaml_files):
                 selected_file = os.path.join(config_folder, yaml_files[choice - 1])
-                print(f"\nSelected configuration: {yaml_files[choice - 1]}")
+                console.print(
+                    f"\n[bold green]Selected configuration: {yaml_files[choice - 1]}[/bold green]"
+                )
                 return selected_file
             else:
-                print("Invalid choice. Please try again.")
+                console.print("[bold red]Invalid choice. Please try again.[/bold red]")
         except ValueError:
-            print("Invalid input. Please enter a number.")
+            console.print("[bold red]Invalid input. Please enter a number.[/bold red]")
 
 
 def verify_model_file(model_name):
     """Verify if the model file exists and load it, or download if it's a YOLO model."""
     try:
-        # Check if it's a YOLO model (e.g., yolov8n, yolov8s, etc.)
         if model_name.lower().startswith("yolo"):
-            # Convert model name to correct format (e.g., YOLO11n -> yolov8n)
-            # Extract the version number and size
-            version = model_name[4:6]  # Extract '11' from 'YOLO11n'
-            size = model_name[-1].lower()  # Extract 'n' and convert to lowercase
-
-            # Convert to standard YOLO format
+            version = model_name[4:6]
+            size = model_name[-1].lower()
             standard_name = f"yolo{version}{size}"
-            print(f"\nConverting model name {model_name} to {standard_name}")
-
-            # Try to load or download the model
+            console.print(
+                f"\n[bold]Converting model name {model_name} to {standard_name}[/bold]"
+            )
             model = YOLO(standard_name + ".pt")
-            print(f"\nSuccessfully loaded/downloaded model: {standard_name}")
+            console.print(
+                f"\n[bold green]Successfully loaded/downloaded model: {standard_name}[/bold green]"
+            )
             return model
         else:
-            # Handle custom model files
             if not os.path.exists(model_name):
+                console.print(
+                    f"[bold red]Error: Model file {model_name} not found[/bold red]"
+                )
                 raise FileNotFoundError(f"Model file {model_name} not found")
             model = YOLO(model_name)
-            print(f"\nSuccessfully loaded model: {model_name}")
+            console.print(
+                f"\n[bold green]Successfully loaded model: {model_name}[/bold green]"
+            )
             return model
-
     except Exception as e:
-        print(f"Error loading model {model_name}: {str(e)}")
+        console.print(
+            f"[bold red]Error loading model {model_name}: {str(e)}[/bold red]"
+        )
         return None
-
-
-def capitalize_first_five(s):
-    """Capitalize first five characters of a string."""
-    if len(s) < 4:
-        return s.upper()
-    else:
-        return s[:4].upper() + s[4:]
 
 
 def print_config_summary(config, dataset_config):
     """Print a summary of the loaded configurations."""
-    print("\nConfiguration Summary:")
-    print("=====================")
-    print(f"Model: {config['settings']['model']}")
-    print(f"Dataset: {config['settings']['dataset']}")
-    print(f"Project Name: {config['clearml']['project_name']}")
-
-    print("\nTraining Parameters:")
-    print(f"Batch Size: {config['training']['batch']}")
-    print(f"Epochs: {config['training']['epochs']}")
-    print(f"Device: {config['training']['device']}")
-
-    print("\nDataset Information:")
-    print(f"Number of Classes: {dataset_config['nc']}")
-    print(f"Classes: {dataset_config['names']}")
+    console.print(Panel.fit("[bold]Configuration Summary[/bold]", style="bold blue"))
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Category", style="dim", width=20)
+    table.add_column("Details")
+    table.add_row("Model", str(config["settings"]["model"]))
+    table.add_row("Dataset", str(config["settings"]["dataset"]))
+    table.add_row("Project Name", str(config["clearml"]["project_name"]))
+    table.add_row("Batch Size", str(config["training"]["batch"]))
+    table.add_row("Epochs", str(config["training"]["epochs"]))
+    table.add_row("Device", str(config["training"]["device"]))
+    table.add_row("Number of Classes", str(dataset_config["nc"]))
+    table.add_row("Classes", ", ".join(dataset_config["names"]))
     if "roboflow" in dataset_config:
-        print("\nRoboflow Information:")
-        print(f"Workspace: {dataset_config['roboflow']['workspace']}")
-        print(f"Project: {dataset_config['roboflow']['project']}")
-        print(f"Version: {dataset_config['roboflow']['version']}")
+        table.add_row("Workspace", str(dataset_config["roboflow"]["workspace"]))
+        table.add_row("Project", str(dataset_config["roboflow"]["project"]))
+        table.add_row("Version", str(dataset_config["roboflow"]["version"]))
+    console.print(table)
 
 
-# Main execution
 def main():
     try:
         # Select configuration file
         config_file = select_config()
         if config_file is None:
-            print("No configuration file selected. Exiting.")
+            console.print(
+                "[bold red]No configuration file selected. Exiting.[/bold red]"
+            )
             return
 
         # Load configuration from selected YAML file
@@ -160,17 +173,12 @@ def main():
         dataset_config, data_yaml_path, dataset_path = load_dataset_config(
             settings["dataset"]
         )
-
-        # Print configuration summary
         print_config_summary(config, dataset_config)
-
-        # Verify dataset directories
-        # verify_directories(dataset_config)
 
         # Verify and load the model
         model = verify_model_file(settings["model"])
         if model is None:
-            print("Model verification failed. Exiting.")
+            console.print("[bold red]Model verification failed. Exiting.[/bold red]")
             return
 
         # Initialize ClearML Task
@@ -180,7 +188,7 @@ def main():
         task = Task.init(
             project_name=clearml_settings["project_name"],
             task_name=task_name,
-            tags=[capitalize_first_five(settings["model"])],
+            tags=[settings["model"][:4].upper() + settings["model"][4:]],
         )
 
         # Log configurations to ClearML
@@ -192,28 +200,28 @@ def main():
             }
         )
 
-        # Train the model
-        print("\nStarting training...")
+        # Start training
+        console.print("\n[bold green]Starting training...[/bold green]")
         os.environ["YOLO_DATASET_DIR"] = os.path.abspath("datasets/Oxford Pets")
         model.train(data=data_yaml_path, **training_params)
 
-        # Evaluate the model
-        print("\nStarting validation...")
+        # Start validation
+        console.print("\n[bold green]Starting validation...[/bold green]")
         metrics = model.val(data=data_yaml_path)
 
         # Export the model
-        print("\nExporting model...")
+        console.print("\n[bold green]Exporting model...[/bold green]")
         model.export(**export_params)
 
-        print("\nTraining completed successfully!")
+        console.print("\n[bold green]Training completed successfully![/bold green]")
 
     except FileNotFoundError as e:
-        print(f"\nError: {str(e)}")
+        console.print(f"[bold red]Error: {str(e)}[/bold red]")
     except Exception as e:
-        print(f"\nAn unexpected error occurred: {str(e)}")
+        console.print(f"[bold red]An unexpected error occurred: {str(e)}[/bold red]")
         import traceback
 
-        print(traceback.format_exc())
+        console.print(traceback.format_exc())
     finally:
         # Ensure ClearML task is closed
         if "task" in locals():
