@@ -126,3 +126,18 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# configs
+*.yaml
+
+# results
+runs/*
+
+# Downloaded Models
+*.pt
+
+# IDEs
+.vscode/
+.idea/
+.idea/*
+.DS_Store

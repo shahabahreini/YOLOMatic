@@ -175,6 +175,20 @@ def print_summary(model_choice, dataset_choice):
     console.print(table)
 
 
+def detect_device():
+    """
+    Detect the appropriate device for training based on system capabilities.
+    Returns 'cuda' for NVIDIA GPUs, 'mps' for Apple Silicon, or 'cpu' as fallback.
+    """
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def update_config(model_choice, dataset_choice):
     """
     Update the configuration file with the selected model and dataset.
@@ -191,6 +205,14 @@ def update_config(model_choice, dataset_choice):
 
     config_path = os.path.join(config_dir, config_file)
 
+    # Detect appropriate device
+    device = detect_device()
+    device_info = {
+        "cuda": "🎮 NVIDIA GPU (CUDA)",
+        "mps": "🍎 Apple Silicon (MPS)",
+        "cpu": "💻 CPU",
+    }
+
     # Backup existing config if it exists
     if os.path.exists(config_path):
         backup_name = f"config_backup_{format_timestamp()}.yaml"
@@ -203,13 +225,25 @@ def update_config(model_choice, dataset_choice):
 
     # Create new config
     config = {
-        "model": {"name": model_choice, "timestamp": format_timestamp()},
-        "dataset": {"path": f"datasets/{dataset_choice}", "name": dataset_choice},
+        "settings": {
+            "model": "{}".format(model_choice),
+            "dataset": "{}".format(dataset_choice),
+        },
+        "clearml": {
+            "project_name": f"{(model_choice).upper()} Training",
+            "task_name_format": "{}".format(datetime.now().strftime("%Y-%m-%d-%H-%M")),
+        },
         "training": {
-            "batch_size": 16,
+            "batch": 16,
             "epochs": 100,
-            "learning_rate": 0.001,
-            "device": "cuda",
+            "device": device,  # Automatically set based on system capabilities
+        },
+        "export": {
+            "format": "onnx",
+            "optimize": True,
+            "half": False,
+            "nms": True,
+            "int8": True,
         },
     }
 
@@ -218,12 +252,13 @@ def update_config(model_choice, dataset_choice):
             yaml.dump(config, f)
         console.print(f"✅ Configuration saved to: {config_file}", style="bold green")
 
-        # Display confirmation panel
+        # Display confirmation panel with device information
         confirmation = Panel(
             Text(
                 "Configuration has been updated successfully!\n"
                 f"Model: {model_choice}\n"
                 f"Dataset: {dataset_choice}\n"
+                f"Device: {device_info[device]}\n"
                 f"Config file: {config_file}",
                 style="bold green",
             ),
