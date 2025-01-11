@@ -213,4 +213,33 @@ model_data_dict = {
             "FPS": 58,
         },
     ],
+    "yolo_nas": [
+        {
+            "Model": "YOLO-NAS-S",
+            "Input Size": 640,
+            "mAPval 50-95": 47.5,
+            "Speed CPU ONNX (ms)": "90.2",
+            "Speed T4 TensorRT (ms)": "2.4",
+            "params (M)": 9.3,
+            "FLOPs (B)": 21.3,
+        },
+        {
+            "Model": "YOLO-NAS-M",
+            "Input Size": 640,
+            "mAPval 50-95": 51.4,
+            "Speed CPU ONNX (ms)": "182.8",
+            "Speed T4 TensorRT (ms)": "4.6",
+            "params (M)": 20.0,
+            "FLOPs (B)": 67.5,
+        },
+        {
+            "Model": "YOLO-NAS-L",
+            "Input Size": 640,
+            "mAPval 50-95": 53.2,
+            "Speed CPU ONNX (ms)": "237.9",
+            "Speed T4 TensorRT (ms)": "6.1",
+            "params (M)": 25.2,
+            "FLOPs (B)": 86.5,
+        },
+    ],
 }

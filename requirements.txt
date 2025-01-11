@@ -12,3 +12,4 @@ ruamel.yaml
 terminaltables
 blessed
 rich
+super-gradients

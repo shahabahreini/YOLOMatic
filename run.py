@@ -1,5 +1,7 @@
 import os
 from ruamel.yaml import YAML
+import yaml
+from pathlib import Path
 from shutil import copy2
 from datetime import datetime
 from models import model_data_dict
@@ -9,14 +11,315 @@ from rich.panel import Panel
 from rich.text import Text
 from rich.align import Align
 from blessed import Terminal
+from rich import box
+import torch
 import time
+from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
+
+# Logger setup
+import logging
+from rich.logging import RichHandler
+
+import logging
+
+logging.basicConfig(
+    level=logging.WARNING,  # Change from INFO to WARNING
+    format="%(message)s",
+    handlers=[RichHandler(rich_tracebacks=True)],
+)
+logging.getLogger("config_generator").setLevel(logging.WARNING)
+logger = logging.getLogger("config_generator")
+
+# Only enable DEBUG logging if needed
+# logger.setLevel(logging.DEBUG)
 
 console = Console()
 term = Terminal()
 
 
+def check_ultralytics_version():
+    """Check and update ultralytics package version with professional UX."""
+    try:
+        import pkg_resources
+        import subprocess
+        from packaging import version
+
+        # Get versions
+        with console.status("[bold]Checking versions...", spinner="dots"):
+            current_version = pkg_resources.get_distribution("ultralytics").version
+
+            try:
+                process = subprocess.run(
+                    ["pip", "index", "versions", "ultralytics"],
+                    capture_output=True,
+                    text=True,
+                )
+                latest_version = (
+                    process.stdout.split("Available versions: ")[1]
+                    .split(",")[0]
+                    .strip()
+                )
+            except:
+                import json
+                import urllib.request
+
+                url = "https://pypi.org/pypi/ultralytics/json"
+                data = json.load(urllib.request.urlopen(url))
+                latest_version = data["info"]["version"]
+
+        clear_screen()
+        console.print("\n")
+
+        # Version status
+        needs_update = version.parse(current_version) < version.parse(latest_version)
+        status_text = "Update Available" if needs_update else "Up to Date"
+        status_icon = "⚠️" if needs_update else "✅"
+        status_style = "yellow" if needs_update else "green"
+
+        # Create status panel
+        status_panel = Panel(
+            Align.center(
+                f"{status_icon} {status_text}\n\n"
+                f"Current: [bold]{current_version}[/bold]   →   Latest: [bold]{latest_version}[/bold]",
+                vertical="middle",
+            ),
+            border_style=status_style,
+            padding=(2, 1),
+        )
+
+        console.print(status_panel)
+        console.print("\n")
+
+        # Handle updates if needed
+        if needs_update:
+            if (
+                get_user_choice(
+                    ["Update", "Skip"],
+                    text="Update ultralytics?",
+                )
+                == "Update"
+            ):
+                with console.status("[bold]Updating ultralytics...", spinner="dots"):
+                    result = subprocess.run(
+                        ["pip", "install", "--upgrade", "ultralytics"],
+                        capture_output=True,
+                        text=True,
+                    )
+
+                console.print("\n")
+                if result.returncode == 0:
+                    console.print(
+                        Panel(
+                            Align.center("✅ Updated successfully", vertical="middle"),
+                            border_style="green",
+                            padding=(1, 1),
+                        )
+                    )
+                else:
+                    console.print(
+                        Panel(
+                            Align.center(f"❌ Update failed", vertical="middle"),
+                            border_style="red",
+                            padding=(1, 1),
+                        )
+                    )
+
+    except Exception as e:
+        console.print("\n")
+        console.print(
+            Panel(
+                Align.center(f"❌ Error: {str(e)}", vertical="middle"),
+                border_style="red",
+                padding=(1, 1),
+            )
+        )
+
+    console.print("\n")
+    input("Press Enter to continue...")
+
+
 def clear_screen():
     print(term.clear)
+
+
+def backup_config(config_file):
+    """
+    Create a backup of the existing configuration file if it exists.
+
+    Args:
+        config_file (str): Name of the configuration file to backup
+    """
+    config_path = os.path.join("configs", config_file)
+    if os.path.exists(config_path):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"config_backup_{timestamp}.yaml"
+        backup_path = os.path.join("configs", backup_name)
+
+        try:
+            with open(config_path, "r") as source, open(backup_path, "w") as target:
+                target.write(source.read())
+            console.print(f"✅ Created backup: {backup_name}", style="green")
+        except Exception as e:
+            console.print(f"⚠️ Failed to create backup: {str(e)}", style="yellow")
+
+
+def display_configuration_summary(
+    model_choice, dataset_name, config_file, dataset_info
+):
+    """Display a clean summary of the configuration"""
+    console = Console()
+
+    # Main configuration table
+    table = Table(
+        title="Configuration Summary",
+        title_style="bold green",
+        box=box.ROUNDED,
+        padding=(0, 2),
+        width=80,
+    )
+    table.add_column("Parameter", style="cyan")
+    table.add_column("Value", style="white")
+
+    # Add training parameters
+    config_path = os.path.join("configs", config_file)
+    if not os.path.exists(config_path):
+        console.print("[red]Error: Config file not found![/red]")
+        return
+
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    # Detect device including MPS
+    device = "💻 CPU"
+    if torch.cuda.is_available():
+        device = "🚀 GPU (CUDA)"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "🚀 GPU (MPS)"
+
+    # Get model info based on config type
+    if "nas" in model_choice.lower():
+        model_info = config.get("model", {})
+        model_name = model_info.get("name", model_choice)
+        experiment_info = config.get("experiment", {})
+
+        # Basic information
+        table.add_row("Model", model_name)
+        table.add_row("Dataset", dataset_name)
+        table.add_row("Device", device)
+        table.add_row("Config File", config_file)
+        table.add_row("Experiment Name", experiment_info.get("name_prefix", "N/A"))
+
+        # Training parameters
+        training = config.get("training", {})
+        lr_config = training.get("learning_rate", {})
+        optimizer_config = training.get("optimizer", {})
+
+        table.add_row("Batch Size", str(training.get("batch_size", "N/A")))
+        table.add_row("Max Epochs", str(training.get("max_epochs", "N/A")))
+        table.add_row("Initial LR", str(lr_config.get("initial_lr", "N/A")))
+        table.add_row(
+            "Warmup Initial LR", str(lr_config.get("warmup_initial_lr", "N/A"))
+        )
+        table.add_row("Warmup Epochs", str(lr_config.get("warmup_epochs", "N/A")))
+        table.add_row("Weight Decay", str(optimizer_config.get("weight_decay", "N/A")))
+        table.add_row("Workers", str(training.get("num_workers", "N/A")))
+        table.add_row(
+            "Pretrained Weights", str(model_info.get("pretrained_weights", "N/A"))
+        )
+
+    else:
+        # Regular YOLO config
+        settings = config.get("settings", {})
+        model_name = settings.get("model_type", model_choice)
+
+        # Basic information
+        table.add_row("Model", model_name)
+        table.add_row("Dataset", dataset_name)
+        table.add_row("Device", device)
+        table.add_row("Config File", config_file)
+
+        # Training parameters
+        training = config.get("training", {})
+        table.add_row("Batch Size", str(training.get("batch", "N/A")))
+        table.add_row("Epochs", str(training.get("epochs", "N/A")))
+        table.add_row("Image Size", str(training.get("imgsz", "N/A")))
+        table.add_row("Workers", str(training.get("workers", "N/A")))
+        table.add_row("Label Smoothing", str(training.get("label_smoothing", "N/A")))
+        table.add_row("Cache", str(training.get("cache", "N/A")))
+        table.add_row("Close Mosaic", str(training.get("close_mosaic", "N/A")))
+
+    # Add number of classes
+    if "nas" in model_choice.lower():
+        classes = config.get("dataset", {}).get("classes", [])
+    else:
+        classes = config.get("model", {}).get("classes", [])
+
+    table.add_row("Number of Classes", str(len(classes)))
+    table.add_row("Classes", ", ".join(classes) if classes else "N/A")
+
+    console.print("\n")
+    console.print(table)
+
+    # Display dataset paths in a separate table
+    path_table = Table(
+        title="Dataset Paths",
+        title_style="bold blue",
+        box=box.ROUNDED,
+        padding=(0, 2),
+        width=80,
+    )
+    path_table.add_column("Type", style="cyan")
+    path_table.add_column("Path", style="white")
+
+    if "nas" in model_choice.lower():
+        structure = config.get("dataset", {}).get("structure", {})
+        base_dir = config.get("dataset", {}).get("base_dir", "")
+
+        train_path = os.path.join(
+            base_dir, structure.get("train", {}).get("images", "N/A")
+        )
+        valid_path = os.path.join(
+            base_dir, structure.get("valid", {}).get("images", "N/A")
+        )
+        test_path = os.path.join(
+            base_dir, structure.get("test", {}).get("images", "N/A")
+        )
+
+        path_table.add_row("Train", train_path)
+        path_table.add_row("Validation", valid_path)
+        path_table.add_row("Test", test_path)
+    else:
+        model_config = config.get("model", {})
+        data_dir = model_config.get("data_dir", "")
+
+        train_path = os.path.join(data_dir, model_config.get("train_images_dir", "N/A"))
+        valid_path = os.path.join(data_dir, model_config.get("val_images_dir", "N/A"))
+        test_path = os.path.join(data_dir, model_config.get("test_images_dir", "N/A"))
+
+        path_table.add_row("Train", train_path)
+        path_table.add_row("Validation", valid_path)
+        path_table.add_row("Test", test_path)
+
+    console.print("\n")
+    console.print(path_table)
+
+
+def display_paths_info(dataset_info):
+    """Display dataset paths in a clean format"""
+    console = Console()
+
+    paths_table = Table(
+        title="Dataset Paths", title_style="bold green", box=box.ROUNDED
+    )
+    paths_table.add_column("Type", style="cyan")
+    paths_table.add_column("Path", style="white")
+
+    paths_table.add_row("Train", dataset_info.get("train_path", "N/A"))
+    paths_table.add_row("Validation", dataset_info.get("valid_path", "N/A"))
+    paths_table.add_row("Test", dataset_info.get("test_path", "N/A"))
+
+    console.print("\n")
+    console.print(paths_table)
 
 
 def print_stylized_header(text):
@@ -42,7 +345,13 @@ def list_datasets():
         folder_path = os.path.join(datasets_folder, folder)
         if os.path.isdir(folder_path):
             size = get_folder_size(folder_path)
-            datasets.append({"name": folder, "size": format_size(size)})
+            datasets.append(
+                {
+                    "name": folder,
+                    "path": os.path.abspath(folder_path),  # Store full path
+                    "size": format_size(size),
+                }
+            )
 
     if not datasets:
         console.print(
@@ -59,13 +368,17 @@ def list_datasets():
 
     console.print(table)
 
-    dataset_names = [d["name"] for d in datasets]
-    return get_user_choice(
-        dataset_names,
+    dataset_names = [d["path"] for d in datasets]  # Use full paths
+    name_to_path = {os.path.basename(p): p for p in dataset_names}
+
+    choice = get_user_choice(
+        list(name_to_path.keys()),  # Show basename in menu
         allow_back=True,
         title="Select Dataset",
         text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
     )
+
+    return name_to_path.get(choice) if choice != "Back" else choice
 
 
 def print_model_info(model_data):
@@ -190,90 +503,43 @@ def detect_device():
 
 
 def update_config(model_choice, dataset_choice):
-    """
-    Update the configuration file with the selected model and dataset.
-    Creates a backup of the existing config if present.
-    """
+    """Update the configuration file with the selected model and dataset."""
     yaml = YAML()
     yaml.indent(mapping=2, sequence=4, offset=2)
-    config_file = "config.yaml"
 
-    # Create config directory if it doesn't exist
     config_dir = "configs"
     if not os.path.exists(config_dir):
         os.makedirs(config_dir)
 
+    dataset_path = Path(dataset_choice)
+    dataset_name = dataset_path.name
+
+    # Initialize appropriate generator
+    if "nas" in model_choice.lower():
+        generator = YOLONASConfigGenerator(str(dataset_path))
+        config_file = "config_nas.yaml"
+    else:
+        generator = YOLOConfigGenerator(str(dataset_path))
+        config_file = "config.yaml"
+
+    # Generate and save configuration
+    config = generator.generate_config(model_choice)
+
+    # Create backup if needed
+    backup_config(config_file)
+
+    # Save new config
     config_path = os.path.join(config_dir, config_file)
+    with open(config_path, "w") as f:
+        yaml.dump(config, f)
 
-    # Detect appropriate device
-    device = detect_device()
-    device_info = {
-        "cuda": "🎮 NVIDIA GPU (CUDA)",
-        "mps": "🍎 Apple Silicon (MPS)",
-        "cpu": "💻 CPU",
-    }
+    console.print(f"✅ Configuration saved to: {config_file}", style="bold green")
 
-    # Backup existing config if it exists
-    if os.path.exists(config_path):
-        backup_name = f"config_backup_{format_timestamp()}.yaml"
-        backup_path = os.path.join(config_dir, backup_name)
-        try:
-            copy2(config_path, backup_path)
-            console.print(f"✅ Created backup: {backup_name}", style="bold green")
-        except Exception as e:
-            console.print(f"⚠️  Failed to create backup: {str(e)}", style="bold red")
-
-    # Create new config
-    config = {
-        "settings": {
-            "model": "{}".format(model_choice),
-            "dataset": "{}".format(dataset_choice),
-        },
-        "clearml": {
-            "project_name": f"{(model_choice).upper()} Training",
-            "task_name_format": "{}".format(datetime.now().strftime("%Y-%m-%d-%H-%M")),
-        },
-        "training": {
-            "batch": 16,
-            "epochs": 100,
-            "device": device,  # Automatically set based on system capabilities
-        },
-        "export": {
-            "format": "onnx",
-            "optimize": True,
-            "half": False,
-            "nms": True,
-            "int8": True,
-        },
-    }
-
-    try:
-        with open(config_path, "w") as f:
-            yaml.dump(config, f)
-        console.print(f"✅ Configuration saved to: {config_file}", style="bold green")
-
-        # Display confirmation panel with device information
-        confirmation = Panel(
-            Text(
-                "Configuration has been updated successfully!\n"
-                f"Model: {model_choice}\n"
-                f"Dataset: {dataset_choice}\n"
-                f"Device: {device_info[device]}\n"
-                f"Config file: {config_file}",
-                style="bold green",
-            ),
-            title="Success",
-            border_style="green",
-        )
-        console.print(confirmation)
-
-    except Exception as e:
-        error_panel = Panel(
-            Text(f"Failed to save configuration:\n{str(e)}", style="bold red"),
-            title="Error",
-            border_style="red",
-        )
-        console.print(error_panel)
+    # Display summary
+    display_configuration_summary(
+        model_choice, dataset_name, config_file, generator.dataset_info
+    )
+    display_paths_info(generator.dataset_info)
 
 
 def get_folder_size(folder_path):
@@ -295,70 +561,94 @@ def format_size(size_in_bytes):
     return f"{size_in_bytes:.2f} PB"
 
 
+def get_model_menu():
+    """Get the list of available YOLO models."""
+    # Add 'yolo_nas' to the existing models list
+    models = ["yolov11", "yolov10", "yolov9", "yolov8", "yolox", "yolo_nas"]
+    return models
+
+
 def main():
     while True:
         clear_screen()
-        print_stylized_header(f"YOLOmatic v1.0.0")
-        options = ["YOLOv11", "YOLOv10", "YOLOv9", "YOLOv8", "YOLOX", "Exit"]
-        choice = get_user_choice(
-            options,
-            allow_back=False,
-            title="YOLO Model Selector",
+        print_stylized_header("YOLO Model Selector")
+
+        # Add version check option to main menu
+        main_menu_options = ["Select Model", "Check Ultralytics Version", "Exit"]
+
+        main_choice = get_user_choice(
+            main_menu_options,
+            title="Main Menu",
             text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
         )
 
-        if choice == "Exit":
-            console.print("\n👋 Thank you for using YOLOmatic!", style="bold cyan")
+        if main_choice == "Exit":
+            clear_screen()
+            console.print("\U0001F44B Goodbye!", style="bold cyan")
             break
 
-        while True:
-            clear_screen()
-            print_stylized_header(f"{choice} Models")
+        elif main_choice == "Check Ultralytics Version":
+            check_ultralytics_version()
+            continue
 
-            # Get model data for the selected YOLO generation
-            model_data = model_data_dict[choice.lower()]
-
+        elif main_choice == "Select Model":
+            # Get model choice
+            model_types = get_model_menu()
             model_choice = get_user_choice(
-                [model["Model"] for model in model_data],
+                model_types,
+                title="YOLO Model Selector",
+                text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
                 allow_back=True,
-                title=f"Select a Model from {choice}",
-                text="Use ↑↓ keys to navigate, Enter to select, 'b' to go back:",
-                model_data=model_data,  # Pass model data to display comparison table
             )
 
             if model_choice == "Back":
-                break
+                continue
 
-            clear_screen()
-            print_stylized_header(f"Properties of {model_choice}")
+            # Rest of your existing model selection code...
+            if model_choice == "yolo_nas":
+                # Get YOLO NAS specific models
+                nas_models = [model["Model"] for model in model_data_dict["yolo_nas"]]
+                model_variant = get_user_choice(
+                    nas_models,
+                    allow_back=True,
+                    title=f"Select {model_choice.upper()} Variant",
+                    text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
+                    model_data=model_data_dict["yolo_nas"],
+                )
 
-            # Display detailed properties of selected model
-            model_info = next(
-                model for model in model_data if model["Model"] == model_choice
-            )
-            table = Table(
-                title=f"Properties of {model_choice}", title_style="bold green"
-            )
+                if model_variant == "Back":
+                    continue
 
-            for header in model_info.keys():
-                table.add_column(header, justify="center", style="cyan")
+                model_choice = model_variant
+            else:
+                # Show variants for other YOLO models
+                variants = [model["Model"] for model in model_data_dict[model_choice]]
+                model_variant = get_user_choice(
+                    variants,
+                    allow_back=True,
+                    title=f"Select {model_choice.upper()} Variant",
+                    text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
+                    model_data=model_data_dict[model_choice],
+                )
 
-            table.add_row(*[str(value) for value in model_info.values()])
-            console.print(table)
+                if model_variant == "Back":
+                    continue
 
+                model_choice = model_variant
+
+            # Continue with dataset selection...
             dataset_choice = list_datasets()
             if dataset_choice == "Back":
                 continue
+            elif dataset_choice is None:
+                continue
 
-            if dataset_choice:
-                print_summary(model_choice, dataset_choice)
-                update_config(model_choice, dataset_choice)
+            # Show summary and update config
+            print_summary(model_choice, dataset_choice)
+            update_config(model_choice, dataset_choice)
 
-            # Wait for any key press to continue
-            console.print("\nPress any key to continue...", style="bold green")
-            with term.cbreak():
-                term.inkey()
-            break
+            # Ask if user wants to continue
+            input("\nPress Enter to continue...")
 
 
 if __name__ == "__main__":

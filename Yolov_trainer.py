@@ -134,18 +134,45 @@ def print_config_summary(config, dataset_config):
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Category", style="dim", width=20)
     table.add_column("Details")
-    table.add_row("Model", str(config["settings"]["model"]))
-    table.add_row("Dataset", str(config["settings"]["dataset"]))
-    table.add_row("Project Name", str(config["clearml"]["project_name"]))
-    table.add_row("Batch Size", str(config["training"]["batch"]))
-    table.add_row("Epochs", str(config["training"]["epochs"]))
-    table.add_row("Device", str(config["training"]["device"]))
-    table.add_row("Number of Classes", str(dataset_config["nc"]))
-    table.add_row("Classes", ", ".join(dataset_config["names"]))
+
+    # Check if it's a YOLO NAS config
+    if "experiment" in config:
+        # YOLO NAS configuration
+        table.add_row("Model Type", "YOLO NAS")
+        table.add_row("Model", str(config["model"]["name"]))
+        table.add_row("Dataset", str(config["dataset"]["name"]))
+        table.add_row("Project Name", str(config["clearml"]["project_name"]))
+        table.add_row("Batch Size", str(config["training"]["batch_size"]))
+        table.add_row("Max Epochs", str(config["training"]["max_epochs"]))
+        table.add_row("Pretrained Weights", str(config["model"]["pretrained_weights"]))
+        table.add_row("Number of Classes", str(len(dataset_config["names"])))
+        table.add_row("Classes", ", ".join(dataset_config["names"]))
+
+        # Add experiment info
+        table.add_row("Experiment Name", str(config["experiment"]["name_prefix"]))
+        table.add_row("Checkpoint Dir", str(config["experiment"]["checkpoint_dir"]))
+    else:
+        # Regular YOLO configuration
+        table.add_row("Model Type", "YOLO")
+        table.add_row("Model", str(config["settings"]["model_type"]))
+        table.add_row("Dataset", str(config["settings"]["dataset"]))
+        table.add_row("Project Name", str(config["clearml"]["project_name"]))
+        table.add_row("Batch Size", str(config["training"]["batch"]))
+        table.add_row("Epochs", str(config["training"]["epochs"]))
+        table.add_row("Image Size", str(config["training"]["imgsz"]))
+        table.add_row("Number of Classes", str(len(dataset_config["names"])))
+        table.add_row("Classes", ", ".join(dataset_config["names"]))
+
+        # Add device info if available
+        if "device" in config["training"]:
+            table.add_row("Device", str(config["training"]["device"]))
+
+    # Add Roboflow info if available
     if "roboflow" in dataset_config:
         table.add_row("Workspace", str(dataset_config["roboflow"]["workspace"]))
         table.add_row("Project", str(dataset_config["roboflow"]["project"]))
         table.add_row("Version", str(dataset_config["roboflow"]["version"]))
+
     console.print(table)
 
 
@@ -163,32 +190,50 @@ def main():
         with open(config_file, "r") as file:
             config = yaml.safe_load(file)
 
-        # Extract parameters from config
-        settings = config["settings"]
-        clearml_settings = config["clearml"]
-        training_params = config["training"]
-        export_params = config["export"]
+        # Extract parameters from config based on type
+        if "experiment" in config:
+            # YOLO NAS config
+            settings = {
+                "model": config["model"]["name"],
+                "dataset": config["dataset"]["name"],
+            }
+            clearml_settings = config["clearml"]
+            training_params = config["training"]
+            export_params = config["export"]
+        else:
+            # Regular YOLO config
+            settings = config["settings"]
+            clearml_settings = config["clearml"]
+            training_params = config["training"]
+            export_params = config["export"]
 
         # Load dataset configuration
         dataset_config, data_yaml_path, dataset_path = load_dataset_config(
-            settings["dataset"]
+            settings["dataset"] if "dataset" in settings else settings["model_type"]
         )
         print_config_summary(config, dataset_config)
 
+        # Get the correct model name based on config type
+        if "experiment" in config:
+            model_name = settings["model"]
+        else:
+            # For regular YOLO config, use model_type
+            model_name = settings["model_type"]
+
         # Verify and load the model
-        model = verify_model_file(settings["model"])
+        model = verify_model_file(model_name)
         if model is None:
             console.print("[bold red]Model verification failed. Exiting.[/bold red]")
             return
 
         # Initialize ClearML Task
         current_time = datetime.now().strftime(clearml_settings["task_name_format"])
-        task_name = f"{settings['model']}-{current_time}"
+        task_name = f"{model_name}-{current_time}"
 
         task = Task.init(
             project_name=clearml_settings["project_name"],
             task_name=task_name,
-            tags=[settings["model"][:4].upper() + settings["model"][4:]],
+            tags=[model_name[:4].upper() + model_name[4:]],
         )
 
         # Log configurations to ClearML
