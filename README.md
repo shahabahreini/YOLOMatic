@@ -1,18 +1,16 @@
-# YOLOmatic 
-[ Automated Yolo Training ]
+# YOLOmatic
 
+[ Automated Yolo Training ]
 
 ## Overview
 
-Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
+Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
 
-
-https://github.com/user-attachments/assets/d7c1e7b6-cf1b-43ca-90c6-8357e37b4638
-
+<https://github.com/user-attachments/assets/d7c1e7b6-cf1b-43ca-90c6-8357e37b4638>
 
 ## Features
 
-- Support for multiple YOLO versions: YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX
+- Support for multiple YOLO versions: YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX
 - User-friendly command-line interface for model and dataset selection
 - Enhanced UI with professional-looking headers and improved table styling
 - Integration with ClearML for experiment tracking and management
@@ -29,12 +27,14 @@ https://github.com/user-attachments/assets/d7c1e7b6-cf1b-43ca-90c6-8357e37b4638
 ## Installation
 
 1. Clone the repository:
+
 ```sh
 git clone https://github.com/shahabahreini/Automated-Yolo-Training.git
 cd automated-yolo-training
 ```
 
 2. Install the required packages:
+
 ```sh
 pip install -r requirements.txt
 ```
@@ -44,12 +44,14 @@ pip install -r requirements.txt
 To use ClearML for experiment tracking, follow these steps:
 
 1. **Install ClearML**:
+
    ```sh
    pip install clearml
    ```
 
 2. **Configure ClearML**:
    Run the following command to configure ClearML with your credentials:
+
    ```sh
    clearml-init
    ```
@@ -58,6 +60,7 @@ To use ClearML for experiment tracking, follow these steps:
 
 3. **Update `config.yaml`**:
    Ensure that the `config.yaml` file includes the correct ClearML integration settings. The relevant section should look like this:
+
    ```yaml
    clearml:
      sdk:
@@ -73,6 +76,7 @@ To use ClearML for experiment tracking, follow these steps:
 ## Usage
 
 1. Prepare your dataset in the following structure:
+
 ```
 datasets/
 └── your_dataset_name/
@@ -88,6 +92,7 @@ datasets/
 ```
 
 2. Run the configuration script:
+
 ```sh
 python3 run.py
 ```
@@ -95,6 +100,7 @@ python3 run.py
 This interactive script will guide you through selecting a YOLO model and dataset, with an improved user interface featuring stylized headers and enhanced table presentations.
 
 3. Start the training process:
+
 ```sh
 python3 Yolov_trainer.py
 ```

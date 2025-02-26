@@ -564,7 +564,7 @@ def format_size(size_in_bytes):
 def get_model_menu():
     """Get the list of available YOLO models."""
     # Add 'yolo_nas' to the existing models list
-    models = ["yolov11", "yolov10", "yolov9", "yolov8", "yolox", "yolo_nas"]
+    models = ["yolov12", "yolov11", "yolov10", "yolov9", "yolov8", "yolox", "yolo_nas"]
     return models
 
 
