@@ -1,9 +1,10 @@
-import os
-import yaml
-from pathlib import Path
 import logging
-from typing import Dict, Optional
+import os
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, Optional
+
+import yaml
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -241,7 +242,7 @@ class YOLOConfigGenerator(BaseConfigGenerator):
                 "dataset": self.dataset_path.name,
             },
             "clearml": {
-                "project_name": "YOLOv10 Training",
+                "project_name": f"YOLO Training - {model_choice.upper()}",
                 "task_name_format": "%Y-%m-%d-%H-%M",
             },
             "training": {

@@ -1,26 +1,25 @@
-import os
-from ruamel.yaml import YAML
-import yaml
-from pathlib import Path
-from shutil import copy2
-from datetime import datetime
-from models import model_data_dict
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
-from rich.align import Align
-from blessed import Terminal
-from rich import box
-import torch
-import time
-from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
-
 # Logger setup
 import logging
-from rich.logging import RichHandler
+import os
+import time
+from datetime import datetime
+from pathlib import Path
+from shutil import copy2
 
-import logging
+import torch
+import yaml
+from blessed import Terminal
+from rich import box
+from rich.align import Align
+from rich.console import Console
+from rich.logging import RichHandler
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from ruamel.yaml import YAML
+
+from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
+from models import model_data_dict
 
 logging.basicConfig(
     level=logging.WARNING,  # Change from INFO to WARNING
@@ -40,8 +39,9 @@ term = Terminal()
 def check_ultralytics_version():
     """Check and update ultralytics package version with professional UX."""
     try:
-        import pkg_resources
         import subprocess
+
+        import pkg_resources
         from packaging import version
 
         # Get versions
@@ -564,7 +564,16 @@ def format_size(size_in_bytes):
 def get_model_menu():
     """Get the list of available YOLO models."""
     # Add 'yolo_nas' to the existing models list
-    models = ["yolov12", "yolov11", "yolov10", "yolov9", "yolov8", "yolox", "yolo_nas"]
+    models = [
+        "yolo26",
+        "yolov12",
+        "yolov11",
+        "yolov10",
+        "yolov9",
+        "yolov8",
+        "yolox",
+        "yolo_nas",
+    ]
     return models
 
 
@@ -584,7 +593,7 @@ def main():
 
         if main_choice == "Exit":
             clear_screen()
-            console.print("\U0001F44B Goodbye!", style="bold cyan")
+            console.print("\U0001f44b Goodbye!", style="bold cyan")
             break
 
         elif main_choice == "Check Ultralytics Version":

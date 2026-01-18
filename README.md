@@ -4,13 +4,18 @@
 
 ## Overview
 
-Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
+Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
 
 <https://github.com/user-attachments/assets/d7c1e7b6-cf1b-43ca-90c6-8357e37b4638>
 
 ## Features
 
-- Support for multiple YOLO versions: YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX
+- Support for multiple YOLO versions: **YOLO26** (latest), YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX
+- **YOLO26 Highlights**:
+  - End-to-end NMS-free inference for faster deployment
+  - Up to 43% faster CPU inference
+  - Superior performance on edge devices
+  - Enhanced support for detection, segmentation, pose estimation, OBB, and classification
 - User-friendly command-line interface for model and dataset selection
 - Enhanced UI with professional-looking headers and improved table styling
 - Integration with ClearML for experiment tracking and management

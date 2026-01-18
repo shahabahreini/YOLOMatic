@@ -1,11 +1,12 @@
 import os
-import yaml
 from datetime import datetime
-from ultralytics import YOLO
+
+import yaml
 from clearml import Task
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from ultralytics import YOLO
 
 # Initialize Rich console
 console = Console()
@@ -99,8 +100,26 @@ def verify_model_file(model_name):
     """Verify if the model file exists and load it, or download if it's a YOLO model."""
     try:
         if model_name.lower().startswith("yolo"):
-            version = model_name[4:6]
-            size = model_name[-1].lower()
+            # Extract version and size from model name (e.g., YOLO26n -> version="26", size="n")
+            # Handle both 1-digit (v8, v9) and 2-digit (v10, v11, v12, v26) versions
+            remaining = model_name[4:]  # Remove "YOLO" prefix
+
+            # Extract version (can be 1 or 2 digits followed by optional letters)
+            version = ""
+            size = ""
+
+            for i, char in enumerate(remaining):
+                if char.isalpha():
+                    # Found the first letter - this is where size starts
+                    version = remaining[:i]
+                    size = remaining[i:].lower()
+                    break
+
+            if not version:
+                # If no letters found, use the last character as size
+                version = remaining[:-1]
+                size = remaining[-1].lower()
+
             standard_name = f"yolo{version}{size}"
             console.print(
                 f"\n[bold]Converting model name {model_name} to {standard_name}[/bold]"
