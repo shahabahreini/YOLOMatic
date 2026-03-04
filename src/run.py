@@ -18,8 +18,13 @@ from rich.table import Table
 from rich.text import Text
 from ruamel.yaml import YAML
 
-from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
-from models import model_data_dict
+# support running both as a module (python -m src.run) and as a script
+try:
+    from src.config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
+    from src.models import model_data_dict
+except ImportError:  # fallback for direct execution or legacy layout
+    from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
+    from models import model_data_dict
 
 logging.basicConfig(
     level=logging.WARNING,  # Change from INFO to WARNING

@@ -80,7 +80,7 @@ To use ClearML for experiment tracking, follow these steps:
 
 ## Usage
 
-1. Prepare your dataset in the following structure:
+1. Prepare your dataset in the following structure (leave the `datasets` folder at project root):
 
 ```
 datasets/
@@ -96,10 +96,13 @@ datasets/
         └── labels/
 ```
 
-2. Run the configuration script:
+2. Run the configuration script (after refactor the code now lives under `src/`):
 
 ```sh
-python3 run.py
+# using module invocation
+python3 -m src.run
+# you can also use the `uv` runner if installed
+uv run -m src.run
 ```
 
 This interactive script will guide you through selecting a YOLO model and dataset, with an improved user interface featuring stylized headers and enhanced table presentations.
@@ -107,7 +110,9 @@ This interactive script will guide you through selecting a YOLO model and datase
 3. Start the training process:
 
 ```sh
-python3 Yolov_trainer.py
+python3 -m src.Yolov_trainer
+# or using uv
+uv run -m src.Yolov_trainer
 ```
 
 ## Configuration
@@ -124,8 +129,8 @@ Modify this file to customize your training process.
 
 ## Files
 
-- `run.py`: Interactive script for model and dataset selection with enhanced UI
-- `Yolov_trainer.py`: Main training script
+- `src/run.py` (or `python -m src.run`): Interactive script for model and dataset selection with enhanced UI
+- `src/Yolov_trainer.py` (or `python -m src.Yolov_trainer`): Main training script
 - `requirements.txt`: List of Python dependencies
 - `LICENSE.md`: Apache License 2.0
 

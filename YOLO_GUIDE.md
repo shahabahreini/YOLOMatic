@@ -17,7 +17,10 @@ pip install -r requirements.txt
 
 ```bash
 # Start the interactive model selection
-python3 run.py
+# execute as module from project root
+python3 -m src.run
+# alternatively with uv runner
+uv run -m src.run
 
 # Follow the prompts to:
 # 1. Select a model (recommend YOLO26)
@@ -26,7 +29,9 @@ python3 run.py
 # 4. Review configuration
 
 # Start training
-python3 Yolov_trainer.py
+python3 -m src.Yolov_trainer
+# or with uv
+uv run -m src.Yolov_trainer
 ```
 
 ---

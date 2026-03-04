@@ -13,3 +13,4 @@ terminaltables
 blessed
 rich
 super-gradients
+uv
