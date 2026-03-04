@@ -16,6 +16,11 @@ pip install -e .
 
 After installation you can run the CLI via the `yolomatic` entrypoint.
 
+## Versioning
+
+The project version is stored in `pyproject.toml` and controlled with `uv`.
+Use `uv version` or `uv version --bump <patch|minor|major>` to adjust it.
+
 ### First Run
 
 ```bash

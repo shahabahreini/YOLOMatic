@@ -88,6 +88,33 @@ pip install -e .  # install in editable/develop mode
 yolomatic  # same as `python -m src.cli.run`
 ```
 
+### Versioning
+
+Version numbers are managed with the `uv` tool (already listed in `requirements.txt`).
+After installation, you can inspect or bump the project version from the project root:
+
+```sh
+# show current version
+uv version
+
+# bump patch/minor/major
+uv version --bump patch   # 0.1.2 → 0.1.3
+uv version --bump minor   # 0.1.2 → 0.2.0
+uv version --bump major   # 0.1.2 → 1.0.0
+
+# set an exact value
+uv version 1.5.0
+
+# you can also invoke via `uv run` to ensure the environment is activated:
+uv run uv version --bump patch
+
+# dry-run before writing
+uv version --bump patch --dry-run
+```
+
+All commands update the `version` field in `pyproject.toml` and (unless
+`--no-sync` is given) refresh the lockfile.
+
 1. Prepare your dataset in the following structure (leave the `datasets` folder at project root):
 
 ```
