@@ -80,6 +80,14 @@ To use ClearML for experiment tracking, follow these steps:
 
 ## Usage
 
+You can also install the project as a package for easier invocation:
+
+```sh
+pip install -e .  # install in editable/develop mode
+# then use the CLI command
+yolomatic  # same as `python -m src.cli.run`
+```
+
 1. Prepare your dataset in the following structure (leave the `datasets` folder at project root):
 
 ```
@@ -96,13 +104,18 @@ datasets/
         └── labels/
 ```
 
-2. Run the configuration script (after refactor the code now lives under `src/`):
+2. Run the configuration script. The code now lives under `src` and can be executed as a module, but for backwards compatibility simple wrappers are provided at the project root:
 
 ```sh
-# using module invocation
-python3 -m src.run
-# you can also use the `uv` runner if installed
-uv run -m src.run
+# preferred (module invocation)
+python3 -m src.cli.run
+# or after installing package
+yolomatic
+# or with uv runner
+uv run -m src.cli.run
+
+# legacy wrappers (exact same behavior)
+python3 run.py
 ```
 
 This interactive script will guide you through selecting a YOLO model and dataset, with an improved user interface featuring stylized headers and enhanced table presentations.
@@ -110,9 +123,13 @@ This interactive script will guide you through selecting a YOLO model and datase
 3. Start the training process:
 
 ```sh
-python3 -m src.Yolov_trainer
-# or using uv
-uv run -m src.Yolov_trainer
+# module execution:
+python3 -m src.trainers.yolo_trainer
+# or with uv:
+uv run -m src.trainers.yolo_trainer
+
+# legacy wrapper (same as above):
+python3 Yolov_trainer.py
 ```
 
 ## Configuration
@@ -129,8 +146,11 @@ Modify this file to customize your training process.
 
 ## Files
 
-- `src/run.py` (or `python -m src.run`): Interactive script for model and dataset selection with enhanced UI
-- `src/Yolov_trainer.py` (or `python -m src.Yolov_trainer`): Main training script
+- `src/cli/run.py` (or `python -m src.cli.run`): Interactive script for model and dataset selection with enhanced UI
+- `src/trainers/yolo_trainer.py` (or `python -m src.trainers.yolo_trainer`): Main training script
+
+Legacy wrappers `run.py`, `Yolov_trainer.py`, `YoloNAS_trainier.py`, `NAS_datasetAnalyzer.py` and others remain at project root for backward compatibility.
+
 - `requirements.txt`: List of Python dependencies
 - `LICENSE.md`: Apache License 2.0
 

@@ -1,0 +1,39 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0", "wheel"]
+
+[project]
+authors = [
+  {name = "shahab", email = ""},
+]
+dependencies = [
+  "ultralytics",
+  "clearml",
+  "pyyaml",
+  "opencv-python",
+  "torch",
+  "torchvision",
+  "onnx",
+  "onnxruntime",
+  "tabulate",
+  "termcolor",
+  "ruamel.yaml",
+  "terminaltables",
+  "blessed",
+  "rich",
+  "super-gradients",
+  "uv",
+]
+description = "Automated YOLO training utilities and CLI"
+license = {file = "LICENSE.md"}
+name = "yolomatic"
+readme = "README.md"
+requires-python = ">=3.13"
+version = "0.1.0"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["src", "src.config", "src.models", "src.cli", "src.trainers", "src.datasets", "src.utils"]
+
+[project.scripts]
+yolomatic = "src.cli.run:main"

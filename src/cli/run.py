@@ -18,10 +18,10 @@ from rich.table import Table
 from rich.text import Text
 from ruamel.yaml import YAML
 
-# support running both as a module (python -m src.run) and as a script
+# support running both as a module (python -m src.cli.run) and as a script
 try:
-    from src.config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
-    from src.models import model_data_dict
+    from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
+    from src.models.data import model_data_dict
 except ImportError:  # fallback for direct execution or legacy layout
     from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
     from models import model_data_dict
@@ -31,8 +31,9 @@ logging.basicConfig(
     format="%(message)s",
     handlers=[RichHandler(rich_tracebacks=True)],
 )
-logging.getLogger("config_generator").setLevel(logging.WARNING)
-logger = logging.getLogger("config_generator")
+# adjust third-party module loggers if desired
+logging.getLogger("src.config.generator").setLevel(logging.WARNING)
+logger = logging.getLogger(__name__)
 
 # Only enable DEBUG logging if needed
 # logger.setLevel(logging.DEBUG)

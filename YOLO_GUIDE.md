@@ -9,18 +9,23 @@
 git clone <repo-url>
 cd YOLOMatic
 
-# Install dependencies
+# Install dependencies and package in editable mode
 pip install -r requirements.txt
+pip install -e .
 ```
+
+After installation you can run the CLI via the `yolomatic` entrypoint.
 
 ### First Run
 
 ```bash
 # Start the interactive model selection
 # execute as module from project root
-python3 -m src.run
+python3 -m src.cli.run
 # alternatively with uv runner
-uv run -m src.run
+uv run -m src.cli.run
+# legacy wrapper (identical behaviour)
+python3 run.py
 
 # Follow the prompts to:
 # 1. Select a model (recommend YOLO26)
@@ -29,9 +34,11 @@ uv run -m src.run
 # 4. Review configuration
 
 # Start training
-python3 -m src.Yolov_trainer
+python3 -m src.trainers.yolo_trainer
 # or with uv
-uv run -m src.Yolov_trainer
+uv run -m src.trainers.yolo_trainer
+# legacy wrapper
+python3 Yolov_trainer.py
 ```
 
 ---
