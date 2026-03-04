@@ -142,3 +142,4 @@ runs/*
 .idea/*
 .DS_Store
 .DS_Store
+yolomatic.egg-info
