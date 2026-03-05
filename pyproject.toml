@@ -32,12 +32,13 @@ license = {file = "LICENSE.md"}
 name = "yolomatic"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
-version = "0.1.2"
+version = "1.0.0"
 
 [tool.setuptools]
 packages = ["src", "src.config", "src.models", "src.cli", "src.trainers", "src.datasets", "src.utils"]
 
 [project.scripts]
+bump = "src.cli.bump:main"
 yolomatic = "src.cli.run:main"
 yolomatic-tensorboard = "src.cli.tensorboard_launcher:main"
 yolomatic-train = "src.trainers.yolo_trainer:main"
