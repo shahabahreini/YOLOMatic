@@ -35,7 +35,8 @@ requires-python = ">=3.10,<3.11"
 version = "2.0.0"
 
 [tool.setuptools]
-packages = {find = {where = ["."], include = ["src", "src.*"]}}
+package-dir = {"src" = "src"}
+packages = ["src", "src.cli", "src.config", "src.datasets", "src.models", "src.trainers", "src.utils"]
 
 [project.scripts]
 bump = "src.cli.bump:main"
