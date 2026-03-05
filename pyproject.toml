@@ -39,4 +39,5 @@ packages = ["src", "src.config", "src.models", "src.cli", "src.trainers", "src.d
 
 [project.scripts]
 yolomatic = "src.cli.run:main"
+yolomatic-tensorboard = "src.cli.tensorboard_launcher:main"
 yolomatic-train = "src.trainers.yolo_trainer:main"

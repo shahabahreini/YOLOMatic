@@ -264,6 +264,11 @@ def main():
             }
         )
 
+        # Enable TensorBoard explicitly
+        from ultralytics import settings as ultra_settings
+
+        ultra_settings.update({"tensorboard": True})
+
         # Start training
         console.print("\n[bold green]Starting training...[/bold green]")
         os.environ["YOLO_DATASET_DIR"] = os.path.abspath("datasets/Oxford Pets")

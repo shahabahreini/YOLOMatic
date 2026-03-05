@@ -267,7 +267,7 @@ class YOLOConfigGenerator(BaseConfigGenerator):
         """Generate YOLO specific configuration."""
         self.extract_dataset_info()
 
-        # Default configuration for standard YOLO models
+        # Default configuration for standard YOLO models combining CV best practices
         config = {
             "settings": {
                 "model_type": model_choice.lower(),
@@ -278,13 +278,16 @@ class YOLOConfigGenerator(BaseConfigGenerator):
                 "task_name_format": "%Y-%m-%d-%H-%M",
             },
             "training": {
-                "epochs": 150,
+                "epochs": 300,  # Increased max epochs for better convergence capability
+                "patience": 50,  # Early stopping parameter avoids overfitting
                 "imgsz": 640,
-                "batch": 16,  # Will be adjusted based on GPU memory
-                "cache": True,
+                "batch": -1,  # AutoBatch: Automatically finds largest safe batch size
+                "cache": False,  # Safe loading to avoid OOM on large datasets
                 "workers": self._get_optimal_workers(),
+                "optimizer": "auto",  # Let framework pick optimal optimizer (SGD/AdamW) based on model
+                "cos_lr": True,  # Cosine learning rate scheduling
                 "label_smoothing": 0.1,
-                "close_mosaic": 50,
+                "close_mosaic": 10,  # Standard refined mosaic disable at the end of training
                 # Augmentation parameters
                 "hsv_h": 0.015,
                 "hsv_s": 0.7,
@@ -296,7 +299,9 @@ class YOLOConfigGenerator(BaseConfigGenerator):
                 "perspective": 0.0,
                 "flipud": 0.0,
                 "fliplr": 0.5,
-                "mixup": 0.0,
+                "mixup": 0.1,  # Boosts robustness
+                "copy_paste": 0.1,  # Boosts robustness for small/rare objects
+                "mosaic": 1.0,  # Ensure standard mosaic is fully utilized
                 "device": self._detect_device(),
             },
             "model": {
