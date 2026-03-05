@@ -2,196 +2,156 @@
 
 [ Automated Yolo Training ]
 
-## Overview
+**YOLOmatic** is a comprehensive, user-friendly CLI tool for training modern YOLO (You Only Look Once) architectures. It supports **YOLO26**, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX.
 
-Automated Yolo Training is a comprehensive solution for training YOLO (You Only Look Once) models, with support for YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX. This project streamlines the process of selecting models, configuring parameters, and training on custom datasets, all while integrating with ClearML for efficient experiment tracking.
+It streamlines model selection, robust dataset configuration with top-notch Computer Vision best practices (AutoBatch, Early Stopping, Cosine LR), training execution, TensorBoard monitoring, and effortless ClearML integration.
 
-<https://github.com/user-attachments/assets/d7c1e7b6-cf1b-43ca-90c6-8357e37b4638>
+---
+
+## Table of Contents
+
+1. [Features](#features)
+2. [Prerequisites](#prerequisites)
+3. [Installation & Setup](#installation--setup)
+4. [Dataset Preparation](#dataset-preparation)
+5. [Usage Guide](#usage-guide)
+   - [1. Configure Training](#1-configure-training)
+   - [2. Start Training](#2-start-training)
+   - [3. Monitor Training](#3-monitor-training)
+6. [ClearML Integration](#clearml-integration)
+7. [Versioning](#versioning)
+8. [License](#license)
+
+---
 
 ## Features
 
-- Support for multiple YOLO versions: **YOLO26** (latest), YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX
-- **YOLO26 Highlights**:
-  - End-to-end NMS-free inference for faster deployment
-  - Up to 43% faster CPU inference
-  - Superior performance on edge devices
-  - Enhanced support for detection, segmentation, pose estimation, OBB, and classification
-- User-friendly command-line interface for model and dataset selection
-- Enhanced UI with professional-looking headers and improved table styling
-- Integration with ClearML for experiment tracking and management
-- Configurable training parameters via YAML configuration
-- ONNX export with optimization options
-- Automatic config backup and version control
+- **Broad Model Support**: Train YOLO26 (latest), YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX effortlessly.
+- **Top-Notch Training Defaults**: Automatically utilizes CV best practices like AutoBatch, Early Stopping, and optimized augmentations for maximum performance and GPU safety.
+- **Sleek CLI**: Intuitive terminal headers and tables guide you through model and dataset selection.
+- **Interactive Monitoring**: Built-in TensorBoard launcher to dynamically find and monitor training runs.
+- **MLOps Integrations**: Seamlessly track experiments using ClearML.
 
-## Requirements
+---
 
-- Python 3.7+
-- CUDA-compatible GPU (recommended)
-- Dependencies listed in `requirements.txt`
+## Prerequisites
 
-## Installation
+- **Python**: 3.10+ recommended.
+- **`uv` Package Manager**: This repository relies heavily on `uv` for blazing-fast dependency management and reliable project execution. If you don't have it installed:
+  ```sh
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+- **Hardware**: A CUDA-compatible GPU is highly recommended for training.
 
-1. Clone the repository:
+---
 
-```sh
-git clone https://github.com/shahabahreini/Automated-Yolo-Training.git
-cd automated-yolo-training
-```
+## Installation & Setup
 
-2. Install the required packages:
-
-```sh
-pip install -r requirements.txt
-```
-
-## ClearML Setup
-
-To use ClearML for experiment tracking, follow these steps:
-
-1. **Install ClearML**:
+1. **Clone the repository**:
 
    ```sh
-   pip install clearml
+   git clone https://github.com/shahabahreini/Automated-Yolo-Training.git
+   cd Automated-Yolo-Training
    ```
 
-2. **Configure ClearML**:
-   Run the following command to configure ClearML with your credentials:
-
+2. **Sync the project environment**:
+   Using `uv`, quickly sync all dependencies and set up the virtual environment:
    ```sh
-   clearml-init
+   uv sync
    ```
 
-   This will prompt you to enter your ClearML credentials (API key, secret, and server). You can find these credentials in your ClearML account settings.
+---
 
-3. **Update `config.yaml`**:
-   Ensure that the `config.yaml` file includes the correct ClearML integration settings. The relevant section should look like this:
+## Dataset Preparation
 
-   ```yaml
-   clearml:
-     sdk:
-       api:
-         api_server: "https://api.clear.ml"
-         web_server: "https://app.clear.ml"
-         files_server: "https://files.clear.ml"
-       credentials:
-         access_key: "YOUR_ACCESS_KEY"
-         secret_key: "YOUR_SECRET_KEY"
-   ```
+Place your custom datasets inside the `datasets/` folder at the root of the project. Your dataset must follow standard YOLO format hierarchy:
 
-## Usage
-
-You can also install the project as a package for easier invocation:
-
-```sh
-pip install -e .  # install in editable/develop mode
-# then use the CLI command
-yolomatic  # same as `python -m src.cli.run`
+```
+Automated-Yolo-Training/
+├── datasets/
+│   └── your_dataset_name/
+│       ├── data.yaml        # YOLO dataset config
+│       ├── train/
+│       │   ├── images/
+│       │   └── labels/
+│       ├── valid/
+│       │   ├── images/
+│       │   └── labels/
+│       └── test/
+│           ├── images/
+│           └── labels/
 ```
 
-### Versioning
+---
 
-Version numbers are managed with the `uv` tool (already listed in `requirements.txt`).
-After installation, you can inspect or bump the project version from the project root:
+## Usage Guide
+
+YOLOmatic uses three primary commands executed seamlessly via `uv`.
+
+### 1. Configure Training
+
+Generate an optimized configurations file by interactively selecting your YOLO model and target dataset.
 
 ```sh
-# show current version
+uv run yolomatic
+```
+
+_Follow the on-screen terminal menus to finalize your setup. A highly optimized YAML configuration file will be uniquely generated._
+
+### 2. Start Training
+
+Once configured, initiate the training sequence. The trainer will automatically read the latest config and apply robust augmentations and early stopping criteria.
+
+```sh
+uv run yolomatic-train
+```
+
+### 3. Monitor Training
+
+While training is running (or after it finishes), easily launch TensorBoard to inspect your metrics. The tool will scan all training runs and present a selection menu.
+
+```sh
+uv run yolomatic-tensorboard
+```
+
+---
+
+## ClearML Integration
+
+To track your experiments remotely:
+
+1. Configure your ClearML credentials:
+
+   ```sh
+   uv run clearml-init
+   ```
+
+   _(Follow the prompts to paste your API credentials from your ClearML account)_
+
+2. Your generated training configurations handle the rest. YOLOmatic will seamlessly sync hyper-parameters and metrics!
+
+---
+
+## Versioning
+
+We use `uv` to securely manage project versions (stored in `pyproject.toml`).
+
+```sh
+# View current version
 uv version
 
-# bump patch/minor/major
+# Bump versions
 uv version --bump patch   # 0.1.2 → 0.1.3
 uv version --bump minor   # 0.1.2 → 0.2.0
 uv version --bump major   # 0.1.2 → 1.0.0
-
-# set an exact value
-uv version 1.5.0
-
-# you can also invoke via `uv run` to ensure the environment is activated:
-uv run uv version --bump patch
-
-# dry-run before writing
-uv version --bump patch --dry-run
 ```
 
-All commands update the `version` field in `pyproject.toml` and (unless
-`--no-sync` is given) refresh the lockfile.
-
-1. Prepare your dataset in the following structure (leave the `datasets` folder at project root):
-
-```
-datasets/
-└── your_dataset_name/
-    ├── train/
-    │   ├── images/
-    │   └── labels/
-    ├── valid/
-    │   ├── images/
-    │   └── labels/
-    └── test/
-        ├── images/
-        └── labels/
-```
-
-2. Run the configuration script. The code now lives under `src` and can be executed as a module, but for backwards compatibility simple wrappers are provided at the project root:
-
-```sh
-# preferred (module invocation)
-python3 -m src.cli.run
-# or after installing package
-yolomatic
-# or with uv runner
-uv run -m src.cli.run
-
-# legacy wrappers (exact same behavior)
-python3 run.py
-```
-
-This interactive script will guide you through selecting a YOLO model and dataset, with an improved user interface featuring stylized headers and enhanced table presentations.
-
-3. Start the training process:
-
-```sh
-# module execution:
-python3 -m src.trainers.yolo_trainer
-# or with uv:
-uv run yolomatic-train
-# or (legacy runner):
-uv run -m src.trainers.yolo_trainer
-
-# legacy wrapper (same as above):
-python3 Yolov_trainer.py
-```
-
-## Configuration
-
-The `config.yaml` file contains all the necessary settings for training. Key sections include:
-
-- `settings`: General settings like model type and dataset
-- `clearml`: ClearML integration settings
-- `training`: Training hyperparameters
-- `model`: Dataset and model-specific parameters
-- `export`: Model export settings
-
-Modify this file to customize your training process.
-
-## Files
-
-- `src/cli/run.py` (or `python -m src.cli.run`): Interactive script for model and dataset selection with enhanced UI
-- `src/trainers/yolo_trainer.py` (or `python -m src.trainers.yolo_trainer`): Main training script
-
-Legacy wrappers `run.py`, `Yolov_trainer.py`, `YoloNAS_trainier.py`, `NAS_datasetAnalyzer.py` and others remain at project root for backward compatibility.
-
-- `requirements.txt`: List of Python dependencies
-- `LICENSE.md`: Apache License 2.0
+---
 
 ## License
 
 This project is licensed under the Apache License 2.0. See the [LICENSE.md](LICENSE.md) file for details.
 
-## Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Acknowledgements
-
-- [Ultralytics](https://github.com/ultralytics/ultralytics) for YOLO implementations
-- [ClearML](https://github.com/allegroai/clearml) for experiment tracking
+_Acknowledgments: Built proudly on top of [Ultralytics](https://github.com/ultralytics/ultralytics) and [ClearML](https://github.com/allegroai/clearml)._

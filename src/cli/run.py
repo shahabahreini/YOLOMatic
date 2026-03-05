@@ -519,13 +519,16 @@ def update_config(model_choice, dataset_choice):
     dataset_path = Path(dataset_choice)
     dataset_name = dataset_path.name
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_dataset_name = dataset_name.replace(" ", "_").lower()
+
     # Initialize appropriate generator
     if "nas" in model_choice.lower():
         generator = YOLONASConfigGenerator(str(dataset_path))
-        config_file = "config_nas.yaml"
+        config_file = f"{model_choice}_{safe_dataset_name}_{timestamp}.yaml"
     else:
         generator = YOLOConfigGenerator(str(dataset_path))
-        config_file = "config.yaml"
+        config_file = f"{model_choice}_{safe_dataset_name}_{timestamp}.yaml"
 
     # Generate and save configuration
     config = generator.generate_config(model_choice)
@@ -564,9 +567,6 @@ def update_config(model_choice, dataset_choice):
             == "Go Back"
         ):
             return False
-
-    # Create backup if needed
-    backup_config(config_file)
 
     # Save new config
     config_path = os.path.join(config_dir, config_file)
