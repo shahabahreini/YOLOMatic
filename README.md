@@ -134,16 +134,23 @@ To track your experiments remotely:
 
 ## Versioning
 
-We manage project versions directly in the `pyproject.toml` file under the `[project]` table.
+We manage project versions directly using a custom CLI script that synchronizes `src/__version__.py` and `pyproject.toml`.
 
-To release a new version:
+```sh
+# Bump versions automatically
+uv run bump patch   # 0.1.2 → 0.1.3
+uv run bump minor   # 0.1.2 → 0.2.0
+uv run bump major   # 0.1.2 → 1.0.0
 
-1. Open `pyproject.toml`.
-2. Update the `version = "x.y.z"` field to your new version number.
-3. Sync the project so `uv` registers the new version constraints:
-   ```sh
-   uv sync
-   ```
+# Set an exact value
+uv run bump 1.5.0
+```
+
+After bumping, ensure your environment is locked with the new version:
+
+```sh
+uv sync
+```
 
 ---
 
