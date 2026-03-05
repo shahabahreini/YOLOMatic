@@ -28,14 +28,14 @@ dependencies = [
   "pycocotools>=2.0.11",
 ]
 description = "Automated YOLO training utilities and CLI"
-license = {file = "LICENSE.md"}
+license = "Apache-2.0"
 name = "yolomatic"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
 version = "2.0.0"
 
 [tool.setuptools]
-packages = ["src", "src.config", "src.models", "src.cli", "src.trainers", "src.datasets", "src.utils"]
+packages = {find = {where = ["."], include = ["src", "src.*"]}}
 
 [project.scripts]
 bump = "src.cli.bump:main"
