@@ -21,7 +21,7 @@ dependencies = [
   "terminaltables",
   "blessed",
   "rich",
-  "super-gradients",
+  "super-gradients>=3.7.1",
   "uv",
   "packaging",
   "setuptools<70",
@@ -31,7 +31,7 @@ description = "Automated YOLO training utilities and CLI"
 license = {file = "LICENSE.md"}
 name = "yolomatic"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10,<3.11"
 version = "0.1.2"
 
 [tool.setuptools]
