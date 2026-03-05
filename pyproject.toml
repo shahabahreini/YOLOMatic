@@ -24,6 +24,7 @@ dependencies = [
   "super-gradients",
   "uv",
   "packaging",
+  "setuptools",
 ]
 description = "Automated YOLO training utilities and CLI"
 license = {file = "LICENSE.md"}
