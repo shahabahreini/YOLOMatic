@@ -32,7 +32,7 @@ license = {file = "LICENSE.md"}
 name = "yolomatic"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
-version = "1.0.0"
+version = "2.0.0"
 
 [tool.setuptools]
 packages = ["src", "src.config", "src.models", "src.cli", "src.trainers", "src.datasets", "src.utils"]
