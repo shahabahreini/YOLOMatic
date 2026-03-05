@@ -1,10 +1,8 @@
-# Logger setup
 import logging
 import os
 import time
 from datetime import datetime
 from pathlib import Path
-from shutil import copy2
 
 import torch
 import yaml
@@ -24,6 +22,7 @@ try:
     from src.models.data import model_data_dict
 except ImportError:  # fallback for direct execution or legacy layout
     from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
+
     from models import model_data_dict
 
 logging.basicConfig(
@@ -47,6 +46,7 @@ def check_ultralytics_version():
     try:
         import subprocess
         from importlib.metadata import version as get_version
+
         from packaging import version
 
         # Get versions
@@ -64,7 +64,7 @@ def check_ultralytics_version():
                     .split(",")[0]
                     .strip()
                 )
-            except:
+            except Exception:
                 import json
                 import urllib.request
 
@@ -123,7 +123,7 @@ def check_ultralytics_version():
                 else:
                     console.print(
                         Panel(
-                            Align.center(f"❌ Update failed", vertical="middle"),
+                            Align.center("❌ Update failed", vertical="middle"),
                             border_style="red",
                             padding=(1, 1),
                         )
@@ -530,6 +530,41 @@ def update_config(model_choice, dataset_choice):
     # Generate and save configuration
     config = generator.generate_config(model_choice)
 
+    # Check dataset type compatibility
+    dataset_type = generator.dataset_info.get("task_type", "unknown")
+    is_seg_model = "-seg" in model_choice.lower()
+
+    if (
+        dataset_type == "segmentation"
+        and not is_seg_model
+        and "nas" not in model_choice.lower()
+    ):
+        console.print(
+            "\n[bold red]⚠️ WARNING: You selected a Bounding Box (Detection) model, but the dataset appears to be for Instance Segmentation![/bold red]"
+        )
+        if (
+            get_user_choice(
+                ["Continue Anyway", "Go Back"],
+                text="Do you want to continue?",
+                title="Dataset Mismatch",
+            )
+            == "Go Back"
+        ):
+            return False
+    elif dataset_type == "detection" and is_seg_model:
+        console.print(
+            "\n[bold red]⚠️ WARNING: You selected a Segmentation model, but the dataset appears to be for Bounding Box Detection![/bold red]"
+        )
+        if (
+            get_user_choice(
+                ["Continue Anyway", "Go Back"],
+                text="Do you want to continue?",
+                title="Dataset Mismatch",
+            )
+            == "Go Back"
+        ):
+            return False
+
     # Create backup if needed
     backup_config(config_file)
 
@@ -545,6 +580,8 @@ def update_config(model_choice, dataset_choice):
         model_choice, dataset_name, config_file, generator.dataset_info
     )
     display_paths_info(generator.dataset_info)
+
+    return True
 
 
 def get_folder_size(folder_path):
@@ -571,11 +608,16 @@ def get_model_menu():
     # Add 'yolo_nas' to the existing models list
     models = [
         "yolo26",
+        "yolo26-seg",
         "yolov12",
+        "yolov12-seg",
         "yolov11",
+        "yolov11-seg",
         "yolov10",
         "yolov9",
+        "yolov9-seg",
         "yolov8",
+        "yolov8-seg",
         "yolox",
         "yolo_nas",
     ]
@@ -659,7 +701,8 @@ def main():
 
             # Show summary and update config
             print_summary(model_choice, dataset_choice)
-            update_config(model_choice, dataset_choice)
+            if not update_config(model_choice, dataset_choice):
+                continue
 
             # Ask if user wants to continue
             input("\nPress Enter to continue...")

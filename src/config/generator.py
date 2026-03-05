@@ -1,6 +1,4 @@
 import logging
-import os
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -78,7 +76,7 @@ class BaseConfigGenerator:
                         yaml_dir, self.data_yaml.get("test", "")
                     )
 
-                    logger.info(f"Resolved paths:")
+                    logger.info("Resolved paths:")
                     logger.info(f"Train: {train_path}")
                     logger.info(f"Valid: {valid_path}")
                     logger.info(f"Test: {test_path}")
@@ -91,6 +89,7 @@ class BaseConfigGenerator:
                             "train_path": str(train_path),
                             "valid_path": str(valid_path),
                             "test_path": str(test_path),
+                            "task_type": self._detect_dataset_type(train_path),
                         }
                     )
 
@@ -131,6 +130,39 @@ class BaseConfigGenerator:
         )
 
         return resolved_path
+
+    def _detect_dataset_type(self, train_path: Path) -> str:
+        """Analyze label files to detect if dataset is detection or segmentation."""
+        if not train_path or not str(train_path).strip():
+            return "unknown"
+
+        labels_dir = Path(train_path).parent / "labels"
+        if not labels_dir.exists():
+            # Sometimes it's directly in labels
+            labels_dir = Path(self.dataset_path) / "train" / "labels"
+            if not labels_dir.exists():
+                return "unknown"
+
+        try:
+            # Check up to 5 label files
+            checked = 0
+            for label_file in labels_dir.glob("*.txt"):
+                if checked >= 5:
+                    break
+                with open(label_file, "r") as f:
+                    for line in f:
+                        parts = line.strip().split()
+                        if not parts:
+                            continue
+                        if len(parts) == 5:
+                            return "detection"
+                        elif len(parts) > 5:
+                            return "segmentation"
+                checked += 1
+        except Exception as e:
+            logger.error(f"Error reading label files to detect type: {e}")
+
+        return "unknown"
 
     def _get_optimal_workers(self) -> int:
         """Get optimal number of workers based on CPU cores."""
