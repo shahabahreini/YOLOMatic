@@ -153,6 +153,8 @@ This interactive script will guide you through selecting a YOLO model and datase
 # module execution:
 python3 -m src.trainers.yolo_trainer
 # or with uv:
+uv run yolomatic-train
+# or (legacy runner):
 uv run -m src.trainers.yolo_trainer
 
 # legacy wrapper (same as above):

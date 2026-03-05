@@ -39,9 +39,9 @@ python3 run.py
 # 4. Review configuration
 
 # Start training
+uv run yolomatic-train
+# or with module invocation
 python3 -m src.trainers.yolo_trainer
-# or with uv
-uv run -m src.trainers.yolo_trainer
 # legacy wrapper
 python3 Yolov_trainer.py
 ```

@@ -46,13 +46,12 @@ def check_ultralytics_version():
     """Check and update ultralytics package version with professional UX."""
     try:
         import subprocess
-
-        import pkg_resources
+        from importlib.metadata import version as get_version
         from packaging import version
 
         # Get versions
         with console.status("[bold]Checking versions...", spinner="dots"):
-            current_version = pkg_resources.get_distribution("ultralytics").version
+            current_version = get_version("ultralytics")
 
             try:
                 process = subprocess.run(

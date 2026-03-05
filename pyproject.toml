@@ -23,6 +23,7 @@ dependencies = [
   "rich",
   "super-gradients",
   "uv",
+  "packaging",
 ]
 description = "Automated YOLO training utilities and CLI"
 license = {file = "LICENSE.md"}
@@ -36,3 +37,4 @@ packages = ["src", "src.config", "src.models", "src.cli", "src.trainers", "src.d
 
 [project.scripts]
 yolomatic = "src.cli.run:main"
+yolomatic-train = "src.trainers.yolo_trainer:main"
