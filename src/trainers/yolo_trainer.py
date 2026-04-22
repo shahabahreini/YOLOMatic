@@ -8,6 +8,8 @@ from rich.panel import Panel
 from rich.table import Table
 from ultralytics import YOLO
 
+from .nas_trainer import main as nas_main
+
 # Initialize Rich console
 console = Console()
 
@@ -99,6 +101,12 @@ def select_config():
 def verify_model_file(model_name):
     """Verify if the model file exists and load it, or download if it's a YOLO model."""
     try:
+        if "nas" in model_name.lower():
+            console.print(
+                f"\n[bold]Detected YOLO-NAS model {model_name}; using SuperGradients trainer[/bold]"
+            )
+            return model_name
+
         if model_name.lower().startswith("yolo"):
             # Extract version and size from model name (e.g., YOLO26n -> version="26", size="n")
             # Handle both 1-digit (v8, v9) and 2-digit (v10, v11, v12, v26) versions
@@ -238,6 +246,13 @@ def main():
         else:
             # For regular YOLO config, use model_type
             model_name = settings["model_type"]
+
+        if "experiment" in config:
+            console.print(
+                "\n[bold green]Routing YOLO-NAS configuration to NAS trainer...[/bold green]"
+            )
+            nas_main(config_file)
+            return
 
         # Verify and load the model
         model = verify_model_file(model_name)

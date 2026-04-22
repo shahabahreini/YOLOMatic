@@ -1,21 +1,23 @@
-import torch
+import os
 from datetime import datetime
+from typing import Optional
+
+import torch
 import yaml
+from clearml import Logger, Task
+from super_gradients.conversion import DetectionOutputFormatMode
+from super_gradients.conversion.conversion_enums import ExportQuantizationMode
 from super_gradients.training import Trainer, models
+from super_gradients.training.dataloaders.dataloaders import (
+    coco_detection_yolo_format_train,
+    coco_detection_yolo_format_val,
+)
 from super_gradients.training.losses import PPYoloELoss
 from super_gradients.training.metrics import DetectionMetrics_050
 from super_gradients.training.models.detection_models.pp_yolo_e import (
     PPYoloEPostPredictionCallback,
 )
-from super_gradients.training.dataloaders.dataloaders import (
-    coco_detection_yolo_format_train,
-    coco_detection_yolo_format_val,
-)
-from super_gradients.conversion import DetectionOutputFormatMode
-from super_gradients.conversion.conversion_enums import ExportQuantizationMode
 from torch.utils.data import DataLoader
-from clearml import Task, Logger
-import os
 
 
 class Config:
@@ -40,9 +42,9 @@ class ClearMLCallback:
             )
 
 
-def main():
+def main(config_path: Optional[str] = None):
     # Load configuration
-    cfg = Config("config.yaml")
+    cfg = Config(config_path or "config.yaml")
 
     # Set environment variables
     os.environ["CONSOLE_LOG_FILE"] = cfg.experiment["console_log_file"]
