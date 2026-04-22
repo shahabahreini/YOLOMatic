@@ -9,12 +9,11 @@
 git clone <repo-url>
 cd YOLOMatic
 
-# Install dependencies and package in editable mode
-pip install -r requirements.txt
-pip install -e .
+# Sync the existing project environment with uv
+uv sync
 ```
 
-After installation you can run the CLI via the `yolomatic` entrypoint.
+After installation you can run the CLI via the `yolomatic` entrypoints managed by `uv`.
 
 ## Versioning
 
@@ -25,12 +24,7 @@ Use `uv version` or `uv version --bump <patch|minor|major>` to adjust it.
 
 ```bash
 # Start the interactive model selection
-# execute as module from project root
-python3 -m src.cli.run
-# alternatively with uv runner
-uv run -m src.cli.run
-# legacy wrapper (identical behaviour)
-python3 run.py
+uv run yolomatic
 
 # Follow the prompts to:
 # 1. Select a model (recommend YOLO26)
@@ -40,10 +34,15 @@ python3 run.py
 
 # Start training
 uv run yolomatic-train
-# or with module invocation
-python3 -m src.trainers.yolo_trainer
-# legacy wrapper
-python3 Yolov_trainer.py
+
+# Run predictions with the TUI
+uv run yolomatic-predict
+
+# Or run prediction directly with explicit arguments
+uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.pt --source /path/to/image.jpg
+
+# Monitor training logs
+uv run yolomatic-tensorboard
 ```
 
 ---

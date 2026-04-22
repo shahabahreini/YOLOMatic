@@ -17,7 +17,8 @@ It streamlines model selection, robust dataset configuration with top-notch Comp
 5. [Usage Guide](#usage-guide)
    - [1. Configure Training](#1-configure-training)
    - [2. Start Training](#2-start-training)
-   - [3. Monitor Training](#3-monitor-training)
+   - [3. Run Predictions](#3-run-predictions)
+   - [4. Monitor Training](#4-monitor-training)
 6. [ClearML Integration](#clearml-integration)
 7. [Versioning](#versioning)
 8. [License](#license)
@@ -29,6 +30,7 @@ It streamlines model selection, robust dataset configuration with top-notch Comp
 - **Broad Model Support**: Train YOLO26 (latest), YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX effortlessly.
 - **Top-Notch Training Defaults**: Automatically utilizes CV best practices like AutoBatch, Early Stopping, and optimized augmentations for maximum performance and GPU safety.
 - **Sleek CLI**: Intuitive terminal headers and tables guide you through model and dataset selection.
+- **Interactive Prediction TUI**: Discover available `.pt` weights, choose single-image or folder inference, and run predictions directly from the terminal.
 - **Interactive Monitoring**: Built-in TensorBoard launcher to dynamically find and monitor training runs.
 - **MLOps Integrations**: Seamlessly track experiments using ClearML.
 
@@ -86,7 +88,7 @@ Automated-Yolo-Training/
 
 ## Usage Guide
 
-YOLOmatic uses three primary commands executed seamlessly via `uv`.
+YOLOmatic uses four primary commands executed seamlessly via `uv`.
 
 ### 1. Configure Training
 
@@ -106,7 +108,21 @@ Once configured, initiate the training sequence. The trainer will automatically 
 uv run yolomatic-train
 ```
 
-### 3. Monitor Training
+### 3. Run Predictions
+
+Launch the interactive prediction TUI to select from available `.pt` weights discovered in the project root and `runs/**/weights/`, then choose either single-image or folder inference.
+
+```sh
+uv run yolomatic-predict
+```
+
+You can also provide values directly when you do not want to step through the prompts:
+
+```sh
+uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.pt --source /path/to/image.jpg
+```
+
+### 4. Monitor Training
 
 While training is running (or after it finishes), easily launch TensorBoard to inspect your metrics. The tool will scan all training runs and present a selection menu.
 
