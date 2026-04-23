@@ -67,10 +67,19 @@ def load_dataset_config(dataset_name):
     with open(data_yaml_path, "r") as file:
         dataset_config = yaml.safe_load(file)
 
-    base_path = os.path.dirname(data_yaml_path)
+    yaml_directory = os.path.dirname(data_yaml_path)
     for key in ["train", "val", "test"]:
-        relative_path = dataset_config[key].lstrip("/")
-        dataset_config[key] = os.path.join(base_path, relative_path)
+        configured_path = str(dataset_config[key])
+        normalized_configured_path = configured_path.replace("\\", "/")
+
+        if os.path.isabs(configured_path):
+            resolved_path = configured_path
+        elif normalized_configured_path.startswith("../"):
+            resolved_path = os.path.join(dataset_path, normalized_configured_path[3:])
+        else:
+            resolved_path = os.path.join(yaml_directory, configured_path)
+
+        dataset_config[key] = os.path.abspath(os.path.normpath(resolved_path))
 
     return dataset_config, data_yaml_path, dataset_path
 
