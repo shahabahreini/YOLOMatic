@@ -2446,7 +2446,7 @@ sdist = { url = "https://files.pythonhosted.org/packages/07/d8/14008706ad5adba23
 
 [[package]]
 name = "yolomatic"
-version = "2.0.1"
+version = "2.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "blessed" },
