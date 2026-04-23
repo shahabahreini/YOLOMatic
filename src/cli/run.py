@@ -825,10 +825,18 @@ def main():
             title="Main Menu",
             text="Pick a task to begin:",
             descriptions={
-                "Select Model": "Select a YOLO model and dataset to generate a training configuration.",
-                "Check Ultralytics Version": "Check if a new version of the ultralytics package is available and update if needed.",
-                "About YOLOmatic": "Information about the tool and its creator.",
-                "Exit": "Exit the YOLOmatic application.",
+                "Select Model": (
+                    "Launch the core YOLOmatic workflow. You will select a model family, "
+                    "pick a specific variant based on your hardware constraints, and "
+                    "configure training parameters for your dataset."
+                ),
+                "Check Ultralytics Version": (
+                    "Stay up to date with the latest YOLO improvements. This will check "
+                    "PyPI for the latest 'ultralytics' package and offer to update "
+                    "your environment."
+                ),
+                "About YOLOmatic": "Technical details, creator info, and version history.",
+                "Exit": "Safely exit the application.",
             },
             breadcrumbs=["YOLOmatic"],
         )
@@ -846,22 +854,27 @@ def main():
             clear_screen()
             from src.__version__ import __version__
             
-            about_text = [
-                "[bold cyan]YOLOmatic[/bold cyan]",
-                f"Version: [bold]{__version__}[/bold]",
-                "",
-                "A powerful CLI tool for automated YOLO training, configuration,",
-                "and dataset management.",
-                "",
-                "Created by:",
-                "[bold yellow]Shahab Bahreini Jangjoo[/bold yellow]",
-                "[dim]shahabahreini@hotmail.com[/dim]",
-                "",
-                "Thank you for using YOLOmatic!",
-            ]
+            # Use a more structured layout for the About screen
+            about_table = Table.grid(padding=(0, 2))
+            about_table.add_column(style="bold cyan", justify="right")
+            about_table.add_column(style="white")
             
-            console.print("\n")
-            console.print(Panel(Align.center("\n".join(about_text)), border_style="cyan", padding=(1, 4), box=box.ROUNDED))
+            about_table.add_row("Product:", "YOLOmatic")
+            about_table.add_row("Version:", f"{__version__}")
+            about_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
+            about_table.add_row("Contact:", "shahabahreini@hotmail.com")
+            about_table.add_row("", "")
+            about_table.add_row("Description:", "A powerful CLI tool for automated YOLO training,")
+            about_table.add_row("", "configuration, and dataset management.")
+            
+            console.print("\n" * 2)
+            console.print(Panel(
+                Align.center(about_table),
+                title="[bold cyan]About YOLOmatic[/bold cyan]",
+                border_style="cyan",
+                padding=(2, 4),
+                box=box.ROUNDED
+            ))
             console.print("\n")
             input("Press Enter to return to Main Menu...")
             continue
@@ -875,19 +888,35 @@ def main():
                 text="Choose a model family for your project:",
                 allow_back=True,
                 descriptions={
-                    "yolo26": "State-of-the-art YOLOv8-based models with improved architecture and performance.",
-                    "yolo26-seg": "Instance segmentation variants of the YOLO26 model family.",
-                    "yolov12": "The latest YOLO generation focusing on extreme efficiency and accuracy.",
-                    "yolov12-seg": "Instance segmentation variants of the YOLOv12 model family.",
-                    "yolov11": "General-purpose YOLO model with balanced performance.",
-                    "yolov11-seg": "Instance segmentation variants of the YOLOv11 model family.",
-                    "yolov10": "Real-time object detection model with improved head design.",
-                    "yolov9": "Programmable Gradient Information (PGI) based YOLO model.",
-                    "yolov9-seg": "Instance segmentation variants of the YOLOv9 model family.",
-                    "yolov8": "Industry standard YOLO model for reliable detection.",
-                    "yolov8-seg": "Instance segmentation variants of the YOLOv8 model family.",
-                    "yolox": "Anchor-free YOLO implementation for high performance.",
-                    "yolo_nas": "Neural Architecture Search optimized YOLO models from Deci.ai.",
+                    "yolo26": (
+                        "[bold cyan]YOLO26[/bold cyan]\n"
+                        "State-of-the-art YOLOv8-based models with improved architecture. "
+                        "Excellent for modern tasks requiring high accuracy without sacrificing speed."
+                    ),
+                    "yolo26-seg": (
+                        "[bold cyan]YOLO26-Seg[/bold cyan]\n"
+                        "Instance segmentation variants. Perfect for pixel-level object detection "
+                        "and boundary identification."
+                    ),
+                    "yolov12": (
+                        "[bold cyan]YOLOv12[/bold cyan]\n"
+                        "The absolute latest generation. Focuses on [italic]extreme[/italic] "
+                        "efficiency. Best for low-power devices and high-FPS requirements."
+                    ),
+                    "yolov12-seg": "Latest generation instance segmentation with optimized mask heads.",
+                    "yolov11": "Balanced performance family. A reliable choice for general-purpose detection.",
+                    "yolov11-seg": "Reliable instance segmentation with a proven track record.",
+                    "yolov10": "Real-time model with an anchor-free design for simplified deployment.",
+                    "yolov9": "Features Programmable Gradient Information (PGI) to optimize learning efficiency.",
+                    "yolov9-seg": "Segmentation models leveraging PGI for better mask quality.",
+                    "yolov8": "The industry standard. Highly stable, widely supported, and very reliable.",
+                    "yolov8-seg": "The standard for segmentation tasks in production environments.",
+                    "yolox": "Standard anchor-free implementation. Often preferred for its training stability.",
+                    "yolo_nas": (
+                        "[bold cyan]YOLO-NAS[/bold cyan]\n"
+                        "Optimized via Neural Architecture Search. Offers superior accuracy-to-latency "
+                        "ratios on specific hardware targets (NVIDIA T4/Jetson)."
+                    ),
                 },
                 breadcrumbs=["YOLOmatic", "Model Selection"],
             )

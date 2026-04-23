@@ -4,6 +4,8 @@ import time
 from typing import Any, Sequence
 
 from blessed import Terminal
+from rich import box
+from rich.align import Align
 from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
 from rich.live import Live
@@ -11,8 +13,6 @@ from rich.panel import Panel
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
-from rich.align import Align
-from rich import box
 
 # Initialize shared resources
 TUI_CONSOLE = Console()
@@ -27,7 +27,9 @@ def clear_screen() -> None:
 def print_header(text: str) -> None:
     """Print a stylized header."""
     header = Text(text, style="bold cyan", justify="center")
-    TUI_CONSOLE.print(Panel(header, border_style="cyan", padding=(0, 2), box=box.ROUNDED))
+    TUI_CONSOLE.print(
+        Panel(header, border_style="cyan", padding=(0, 2), box=box.ROUNDED)
+    )
 
 
 class MenuRenderer:
@@ -70,25 +72,25 @@ class MenuRenderer:
                 items.append(text)
             else:
                 items.append(Text(f"  {option}", style="dim"))
-        
+
         return Panel(
             Group(*items),
             title="[bold cyan]Navigation[/bold cyan]",
             border_style="blue",
             padding=(0, 1),
-            expand=True
+            expand=True,
         )
 
     def _render_breadcrumbs(self) -> Text:
         """Render breadcrumbs for the current path."""
         if not self.breadcrumbs:
             return Text("")
-        
+
         parts = []
         for i, crumb in enumerate(self.breadcrumbs):
             style = "bold cyan" if i == len(self.breadcrumbs) - 1 else "dim white"
             parts.append(Text(crumb, style=style))
-        
+
         separator = Text(" › ", style="dim")
         breadcrumb_text = separator.join(parts)
         return breadcrumb_text
@@ -99,8 +101,6 @@ class MenuRenderer:
             return None
 
         table = Table(
-            title=f"Comparison: {self.model_data[0].get('Model', 'Selected Family')}",
-            title_style="bold green",
             expand=True,
             border_style="dim",
             box=box.SIMPLE_HEAD,
@@ -114,9 +114,8 @@ class MenuRenderer:
 
         for row in self.model_data:
             current_opt = self.options[self.current_selection]
-            # Precise match for variants
             is_selected = current_opt == row.get("Model")
-            
+
             style = "bold yellow" if is_selected else "dim"
             table.add_row(*[str(value) for value in row.values()], style=style)
 
@@ -125,27 +124,26 @@ class MenuRenderer:
     def _render_status_bar(self) -> Panel:
         """Render a small status bar with keyboard hints and app version."""
         from src.__version__ import __version__
-        
+
         hints = [
             ("[bold yellow]↑↓[/bold yellow]", "Move"),
             ("[bold yellow]Enter[/bold yellow]", "Select"),
             ("[bold yellow]B[/bold yellow]", "Back"),
             ("[bold yellow]Q[/bold yellow]", "Quit"),
         ]
-        
+
         parts = []
         for key, action in hints:
             parts.append(f"{key} {action}")
-        
+
         hints_text = Text.from_markup("  •  ".join(parts))
         version_text = Text(f"v{__version__}", style="dim cyan")
-        
-        # Create a layout for the status bar to separate hints and version
+
         status_table = Table.grid(expand=True)
         status_table.add_column(justify="left", ratio=1)
         status_table.add_column(justify="right")
         status_table.add_row(hints_text, version_text)
-        
+
         return Panel(status_table, border_style="dim", padding=(0, 1))
 
     def __rich__(self) -> Layout:
@@ -161,7 +159,7 @@ class MenuRenderer:
             Panel(
                 Text(self.title, style="bold cyan", justify="center"),
                 border_style="cyan",
-                box=box.ROUNDED
+                box=box.ROUNDED,
             )
         )
 
@@ -174,36 +172,92 @@ class MenuRenderer:
         # Sidebar
         layout["body"]["sidebar"].update(self._render_sidebar())
 
-        # Content
-        main_content: list[RenderableType] = []
-        
-        # Breadcrumbs at the top of content
-        breadcrumbs = self._render_breadcrumbs()
-        if breadcrumbs:
-            main_content.append(breadcrumbs)
-            main_content.append(Text(""))
+        # Content Dashboard
+        current_option = self.options[self.current_selection]
+        description = self.descriptions.get(
+            current_option, "No additional info available."
+        )
 
-        main_content.append(Text(self.instruction, style="italic yellow"))
-        main_content.append(Text(""))
+        # Split Right Panel into Header, Main, and Tips
+        content_layout = Layout()
+        content_layout.split_column(
+            Layout(name="ctx", size=4),
+            Layout(name="main"),
+            Layout(name="tips", size=6),
+        )
+
+        # Context Section (Breadcrumbs + Current Selection)
+        ctx_group = [
+            self._render_breadcrumbs(),
+            Text(""),
+            Text.from_markup(
+                f"Current Choice: [bold yellow]{current_option}[/bold yellow]"
+            ),
+        ]
+        content_layout["ctx"].update(
+            Panel(
+                Group(*ctx_group),
+                border_style="dim",
+                title="[dim]Context[/dim]",
+                title_align="left",
+            )
+        )
+
+        # Main Content Section (Instruction + Table/Description)
+        main_group = [
+            Text(self.instruction, style="bold yellow"),
+            Text(""),
+        ]
 
         model_table = self._render_model_table()
         if model_table:
-            main_content.append(model_table)
+            main_group.append(model_table)
         else:
-            current_option = self.options[self.current_selection]
-            description = self.descriptions.get(current_option, "Explore the options using navigation.")
-            main_content.append(
-                Panel(
-                    Text.from_markup(f"{description}"),
-                    title=f"[bold cyan]{current_option}[/bold cyan]",
-                    border_style="blue",
-                    padding=(1, 2)
+            main_group.append(Text.from_markup(description))
+
+        content_layout["main"].update(
+            Panel(
+                Group(*main_group),
+                border_style="blue",
+                title="[bold cyan]Details[/bold cyan]",
+            )
+        )
+
+        # Tips / Explanation Section
+        tips_group = []
+        if "Hints:" in self.instruction or "Hint:" in self.instruction:
+            # Try to extract hints if they are in the instruction string
+            parts = self.instruction.split("Hints:")
+            if len(parts) > 1:
+                tips_group.append(Text("Pro-Tips:", style="bold green"))
+                tips_group.append(Text(parts[1].strip(), style="dim"))
+        elif model_table:
+            tips_group.append(Text("Tip:", style="bold green"))
+            tips_group.append(
+                Text(
+                    "Compare mAP and FLOPs to find the best accuracy-to-speed ratio for your hardware.",
+                    style="dim",
+                )
+            )
+        else:
+            tips_group.append(Text("Guidance:", style="bold green"))
+            tips_group.append(
+                Text(
+                    "Choose the option that best matches your project requirements.",
+                    style="dim",
                 )
             )
 
-        layout["body"]["content"].update(
-            Panel(Group(*main_content), border_style="dim", padding=(1, 1))
+        content_layout["tips"].update(
+            Panel(
+                Group(*tips_group),
+                border_style="dim",
+                title="[dim]Explanation[/dim]",
+                title_align="left",
+            )
         )
+
+        layout["body"]["content"].update(content_layout)
 
         # Footer
         layout["footer"].update(self._render_status_bar())
@@ -229,8 +283,12 @@ def get_user_choice(
 
     # Filter out headers for navigation, but keep them for rendering
     # Actually, we need to know which indices are selectable
-    navigable_indices = [i for i, opt in enumerate(selectable_options) if not (opt.startswith("[") and opt.endswith("]"))]
-    
+    navigable_indices = [
+        i
+        for i, opt in enumerate(selectable_options)
+        if not (opt.startswith("[") and opt.endswith("]"))
+    ]
+
     # Map current_selection (index in navigable_indices) to actual index in selectable_options
     current_nav_idx = 0
     current_selection = navigable_indices[current_nav_idx]
@@ -245,8 +303,10 @@ def get_user_choice(
             model_data,
             breadcrumbs,
         )
-        
-        with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
+
+        with Live(
+            renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True
+        ) as live:
             while True:
                 key = TUI_TERM.inkey(timeout=0.1)
 
@@ -261,7 +321,11 @@ def get_user_choice(
                 elif key.lower() == "q" or key.name == "KEY_ESCAPE":
                     if "Exit" in selectable_options:
                         return "Exit"
-                    return "Back" if "Back" in selectable_options else selectable_options[navigable_indices[0]]
+                    return (
+                        "Back"
+                        if "Back" in selectable_options
+                        else selectable_options[navigable_indices[0]]
+                    )
 
                 # Update renderer state
                 current_selection = navigable_indices[current_nav_idx]
@@ -277,7 +341,13 @@ def render_table(
     border_style: str = "dim",
 ) -> None:
     """Render a standard table."""
-    table = Table(title=title, title_style=title_style, border_style=border_style, expand=True, box=box.ROUNDED)
+    table = Table(
+        title=title,
+        title_style=title_style,
+        border_style=border_style,
+        expand=True,
+        box=box.ROUNDED,
+    )
     for col in columns:
         table.add_column(col, style="cyan")
     for row in rows:
@@ -285,13 +355,23 @@ def render_table(
     TUI_CONSOLE.print(table)
 
 
-def render_summary_panel(title: str, fields: dict[str, Any], border_style: str = "green") -> None:
+def render_summary_panel(
+    title: str, fields: dict[str, Any], border_style: str = "green"
+) -> None:
     """Render a summary information panel."""
     table = Table.grid(padding=(0, 2))
     table.add_column(style="cyan bold")
     table.add_column(style="white")
-    
+
     for key, value in fields.items():
         table.add_row(f"{key}:", str(value))
-        
-    TUI_CONSOLE.print(Panel(table, title=f"[bold]{title}[/bold]", border_style=border_style, padding=(1, 2), box=box.ROUNDED))
+
+    TUI_CONSOLE.print(
+        Panel(
+            table,
+            title=f"[bold]{title}[/bold]",
+            border_style=border_style,
+            padding=(1, 2),
+            box=box.ROUNDED,
+        )
+    )
