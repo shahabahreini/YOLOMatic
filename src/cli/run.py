@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -45,13 +46,16 @@ def check_ultralytics_version():
 
         from packaging import version
 
+        pip_command = [sys.executable, "-m", "pip"]
+        active_python = sys.executable
+
         # Get versions
         with console.status("[bold]Checking versions...", spinner="dots"):
             current_version = get_version("ultralytics")
 
             try:
                 process = subprocess.run(
-                    ["pip", "index", "versions", "ultralytics"],
+                    [*pip_command, "index", "versions", "ultralytics"],
                     capture_output=True,
                     text=True,
                 )
@@ -81,7 +85,8 @@ def check_ultralytics_version():
         status_panel = Panel(
             Align.center(
                 f"{status_icon} {status_text}\n\n"
-                f"Current: [bold]{current_version}[/bold]   →   Latest: [bold]{latest_version}[/bold]",
+                f"Current: [bold]{current_version}[/bold]   →   Latest: [bold]{latest_version}[/bold]\n"
+                f"Python: [bold]{active_python}[/bold]",
                 vertical="middle",
             ),
             border_style=status_style,
@@ -102,16 +107,22 @@ def check_ultralytics_version():
             ):
                 with console.status("[bold]Updating ultralytics...", spinner="dots"):
                     result = subprocess.run(
-                        ["pip", "install", "--upgrade", "ultralytics"],
+                        [*pip_command, "install", "--upgrade", "ultralytics"],
                         capture_output=True,
                         text=True,
                     )
 
                 console.print("\n")
                 if result.returncode == 0:
+                    updated_version = get_version("ultralytics")
                     console.print(
                         Panel(
-                            Align.center("✅ Updated successfully", vertical="middle"),
+                            Align.center(
+                                "✅ Updated successfully\n\n"
+                                f"Installed: [bold]{updated_version}[/bold]\n"
+                                "Note: a future `uv sync` can restore the version from `uv.lock` unless you update the lockfile too.",
+                                vertical="middle",
+                            ),
                             border_style="green",
                             padding=(1, 1),
                         )
@@ -119,7 +130,12 @@ def check_ultralytics_version():
                 else:
                     console.print(
                         Panel(
-                            Align.center("❌ Update failed", vertical="middle"),
+                            Align.center(
+                                "❌ Update failed\n\n"
+                                f"Command: [bold]{' '.join(pip_command)} install --upgrade ultralytics[/bold]\n"
+                                f"{(result.stderr or result.stdout or 'No error output').strip()}",
+                                vertical="middle",
+                            ),
                             border_style="red",
                             padding=(1, 1),
                         )
