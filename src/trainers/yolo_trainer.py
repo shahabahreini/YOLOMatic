@@ -334,12 +334,6 @@ def main():
             nas_main(config_file)
             return
 
-        # Verify and load the model
-        model = verify_model_file(model_name)
-        if model is None:
-            console.print("[bold red]Model verification failed. Exiting.[/bold red]")
-            return
-
         device_resolution = resolve_training_device(training_params.get("device"))
         if device_resolution.cancelled:
             console.print("[bold yellow]Training cancelled.[/bold yellow]")
@@ -347,6 +341,11 @@ def main():
         if device_resolution.device != training_params.get("device"):
             training_params = dict(training_params)
             training_params["device"] = device_resolution.device
+
+        model = verify_model_file(model_name)
+        if model is None:
+            console.print("[bold red]Model verification failed. Exiting.[/bold red]")
+            return
 
         # Initialize ClearML Task
         current_time = datetime.now().strftime(clearml_settings["task_name_format"])
