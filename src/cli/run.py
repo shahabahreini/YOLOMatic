@@ -16,31 +16,31 @@ from rich.table import Table
 from rich.text import Text
 from ruamel.yaml import YAML
 
-# support running both as a module (python -m src.cli.run) and as a script
 try:
     from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
     from src.models.data import model_data_dict
     from src.utils.ml_dependencies import MLDependencyError, import_torch
+    from src.utils.tui import (
+        TUI_CONSOLE as console,
+        TUI_TERM as term,
+        clear_screen,
+        get_user_choice,
+        print_header as print_stylized_header,
+        render_summary_panel,
+        render_table,
+    )
 except ImportError:  # fallback for direct execution or legacy layout
     from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
-
     from models import model_data_dict
     from utils.ml_dependencies import MLDependencyError, import_torch
 
 logging.basicConfig(
-    level=logging.WARNING,  # Change from INFO to WARNING
+    level=logging.WARNING,
     format="%(message)s",
     handlers=[RichHandler(rich_tracebacks=True)],
 )
-# adjust third-party module loggers if desired
 logging.getLogger("src.config.generator").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
-
-# Only enable DEBUG logging if needed
-# logger.setLevel(logging.DEBUG)
-
-console = Console()
-term = Terminal()
 
 
 def check_ultralytics_version():
@@ -145,8 +145,7 @@ def check_ultralytics_version():
     input("Press Enter to continue...")
 
 
-def clear_screen():
-    print(term.clear)
+# Removed clear_screen, now imported from src.utils.tui
 
 
 def backup_config(config_file):
@@ -179,20 +178,7 @@ def display_configuration_summary(
     profile_context=None,
 ):
     """Display a clean summary of the configuration"""
-    console = Console()
-
-    # Main configuration table
-    table = Table(
-        title="Configuration Summary",
-        title_style="bold green",
-        box=box.ROUNDED,
-        padding=(0, 2),
-        width=80,
-    )
-    table.add_column("Parameter", style="cyan")
-    table.add_column("Value", style="white")
-
-    # Add training parameters
+    # Load config
     config_path = os.path.join("configs", config_file)
     if not os.path.exists(config_path):
         console.print("[red]Error: Config file not found![/red]")
@@ -201,150 +187,63 @@ def display_configuration_summary(
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    # Detect device including MPS
+    # Detect device
     device = "💻 CPU"
     try:
         torch = import_torch()
-    except MLDependencyError:
-        torch = None
-
-    if torch is not None:
         if torch.cuda.is_available():
             device = "🚀 GPU (CUDA)"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "🚀 GPU (MPS)"
+    except Exception:
+        pass
 
-    # Get model info based on config type
+    # Use the new summary panel for a cleaner look
+    fields = {
+        "Model": model_name,
+        "Dataset": dataset_name,
+        "Device": device,
+        "Config File": config_file,
+    }
+
     if "nas" in model_choice.lower():
-        model_info = config.get("model", {})
-        model_name = model_info.get("name", model_choice)
-        experiment_info = config.get("experiment", {})
-
-        # Basic information
-        table.add_row("Model", model_name)
-        table.add_row("Dataset", dataset_name)
-        table.add_row("Device", device)
-        table.add_row("Config File", config_file)
-        table.add_row("Experiment Name", experiment_info.get("name_prefix", "N/A"))
-
-        # Training parameters
         training = config.get("training", {})
-        lr_config = training.get("learning_rate", {})
-        optimizer_config = training.get("optimizer", {})
-
-        table.add_row("Batch Size", str(training.get("batch_size", "N/A")))
-        table.add_row("Max Epochs", str(training.get("max_epochs", "N/A")))
-        table.add_row("Initial LR", str(lr_config.get("initial_lr", "N/A")))
-        table.add_row(
-            "Warmup Initial LR", str(lr_config.get("warmup_initial_lr", "N/A"))
-        )
-        table.add_row("Warmup Epochs", str(lr_config.get("warmup_epochs", "N/A")))
-        table.add_row("Weight Decay", str(optimizer_config.get("weight_decay", "N/A")))
-        table.add_row("Workers", str(training.get("num_workers", "N/A")))
-        table.add_row(
-            "Pretrained Weights", str(model_info.get("pretrained_weights", "N/A"))
-        )
-
+        fields.update({
+            "Batch Size": training.get("batch_size", "N/A"),
+            "Max Epochs": training.get("max_epochs", "N/A"),
+            "Workers": training.get("num_workers", "N/A"),
+        })
     else:
-        # Regular YOLO config
-        settings = config.get("settings", {})
-        model_name = settings.get("model_type", model_choice)
-
-        # Basic information
-        table.add_row("Model", model_name)
-        table.add_row("Dataset", dataset_name)
-        table.add_row("Device", device)
-        table.add_row("Config File", config_file)
-
-        # Training parameters
         training = config.get("training", {})
-        table.add_row("Batch Size", str(training.get("batch", "N/A")))
-        table.add_row("Epochs", str(training.get("epochs", "N/A")))
-        table.add_row("Image Size", str(training.get("imgsz", "N/A")))
-        table.add_row("Workers", str(training.get("workers", "N/A")))
-        if profile_selection is not None:
-            table.add_row(
-                "Augmentation Profile",
-                format_profile_name(profile_selection["augmentation"]),
-            )
-            table.add_row(
-                "Compute Profile",
-                format_profile_name(profile_selection["compute"]),
-            )
-            worker_value = str(training.get("workers", "N/A"))
-            table.add_row(
-                "Worker Profile",
-                f"{format_profile_name(profile_selection['worker'])} ({worker_value} workers)",
-            )
-        if profile_context is not None:
-            model_metrics = profile_context.get("model_metrics", {})
-            heaviness = model_metrics.get("heaviness")
-            params_millions = model_metrics.get("params_millions")
-            flops_billions = model_metrics.get("flops_billions")
-            if heaviness:
-                table.add_row("Model Heaviness", format_profile_name(str(heaviness)))
-            if params_millions is not None:
-                table.add_row("Model Params", f"{float(params_millions):.1f}M")
-            if flops_billions is not None:
-                table.add_row("Model FLOPs", f"{float(flops_billions):.1f}B")
-        table.add_row("Label Smoothing", str(training.get("label_smoothing", "N/A")))
-        table.add_row("Cache", str(training.get("cache", "N/A")))
-        table.add_row("Close Mosaic", str(training.get("close_mosaic", "N/A")))
+        fields.update({
+            "Batch Size": training.get("batch", "N/A"),
+            "Epochs": training.get("epochs", "N/A"),
+            "Image Size": training.get("imgsz", "N/A"),
+            "Workers": training.get("workers", "N/A"),
+        })
 
-    # Add number of classes
-    if "nas" in model_choice.lower():
-        classes = config.get("dataset", {}).get("classes", [])
-    else:
-        classes = config.get("model", {}).get("classes", [])
+    render_summary_panel("Configuration Summary", fields)
 
-    table.add_row("Number of Classes", str(len(classes)))
-    table.add_row("Classes", ", ".join(classes) if classes else "N/A")
-
-    console.print("\n")
-    console.print(table)
-
-    # Display dataset paths in a separate table
-    path_table = Table(
-        title="Dataset Paths",
-        title_style="bold blue",
-        box=box.ROUNDED,
-        padding=(0, 2),
-        width=80,
-    )
-    path_table.add_column("Type", style="cyan")
-    path_table.add_column("Path", style="white")
-
+    # Simplified dataset paths display
+    path_rows = []
     if "nas" in model_choice.lower():
         structure = config.get("dataset", {}).get("structure", {})
         base_dir = config.get("dataset", {}).get("base_dir", "")
-
-        train_path = os.path.join(
-            base_dir, structure.get("train", {}).get("images", "N/A")
-        )
-        valid_path = os.path.join(
-            base_dir, structure.get("valid", {}).get("images", "N/A")
-        )
-        test_path = os.path.join(
-            base_dir, structure.get("test", {}).get("images", "N/A")
-        )
-
-        path_table.add_row("Train", train_path)
-        path_table.add_row("Validation", valid_path)
-        path_table.add_row("Test", test_path)
+        path_rows = [
+            ["Train", os.path.join(base_dir, structure.get("train", {}).get("images", "N/A"))],
+            ["Validation", os.path.join(base_dir, structure.get("valid", {}).get("images", "N/A"))],
+            ["Test", os.path.join(base_dir, structure.get("test", {}).get("images", "N/A"))],
+        ]
     else:
         model_config = config.get("model", {})
         data_dir = model_config.get("data_dir", "")
+        path_rows = [
+            ["Train", os.path.join(data_dir, model_config.get("train_images_dir", "N/A"))],
+            ["Validation", os.path.join(data_dir, model_config.get("val_images_dir", "N/A"))],
+            ["Test", os.path.join(data_dir, model_config.get("test_images_dir", "N/A"))],
+        ]
 
-        train_path = os.path.join(data_dir, model_config.get("train_images_dir", "N/A"))
-        valid_path = os.path.join(data_dir, model_config.get("val_images_dir", "N/A"))
-        test_path = os.path.join(data_dir, model_config.get("test_images_dir", "N/A"))
-
-        path_table.add_row("Train", train_path)
-        path_table.add_row("Validation", valid_path)
-        path_table.add_row("Test", test_path)
-
-    console.print("\n")
-    console.print(path_table)
+    render_table("Dataset Paths", ["Type", "Path"], path_rows, title_style="bold blue")
 
 
 def display_paths_info(dataset_info):
@@ -365,12 +264,7 @@ def display_paths_info(dataset_info):
     console.print(paths_table)
 
 
-def print_stylized_header(text):
-    """
-    Print a stylized header using rich.
-    """
-    header = Text(text, style="bold cyan", justify="center")
-    console.print(Panel(header, title="", border_style="cyan"))
+# Removed print_stylized_header, now imported from src.utils.tui
 
 
 def list_datasets():
@@ -414,98 +308,27 @@ def list_datasets():
     dataset_names = [d["path"] for d in datasets]  # Use full paths
     name_to_path = {os.path.basename(p): p for p in dataset_names}
 
+    dataset_descriptions = {
+        d["name"]: f"Select dataset '{d['name']}' ({d['size']}) located at {d['path']}"
+        for d in datasets
+    }
+    dataset_descriptions["Back"] = "Return to the previous menu."
+
     choice = get_user_choice(
         list(name_to_path.keys()),  # Show basename in menu
         allow_back=True,
         title="Select Dataset",
         text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
+        descriptions=dataset_descriptions,
     )
 
     return name_to_path.get(choice) if choice != "Back" else choice
 
 
-def print_model_info(model_data):
-    """
-    Display a comparison table for the selected YOLO generation using rich.
-    """
-    table = Table(
-        title=f"Comparison Table for {model_data[0]['Model']}",
-        title_style="bold green",
-    )
-
-    # Add headers
-    for header in model_data[0].keys():
-        table.add_column(header, justify="center", style="cyan")
-
-    # Add rows
-    for row in model_data:
-        table.add_row(*[str(value) for value in row.values()])
-
-    console.print(table)
+# Removed print_model_info, now handled by src.utils.tui
 
 
-def get_user_choice(
-    options,
-    allow_back=False,
-    title="Select an Option",
-    text="Use ↑↓ keys to navigate, Enter to select:",
-    model_data=None,  # Add parameter for model data
-):
-    """
-    Display an interactive menu using blessed for selection.
-    Supports arrow keys, Enter for selection, 'b' for back, and 'q' for quit.
-    """
-    if allow_back:
-        options = options + ["Back"]
-
-    current_selection = 0
-
-    def print_menu():
-        print(term.clear)
-        print_stylized_header(title)
-
-        # Print comparison table if model data is provided
-        if model_data:
-            print_model_info(model_data)
-
-        console.print(Text(text, style="bold yellow"))
-
-        for i, option in enumerate(options):
-            if i == current_selection:
-                # Highlight the selected option
-                shortcut = ""
-                if option == "Back":
-                    shortcut = " (or 'b')"
-                elif option == "Exit":
-                    shortcut = " (or 'q')"
-                print(term.black_on_white(f" > {option}{shortcut}"))
-            else:
-                shortcut = ""
-                if option == "Back":
-                    shortcut = " (or 'b')"
-                elif option == "Exit":
-                    shortcut = " (or 'q')"
-                print(f"   {option}{shortcut}")
-
-    with term.cbreak(), term.hidden_cursor():
-        while True:
-            print_menu()
-
-            key = term.inkey()
-
-            if key.name == "KEY_UP":
-                current_selection = (current_selection - 1) % len(options)
-            elif key.name == "KEY_DOWN":
-                current_selection = (current_selection + 1) % len(options)
-            elif key.name == "KEY_ENTER":
-                return options[current_selection]
-            elif key.lower() == "b" and allow_back:
-                return "Back"
-            elif key.lower() == "q" and "Exit" in options:
-                return "Exit"
-
-            # Add a small delay to prevent screen flicker
-            time.sleep(0.05)
+# Removed get_user_choice, now imported from src.utils.tui
 
 
 def format_timestamp():
@@ -675,6 +498,13 @@ def format_profile_name(value: str) -> str:
     return value.replace("_", " ").title()
 
 
+def build_hint_block(title: str, lines: list[str]) -> str:
+    if not lines:
+        return ""
+    formatted_lines = "\n".join(f"- {line}" for line in lines)
+    return f"{title}:\n{formatted_lines}"
+
+
 def build_regular_yolo_profile_summary_text(
     dataset_name: str,
     profile_context: dict[str, Any],
@@ -724,6 +554,12 @@ def build_regular_yolo_profile_summary_text(
     lines.extend(
         [
             "",
+            "YOLOmatic recommendation factors:",
+            "- model heaviness from variant size, params, and FLOPs",
+            "- dataset size, image count, label count, and file count",
+            "- available RAM, CPU cores, and detected device",
+            "- free GPU memory when CUDA is available",
+            "",
             "Recommended profiles:",
             (
                 f"- Augmentation: {format_profile_name(recommended_profiles['augmentation'])}"
@@ -744,22 +580,32 @@ def select_profile_option(
     prompt_text: str,
     option_descriptions: dict[str, str],
     recommended_key: str,
+    hint_lines: list[str] | None = None,
 ) -> str | None:
     option_map: dict[str, str] = {}
     option_labels: list[str] = []
 
+    hint_block = ""
+    if hint_lines:
+        hint_block = f"\n\n{build_hint_block('Hints', hint_lines)}"
+
+    descriptions: dict[str, str] = {}
     for key, description in option_descriptions.items():
-        label = f"{format_profile_name(key)} - {description}"
+        label = format_profile_name(key)
         if key == recommended_key:
             label = f"{label} [recommended]"
         option_map[label] = key
         option_labels.append(label)
+        descriptions[label] = description
+    
+    descriptions["Back"] = "Return to the previous configuration step."
 
     choice = get_user_choice(
         option_labels,
         allow_back=True,
         title=title,
-        text=prompt_text,
+        text=f"{prompt_text}{hint_block}",
+        descriptions=descriptions,
     )
     if choice == "Back":
         return None
@@ -825,6 +671,18 @@ def display_regular_yolo_profile_selection_summary(
         ),
     )
     table.add_row("Worker Notes", str(worker_profile["description"]))
+    table.add_row(
+        "Augmentation Impact",
+        "Controls how many augmentation keys YOLOmatic enables in training",
+    )
+    table.add_row(
+        "Compute Impact",
+        "Controls batch aggressiveness and whether cache is enabled when safe",
+    )
+    table.add_row(
+        "Workers Impact",
+        "Controls dataloader parallelism based on RAM, CPU, GPU, dataset pressure, and model heaviness",
+    )
 
     console.print(table)
 
@@ -841,27 +699,47 @@ def choose_regular_yolo_profiles(
     )
     recommended_profiles = profile_context["recommended_profiles"]
 
+    start_option_map = {
+        "Recommended": "recommended",
+        "Customize": "customize",
+    }
+    start_descriptions = {
+        "Recommended": "Fastest path - let YOLOmatic heuristics decide augmentation, compute, and worker settings for you.",
+        "Customize": "Manual path - review and choose your own augmentation intensity, compute aggressiveness, and worker counts.",
+        "Back": "Return to dataset selection."
+    }
+
     initial_choice = get_user_choice(
-        ["Use recommended settings", "Customize selected values"],
+        list(start_option_map.keys()),
         allow_back=True,
         title="Regular YOLO Config Profiles",
-        text=f"{summary_text}\n\nChoose how to continue:",
+        text=(
+            f"{summary_text}\n\n"
+            "Pick the fast path if you want the current codebase heuristics to decide for you. "
+            "Pick customize if you want to review each area manually.\n\n"
+            f"{build_hint_block('Hints', [
+                'Use the recommended option unless you already know you need more or less augmentation.',
+                'Compute controls how hard YOLOmatic pushes memory and throughput.',
+                'Workers control dataloader parallelism and can increase RAM pressure.',
+            ])}"
+        ),
+        descriptions=start_descriptions,
     )
 
     if initial_choice == "Back":
         return None
-    if initial_choice == "Use recommended settings":
+    if start_option_map[initial_choice] == "recommended":
         return dict(recommended_profiles)
 
     augmentation_options = {
-        "minimum": "Essential training values only, minimal augmentation",
-        "low": "Enables flips, mosaic, and mixup for mild robustness gains",
-        "medium": "Adds color and geometric augmentation for stronger generalization",
+        "minimum": "Essential training values only with almost no extra augmentation",
+        "low": "Mild augmentation using flips, mosaic, and mixup",
+        "medium": "Stronger generalization with color and geometric augmentation",
     }
     compute_options = {
-        "conservative": "Lower memory pressure and safer defaults",
-        "balanced": "Recommended for most systems",
-        "aggressive": "Higher throughput if your RAM and GPU can support it",
+        "conservative": "Safer memory usage and lower risk of instability",
+        "balanced": "Best default for most systems and datasets",
+        "aggressive": "Pushes throughput harder when RAM and GPU headroom are strong",
     }
     worker_options = {
         key: f"{int(details['workers'])} workers - {details['description']}"
@@ -873,6 +751,11 @@ def choose_regular_yolo_profiles(
         f"{summary_text}\n\nChoose the augmentation intensity for this dataset:",
         augmentation_options,
         recommended_profiles["augmentation"],
+        [
+            "Minimum is the easiest to reason about and keeps the config close to core training values.",
+            "Low adds only basic robustness improvements.",
+            "Medium adds more color and geometric changes, which can improve generalization but also change training behavior more.",
+        ],
     )
     if augmentation_choice is None:
         return None
@@ -882,6 +765,11 @@ def choose_regular_yolo_profiles(
         f"{summary_text}\n\nChoose how strongly YOLOmatic should push system resources:",
         compute_options,
         recommended_profiles["compute"],
+        [
+            "This profile mainly affects batch aggressiveness and cache behavior.",
+            "Conservative is better when GPU memory is tight or the model is heavy.",
+            "Aggressive is best only when your RAM, GPU memory, and dataset pressure all look healthy.",
+        ],
     )
     if compute_choice is None:
         return None
@@ -891,6 +779,11 @@ def choose_regular_yolo_profiles(
         f"{summary_text}\n\nChoose the dataloader worker profile:",
         worker_options,
         recommended_profiles["worker"],
+        [
+            "More workers can improve throughput, but they also use more RAM and can stress slower disks.",
+            "If you are unsure, keep the recommended worker profile.",
+            "Heavy worker settings make the most sense when RAM is strong and the GPU needs faster data feeding.",
+        ],
     )
     if worker_choice is None:
         return None
@@ -935,6 +828,11 @@ def main():
             main_menu_options,
             title="Main Menu",
             text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
+            descriptions={
+                "Select Model": "Select a YOLO model and dataset to generate a training configuration.",
+                "Check Ultralytics Version": "Check if a new version of the ultralytics package is available and update if needed.",
+                "Exit": "Exit the YOLOmatic application.",
+            },
         )
 
         if main_choice == "Exit":
@@ -954,6 +852,21 @@ def main():
                 title="YOLO Model Selector",
                 text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
                 allow_back=True,
+                descriptions={
+                    "yolo26": "State-of-the-art YOLOv8-based models with improved architecture and performance.",
+                    "yolo26-seg": "Instance segmentation variants of the YOLO26 model family.",
+                    "yolov12": "The latest YOLO generation focusing on extreme efficiency and accuracy.",
+                    "yolov12-seg": "Instance segmentation variants of the YOLOv12 model family.",
+                    "yolov11": "General-purpose YOLO model with balanced performance.",
+                    "yolov11-seg": "Instance segmentation variants of the YOLOv11 model family.",
+                    "yolov10": "Real-time object detection model with improved head design.",
+                    "yolov9": "Programmable Gradient Information (PGI) based YOLO model.",
+                    "yolov9-seg": "Instance segmentation variants of the YOLOv9 model family.",
+                    "yolov8": "Industry standard YOLO model for reliable detection.",
+                    "yolov8-seg": "Instance segmentation variants of the YOLOv8 model family.",
+                    "yolox": "Anchor-free YOLO implementation for high performance.",
+                    "yolo_nas": "Neural Architecture Search optimized YOLO models from Deci.ai.",
+                },
             )
 
             if model_choice == "Back":

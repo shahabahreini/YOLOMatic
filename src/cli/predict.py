@@ -10,40 +10,33 @@ from rich.table import Table
 try:
     from src.cli.run import console, get_user_choice, print_stylized_header
     from src.utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
+    from src.utils.tui import (
+        clear_screen,
+        render_summary_panel,
+        render_table,
+    )
 except ImportError:
     from rich.console import Console
-
+    from rich.panel import Panel
+    from rich.table import Table
     console = Console()
-
+    
+    def clear_screen(): pass
+    def render_summary_panel(t, f): console.print(Panel(str(f), title=t))
+    def render_table(t, c, r): console.print(Table(title=t))
+    
     try:
         from utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
     except ImportError:
         MLDependencyError = RuntimeError
-
-        def import_ultralytics_yolo() -> object:
-            raise RuntimeError("ultralytics is not available.")
+        def import_ultralytics_yolo(): raise RuntimeError("ultralytics not found")
 
     def print_stylized_header(text: str) -> None:
         console.print(f"[bold cyan]{text}[/bold cyan]")
 
-    def get_user_choice(
-        options: list[str],
-        allow_back: bool = False,
-        title: str = "Select an Option",
-        text: str = "Use ↑↓ keys to navigate, Enter to select:",
-        model_data: object | None = None,
-    ) -> str:
-        del allow_back, title, text, model_data
-        for index, option in enumerate(options, start=1):
-            console.print(f"{index}. {option}")
-        while True:
-            raw_choice = input("Select an option: ").strip()
-            try:
-                choice_index = int(raw_choice) - 1
-            except ValueError:
-                continue
-            if 0 <= choice_index < len(options):
-                return options[choice_index]
+    def get_user_choice(options, **kwargs) -> str:
+        for i, o in enumerate(options): console.print(f"{i+1}. {o}")
+        return options[int(input("Select: ")) - 1]
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -129,6 +122,11 @@ def select_mode() -> str:
         [MODE_LABELS["single"], MODE_LABELS["folder"], "Exit"],
         title="Prediction Mode",
         text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
+        descriptions={
+            MODE_LABELS["single"]: "Run prediction on a single image file.",
+            MODE_LABELS["folder"]: "Run prediction on all supported images within a folder.",
+            "Exit": "Exit the predictor.",
+        },
     )
     if selected == "Exit":
         raise SystemExit(0)
@@ -188,22 +186,17 @@ def resolve_source(mode: str, requested_source: str | None) -> Path:
 
 
 def render_weight_table(project_root: Path, available_weights: Sequence[Path]) -> None:
-    table = Table(title="Available Weights", title_style="bold green")
-    table.add_column("#", style="cyan", justify="right")
-    table.add_column("Weight", style="white")
-    for index, weight_path in enumerate(available_weights, start=1):
-        table.add_row(str(index), format_weight_label(project_root, weight_path))
-    console.print(table)
+    rows = [[str(i), format_weight_label(project_root, p)] for i, p in enumerate(available_weights, 1)]
+    render_table("Available Weights", ["#", "Weight"], rows)
 
 
 def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -> None:
-    table = Table(title="Prediction Summary", title_style="bold green")
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="white")
-    table.add_row("Weight", str(weight_path))
-    table.add_row("Mode", MODE_LABELS[mode])
-    table.add_row("Source", str(source_path))
-    console.print(table)
+    fields = {
+        "Weight": weight_path,
+        "Mode": MODE_LABELS[mode],
+        "Source": source_path,
+    }
+    render_summary_panel("Prediction Summary", fields)
 
 
 def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | None:

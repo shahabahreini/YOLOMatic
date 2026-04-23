@@ -5,12 +5,13 @@ from pathlib import Path
 # Try to import from src.cli.run for consistent UI, fallback if not possible
 try:
     from src.cli.run import console, get_user_choice, print_stylized_header, term
+    from src.utils.tui import clear_screen, render_table
 except ImportError:
-    # Minimal fallback if src.cli.run is not available
     from rich.console import Console
-
     console = Console()
     term = None
+    def clear_screen(): pass
+    def render_table(t, c, r): console.print(t)
 
     def print_stylized_header(text):
         console.print(f"[bold cyan]{text}[/bold cyan]")
@@ -18,13 +19,7 @@ except ImportError:
     def get_user_choice(options, **kwargs):
         for i, opt in enumerate(options):
             console.print(f"{i+1}. {opt}")
-        while True:
-            try:
-                idx = int(input("Select an option: ")) - 1
-                if 0 <= idx < len(options):
-                    return options[idx]
-            except ValueError:
-                pass
+        return options[int(input("Select: ")) - 1]
 
 
 def build_tensorboard_command(selected_logdir):
@@ -73,10 +68,20 @@ def main():
     options.append("Monitor All (logdir=runs)")
     options.append("Exit")
 
+    # Create descriptions for dynamically discovered runs
+    launcher_descriptions = {
+        str(d): f"Monitor specific training run located at {d}" for d in run_dirs
+    }
+    launcher_descriptions["Monitor All (logdir=runs)"] = (
+        "Monitor all training runs simultaneously in one TensorBoard dashboard."
+    )
+    launcher_descriptions["Exit"] = "Close the TensorBoard launcher."
+
     choice = get_user_choice(
         options,
         title="Select Run to Monitor",
         text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
+        descriptions=launcher_descriptions,
     )
 
     if choice == "Exit" or choice == "Back":

@@ -86,22 +86,12 @@ def main():
     args = parser.parse_args()
 
     try:
-        # Import console for rich styling if available
-        from src.cli.run import console
-
-        def print_success(msg):
-            console.print(f"[bold green]{msg}[/bold green]")
-
-        def print_info(msg):
-            console.print(f"[bold cyan]{msg}[/bold cyan]")
-
+        from src.utils.tui import TUI_CONSOLE as console
+        def print_success(msg): console.print(f"[bold green]{msg}[/bold green]")
+        def print_info(msg): console.print(f"[bold cyan]{msg}[/bold cyan]")
     except ImportError:
-
-        def print_success(msg):
-            print(f"SUCCESS: {msg}")
-
-        def print_info(msg):
-            print(msg)
+        def print_success(msg): print(f"SUCCESS: {msg}")
+        def print_info(msg): print(msg)
 
     current_version = get_current_version()
     new_version = bump_version(current_version, args.type.lower())

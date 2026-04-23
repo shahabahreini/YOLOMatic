@@ -21,41 +21,33 @@ try:
     from src.cli.predict import find_available_weights, format_weight_label
     from src.cli.run import console, get_user_choice, print_stylized_header
     from src.utils.ml_dependencies import MLDependencyError, import_torch
+    from src.utils.tui import (
+        clear_screen,
+        render_summary_panel,
+        render_table,
+    )
 except ImportError:
     from rich.console import Console
-
+    from rich.panel import Panel
+    from rich.table import Table
     console = Console()
+    
+    def clear_screen(): pass
+    def render_summary_panel(t, f): console.print(Panel(str(f), title=t))
+    def render_table(t, c, r): console.print(Table(title=t))
 
     try:
         from utils.ml_dependencies import MLDependencyError, import_torch
     except ImportError:
         MLDependencyError = RuntimeError
-
-        def import_torch() -> object:
-            raise RuntimeError("torch is not available.")
+        def import_torch(): raise RuntimeError("torch not found")
 
     def print_stylized_header(text: str) -> None:
         console.print(f"[bold cyan]{text}[/bold cyan]")
 
-    def get_user_choice(
-        options: list[str],
-        allow_back: bool = False,
-        title: str = "Select an Option",
-        text: str = "Use ↑↓ keys to navigate, Enter to select:",
-        model_data: object | None = None,
-    ) -> str:
-        del title, text, model_data
-        selectable_options = options + (["Back"] if allow_back else [])
-        for index, option in enumerate(selectable_options, start=1):
-            console.print(f"{index}. {option}")
-        while True:
-            raw_choice = input("Select an option: ").strip()
-            try:
-                choice_index = int(raw_choice) - 1
-            except ValueError:
-                continue
-            if 0 <= choice_index < len(selectable_options):
-                return selectable_options[choice_index]
+    def get_user_choice(options, **kwargs) -> str:
+        for i, o in enumerate(options): console.print(f"{i+1}. {o}")
+        return options[int(input("Select: ")) - 1]
 
 
 COMMON_MODEL_TYPES = [
@@ -240,23 +232,17 @@ def format_timestamp(timestamp: float) -> str:
 def render_candidate_table(
     project_root: Path, candidates: Sequence[UploadCandidate]
 ) -> None:
-    table = Table(title="Available Trained Models", title_style="bold green")
-    table.add_column("#", style="cyan", justify="right")
-    table.add_column("Weight", style="white")
-    table.add_column("Model Type", style="magenta")
-    table.add_column("Task", style="yellow")
-    table.add_column("Modified", style="green")
-
-    for index, candidate in enumerate(candidates, start=1):
-        table.add_row(
-            str(index),
-            format_weight_label(project_root, candidate.weight_path),
-            candidate.detected_model_type or "Prompt",
-            candidate.task or "unknown",
-            format_timestamp(candidate.weight_path.stat().st_mtime),
-        )
-
-    console.print(table)
+    rows = [
+        [
+            str(i),
+            format_weight_label(project_root, c.weight_path),
+            c.detected_model_type or "Prompt",
+            c.task or "unknown",
+            format_timestamp(c.weight_path.stat().st_mtime),
+        ]
+        for i, c in enumerate(candidates, 1)
+    ]
+    render_table("Available Trained Models", ["#", "Weight", "Model Type", "Task", "Modified"], rows)
 
 
 def resolve_candidate(
@@ -317,6 +303,17 @@ def prompt_model_type(detected_model_type: str | None) -> str:
         COMMON_MODEL_TYPES + ["Enter manually", "Cancel"],
         title="Select Roboflow Model Type",
         text="Auto-detection was inconclusive. Choose a model type or enter one manually:",
+        descriptions={
+            "yolov12": "Deploy a YOLOv12 model.",
+            "yolov11": "Deploy a YOLOv11 model.",
+            "yolov10": "Deploy a YOLOv10 model.",
+            "yolov9": "Deploy a YOLOv9 model.",
+            "yolov8": "Deploy a YOLOv8 model.",
+            "yolonas": "Deploy a YOLO-NAS model.",
+            "yolox": "Deploy a YOLOX model.",
+            "Enter manually": "Type the Roboflow model type slug manually.",
+            "Cancel": "Abort the upload process.",
+        },
     )
     if selection == "Cancel":
         raise SystemExit(0)
@@ -330,6 +327,14 @@ def prompt_model_type(detected_model_type: str | None) -> str:
             ["yolo26n", "yolo26s", "yolo26m", "yolo26l", "yolo26x", "Cancel"],
             title="Select YOLO26 Variant",
             text="Roboflow requires a YOLO26 size variant. Choose the trained model family:",
+            descriptions={
+                "yolo26n": "Nano variant (fastest, least accurate).",
+                "yolo26s": "Small variant.",
+                "yolo26m": "Medium variant.",
+                "yolo26l": "Large variant.",
+                "yolo26x": "Extra-large variant (slowest, most accurate).",
+                "Cancel": "Abort the upload process.",
+            },
         )
         if refined_selection == "Cancel":
             raise SystemExit(0)
@@ -374,19 +379,18 @@ def render_upload_summary(
     project_ids: Sequence[str],
     model_name: str,
 ) -> None:
-    table = Table(title="Roboflow Upload Summary", title_style="bold green")
-    table.add_column("Field", style="cyan")
-    table.add_column("Value", style="white")
-    table.add_row("Weight", str(candidate.weight_path))
-    table.add_row("Model Path", str(candidate.model_path))
-    table.add_row("Filename", candidate.filename)
-    table.add_row("Detected Source Model", candidate.source_model_name or "unknown")
-    table.add_row("Task", candidate.task or "unknown")
-    table.add_row("Roboflow Model Type", model_type)
-    table.add_row("Workspace", workspace)
-    table.add_row("Project IDs", ", ".join(project_ids))
-    table.add_row("Model Name", model_name)
-    console.print(table)
+    fields = {
+        "Weight": candidate.weight_path,
+        "Model Path": candidate.model_path,
+        "Filename": candidate.filename,
+        "Detected Source Model": candidate.source_model_name or "unknown",
+        "Task": candidate.task or "unknown",
+        "Roboflow Model Type": model_type,
+        "Workspace": workspace,
+        "Project IDs": ", ".join(project_ids),
+        "Model Name": model_name,
+    }
+    render_summary_panel("Roboflow Upload Summary", fields)
 
 
 def stage_upload_candidate(
@@ -615,6 +619,10 @@ def main() -> None:
             ["Upload", "Cancel"],
             title="Confirm Upload",
             text="Review the summary above. Continue with the Roboflow upload?",
+            descriptions={
+                "Upload": "Proceed with uploading the model to Roboflow.",
+                "Cancel": "Abort the upload and return to terminal.",
+            },
         )
         if confirmation == "Cancel":
             console.print("[bold yellow]Upload cancelled.[/bold yellow]")
