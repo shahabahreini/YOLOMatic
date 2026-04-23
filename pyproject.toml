@@ -11,6 +11,7 @@ dependencies = [
   "clearml",
   "pyyaml",
   "opencv-python",
+  "numpy==1.23.0",
   "torch",
   "torchvision",
   "onnx",

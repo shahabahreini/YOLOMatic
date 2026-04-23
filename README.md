@@ -13,18 +13,20 @@ It provides an interactive terminal experience for model selection, dataset bind
 1. [Features](#features)
 2. [Prerequisites](#prerequisites)
 3. [Installation & Setup](#installation--setup)
-4. [Dataset Preparation](#dataset-preparation)
-5. [Environment Variables](#environment-variables)
-6. [Usage Guide](#usage-guide)
+4. [Platform Notes](#platform-notes)
+5. [Dataset Preparation](#dataset-preparation)
+6. [Environment Variables](#environment-variables)
+7. [Usage Guide](#usage-guide)
    - [1. Configure Training](#1-configure-training)
    - [2. Start Training](#2-start-training)
    - [3. Run Predictions](#3-run-predictions)
    - [4. Upload to Roboflow](#4-upload-to-roboflow)
    - [5. Monitor Training](#5-monitor-training)
-7. [ClearML Integration](#clearml-integration)
-8. [Versioning](#versioning)
-9. [Related Docs](#related-docs)
-10. [License](#license)
+8. [ClearML Integration](#clearml-integration)
+9. [Versioning](#versioning)
+10. [Troubleshooting](#troubleshooting)
+11. [Related Docs](#related-docs)
+12. [License](#license)
 
 ---
 
@@ -67,9 +69,35 @@ It provides an interactive terminal experience for model selection, dataset bind
    ```
 
 3. **Optional: create a Roboflow environment file**:
-   ```sh
-   cp .env.example .env
-   ```
+   - Linux/macOS:
+
+     ```sh
+     cp .env.example .env
+     ```
+
+   - Windows PowerShell:
+
+     ```powershell
+     Copy-Item .env.example .env
+     ```
+
+---
+
+## Platform Notes
+
+- **Windows**
+  - Use `uv sync` to create `.venv`, but use `\.venv\Scripts\python.exe -m pip ...` for manual PyTorch CUDA repairs.
+  - `uv run pip ...` may re-sync the environment first and can restore CPU-only Torch.
+  - `nvidia-smi` may work even when `torch.cuda.is_available()` is `False`; YOLOmatic now detects this and offers an interactive repair flow.
+
+- **Linux**
+  - If PyTorch fails due to missing cuDNN or CUDA runtime libraries, YOLOmatic prepares the relevant library search path automatically.
+  - NVIDIA runtime libraries inside `.venv` are added to `LD_LIBRARY_PATH` when needed.
+
+- **macOS**
+  - NVIDIA CUDA training is not expected.
+  - YOLOmatic can still run on CPU, and Apple Silicon environments can use `mps` when supported by the installed PyTorch build.
+  - If GPU acceleration is unavailable, the training flow offers CPU fallback instead of hard-failing.
 
 ---
 
@@ -135,6 +163,13 @@ Once configured, start training with the generated configuration. Standard YOLO 
 uv run yolomatic-train
 ```
 
+Training behavior:
+
+- If there is exactly one YAML config in `configs/`, it is auto-selected.
+- If there are multiple YAML configs, YOLOmatic opens a TUI selector.
+- If ClearML is not configured, YOLOmatic prompts you to continue without ClearML or cancel.
+- If CUDA is requested but PyTorch cannot use it, YOLOmatic prompts you to repair the environment, continue on CPU, or cancel.
+
 ### 3. Run Predictions
 
 Launch the interactive prediction TUI to select from available `.pt` weights discovered in the project root and `runs/**/weights/`, then choose either single-image or folder inference.
@@ -193,6 +228,59 @@ To track your experiments remotely:
    _(Follow the prompts to paste your API credentials from your ClearML account)_
 
 2. Your generated training configurations handle the rest. YOLOmatic will seamlessly sync hyper-parameters and metrics!
+
+If ClearML is not configured when training starts, YOLOmatic will ask whether to continue without ClearML or cancel the run.
+
+---
+
+## Troubleshooting
+
+### PyTorch cannot detect the GPU on Windows or Linux
+
+If `nvidia-smi` works but training still reports a CPU-only Torch build or `torch.cuda.is_available() == False`, YOLOmatic now offers an in-app CUDA repair flow.
+
+- Choose `Fix CUDA-enabled PyTorch now` in the TUI prompt.
+- The repair uses the active `.venv` interpreter directly.
+- The repair preserves `numpy==1.23.0` so `super-gradients` remains compatible.
+
+Manual verification command:
+
+```sh
+uv run python -c "import torch, numpy; print('torch', torch.__version__); print('cuda build', torch.version.cuda); print('cuda available', torch.cuda.is_available()); print('device count', torch.cuda.device_count()); print('numpy', numpy.__version__)"
+```
+
+On Windows, if you need to repair manually, prefer:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip uninstall -y torch torchvision torchaudio
+.\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio numpy==1.23.0 --index-url https://download.pytorch.org/whl/cu128
+```
+
+### YOLO-NAS fails after CUDA repair
+
+`super-gradients 3.7.1` requires `numpy==1.23.0` in this project.
+
+If NumPy drifts higher, restore it with:
+
+```sh
+uv run python -m pip install --force-reinstall numpy==1.23.0
+```
+
+### ClearML is not configured
+
+Run:
+
+```sh
+uv run clearml-init
+```
+
+Or choose `Continue Without ClearML` when prompted.
+
+### macOS GPU notes
+
+- NVIDIA CUDA is not expected on macOS.
+- Apple Silicon users should use an MPS-capable PyTorch build if GPU acceleration is desired.
+- If MPS is unavailable, run training on CPU.
 
 ---
 

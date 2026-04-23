@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import platform
 import sys
 from pathlib import Path
 from typing import TypeVar
@@ -22,6 +23,15 @@ def _candidate_site_packages() -> list[Path]:
         if path.name == "site-packages" and path.exists():
             paths.append(path)
     return paths
+
+
+def _runtime_library_environment_name() -> str:
+    system = platform.system()
+    if system == "Windows":
+        return "PATH"
+    if system == "Darwin":
+        return "DYLD_LIBRARY_PATH"
+    return "LD_LIBRARY_PATH"
 
 
 def _candidate_nvidia_lib_dirs() -> list[Path]:
@@ -56,7 +66,11 @@ def _candidate_nvidia_lib_dirs() -> list[Path]:
 
 
 def prepare_ml_runtime() -> list[Path]:
-    existing = [item for item in os.environ.get("LD_LIBRARY_PATH", "").split(":") if item]
+    env_var_name = _runtime_library_environment_name()
+    path_separator = os.pathsep
+    existing = [
+        item for item in os.environ.get(env_var_name, "").split(path_separator) if item
+    ]
     updated = existing[:]
     added_paths: list[Path] = []
     for lib_dir in _candidate_nvidia_lib_dirs():
@@ -65,7 +79,7 @@ def prepare_ml_runtime() -> list[Path]:
             updated.append(lib_dir_str)
             added_paths.append(lib_dir)
     if updated != existing:
-        os.environ["LD_LIBRARY_PATH"] = ":".join(updated)
+        os.environ[env_var_name] = path_separator.join(updated)
     return added_paths
 
 
@@ -100,7 +114,9 @@ def import_ultralytics_yolo() -> object:
     try:
         return getattr(ultralytics_module, "YOLO")
     except AttributeError as error:
-        raise MLDependencyError("ultralytics.YOLO is not available in the installed package.") from error
+        raise MLDependencyError(
+            "ultralytics.YOLO is not available in the installed package."
+        ) from error
 
 
 def import_ultralytics_settings() -> object:

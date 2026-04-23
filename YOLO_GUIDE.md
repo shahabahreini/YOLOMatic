@@ -15,12 +15,24 @@ uv sync
 
 After installation you can run the CLI via the `yolomatic` entrypoints managed by `uv`.
 
+Platform notes:
+
+- **Windows**: prefer `\.venv\Scripts\python.exe -m pip ...` for manual PyTorch/CUDA repairs instead of `uv run pip ...`.
+- **Linux**: YOLOmatic prepares CUDA/cuDNN runtime library paths from the active `.venv` when needed.
+- **macOS**: use CPU or MPS-capable PyTorch builds; NVIDIA CUDA is not expected.
+
 ### Optional Roboflow Setup
 
 If you plan to upload trained checkpoints to Roboflow, create a local `.env` file:
 
 ```bash
 cp .env.example .env
+```
+
+On Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
 ```
 
 Then fill in:
@@ -76,6 +88,12 @@ uv run yolomatic-upload --weight runs/segment/train2/weights/best.pt --workspace
 # Monitor training logs
 uv run yolomatic-tensorboard
 ```
+
+Training runtime notes:
+
+- If multiple YAML configs exist in `configs/`, `yolomatic-train` opens a TUI selector.
+- If ClearML is not configured, training prompts whether to continue without ClearML or cancel.
+- If CUDA is requested but PyTorch cannot use it, training prompts whether to repair the environment, continue on CPU, or cancel.
 
 Upload tips:
 
@@ -403,6 +421,27 @@ model.export(format="openvino")
 ---
 
 ## Troubleshooting
+
+### CUDA requested but PyTorch cannot use the GPU
+
+If `nvidia-smi` works but `torch.cuda.is_available()` is `False`, YOLOmatic can now offer an automatic CUDA repair flow during training.
+
+Manual Windows repair fallback:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip uninstall -y torch torchvision torchaudio
+.\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio numpy==1.23.0 --index-url https://download.pytorch.org/whl/cu128
+```
+
+### YOLO-NAS NumPy compatibility
+
+This project pins `numpy==1.23.0` because `super-gradients 3.7.1` is not compatible with newer NumPy versions.
+
+If NumPy drifts, restore it with:
+
+```bash
+uv run python -m pip install --force-reinstall numpy==1.23.0
+```
 
 ### YOLO26 Issues
 
