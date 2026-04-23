@@ -1,3 +1,4 @@
+import argparse
 import os
 from datetime import datetime
 
@@ -22,6 +23,18 @@ except ImportError:
 
 # Initialize Rich console
 console = Console()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train a YOLO or YOLO-NAS model from a YAML configuration file."
+    )
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to a training config YAML file, or a filename inside the configs directory.",
+    )
+    return parser.parse_args()
 
 
 def load_dataset_config(dataset_name):
@@ -68,44 +81,32 @@ def verify_directories(dataset_config):
         )
 
 
-def select_config():
-    """Select configuration file from configs directory."""
+def select_config(config_path):
     config_folder = "configs"
+    candidate_paths = [config_path, os.path.join(config_folder, config_path)]
+    for candidate_path in candidate_paths:
+        if os.path.isfile(candidate_path):
+            selected_file = os.path.abspath(candidate_path)
+            console.print(
+                f"\n[bold green]Selected configuration: {os.path.basename(selected_file)}[/bold green]"
+            )
+            return selected_file
+
     if not os.path.exists(config_folder):
-        console.print(
-            f"[bold red]Error: Config folder '{config_folder}' not found.[/bold red]"
+        raise FileNotFoundError(
+            f"Config file '{config_path}' not found and config folder '{config_folder}' does not exist."
         )
-        raise FileNotFoundError(f"Config folder '{config_folder}' not found.")
 
     yaml_files = [f for f in os.listdir(config_folder) if f.endswith(".yaml")]
-
     if not yaml_files:
-        console.print(
-            "[bold red]Error: No YAML files found in the configs folder.[/bold red]"
+        raise FileNotFoundError(
+            f"Config file '{config_path}' not found and no YAML files exist in '{config_folder}'."
         )
-        raise FileNotFoundError("No YAML files found in the configs folder.")
 
-    console.print("\n[bold]Available configuration files:[/bold]")
-    table = Table(show_header=True, header_style="bold magenta")
-    table.add_column("Number", style="dim", width=12)
-    table.add_column("File Name")
-    for i, file in enumerate(yaml_files, 1):
-        table.add_row(str(i), file)
-    console.print(table)
-
-    while True:
-        try:
-            choice = int(input("\nEnter the number of the configuration file to use: "))
-            if 1 <= choice <= len(yaml_files):
-                selected_file = os.path.join(config_folder, yaml_files[choice - 1])
-                console.print(
-                    f"\n[bold green]Selected configuration: {yaml_files[choice - 1]}[/bold green]"
-                )
-                return selected_file
-            else:
-                console.print("[bold red]Invalid choice. Please try again.[/bold red]")
-        except ValueError:
-            console.print("[bold red]Invalid input. Please enter a number.[/bold red]")
+    available_configs = ", ".join(sorted(yaml_files))
+    raise FileNotFoundError(
+        f"Config file '{config_path}' not found. Available configs: {available_configs}"
+    )
 
 
 def verify_model_file(model_name):
@@ -220,13 +221,8 @@ def print_config_summary(config, dataset_config):
 
 def main():
     try:
-        # Select configuration file
-        config_file = select_config()
-        if config_file is None:
-            console.print(
-                "[bold red]No configuration file selected. Exiting.[/bold red]"
-            )
-            return
+        args = parse_args()
+        config_file = select_config(args.config)
 
         # Load configuration from selected YAML file
         with open(config_file, "r") as file:
