@@ -27,18 +27,24 @@ except ImportError:
 
 console = Console()
 DEFAULT_TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
-DEFAULT_NUMPY_CONSTRAINT = "numpy<=1.23"
+DEFAULT_NUMPY_CONSTRAINT = "numpy==1.23.0"
 _TORCH_INSPECTION_SCRIPT = """
 import json
 payload = {}
 try:
     import torch
+    try:
+        import numpy
+        numpy_version = getattr(numpy, "__version__", None)
+    except Exception:
+        numpy_version = None
     payload = {
         "importable": True,
         "version": getattr(torch, "__version__", "unknown"),
         "cuda_build": getattr(torch.version, "cuda", None),
         "cuda_available": bool(torch.cuda.is_available()),
         "device_count": int(torch.cuda.device_count()),
+        "numpy_version": numpy_version,
         "error": None,
     }
 except Exception as error:
@@ -48,6 +54,7 @@ except Exception as error:
         "cuda_build": None,
         "cuda_available": False,
         "device_count": 0,
+        "numpy_version": None,
         "error": str(error),
     }
 print(json.dumps(payload))
@@ -61,6 +68,7 @@ class TorchInspectionResult:
     cuda_build: str | None
     cuda_available: bool
     device_count: int
+    numpy_version: str | None
     error: str | None
 
 
@@ -88,6 +96,7 @@ def inspect_torch_runtime(
             cuda_build=None,
             cuda_available=False,
             device_count=0,
+            numpy_version=None,
             error=error,
         )
 
@@ -103,6 +112,7 @@ def inspect_torch_runtime(
             cuda_build=None,
             cuda_available=False,
             device_count=0,
+            numpy_version=None,
             error=error,
         )
 
@@ -112,6 +122,7 @@ def inspect_torch_runtime(
         cuda_build=payload.get("cuda_build"),
         cuda_available=bool(payload.get("cuda_available", False)),
         device_count=int(payload.get("device_count", 0)),
+        numpy_version=payload.get("numpy_version"),
         error=payload.get("error"),
     )
 
@@ -203,7 +214,7 @@ def repair_cuda_enabled_torch(
     inspection = inspect_torch_runtime(executable)
     if not inspection.cuda_available:
         outputs.append(
-            f"Post-repair check: torch={inspection.version}, cuda_build={inspection.cuda_build}, cuda_available={inspection.cuda_available}, device_count={inspection.device_count}, error={inspection.error}"
+            f"Post-repair check: torch={inspection.version}, cuda_build={inspection.cuda_build}, cuda_available={inspection.cuda_available}, device_count={inspection.device_count}, numpy={inspection.numpy_version}, error={inspection.error}"
         )
         return False, "\n\n".join(outputs), inspection
 
@@ -234,6 +245,10 @@ def resolve_training_device(
     if inspection.version:
         console.print(
             f"[bold yellow]Detected torch build: {inspection.version} (CUDA build: {inspection.cuda_build})[/bold yellow]"
+        )
+    if inspection.numpy_version:
+        console.print(
+            f"[bold yellow]Detected NumPy version: {inspection.numpy_version}[/bold yellow]"
         )
     if inspection.error:
         console.print(

@@ -278,6 +278,7 @@ def print_config_summary(config, dataset_config):
 
 
 def main():
+    task = None
     try:
         args = parse_args()
         config_file = select_config(args.config)
@@ -312,6 +313,7 @@ def main():
         dataset_config, data_yaml_path, dataset_path = load_dataset_config(
             settings["dataset"] if "dataset" in settings else settings["model_type"]
         )
+        verify_directories(dataset_config)
         print_config_summary(config, dataset_config)
 
         # Get the correct model name based on config type
@@ -374,12 +376,12 @@ def main():
 
         # Start training
         console.print("\n[bold green]Starting training...[/bold green]")
-        os.environ["YOLO_DATASET_DIR"] = os.path.abspath("datasets/Oxford Pets")
+        os.environ["YOLO_DATASET_DIR"] = dataset_path
         model.train(data=data_yaml_path, **training_params)
 
         # Start validation
         console.print("\n[bold green]Starting validation...[/bold green]")
-        metrics = model.val(data=data_yaml_path)
+        model.val(data=data_yaml_path)
 
         # Export the model
         console.print("\n[bold green]Exporting model...[/bold green]")
@@ -389,6 +391,8 @@ def main():
 
     except FileNotFoundError as e:
         console.print(f"[bold red]Error: {str(e)}[/bold red]")
+    except yaml.YAMLError as e:
+        console.print(f"[bold red]Invalid YAML configuration: {str(e)}[/bold red]")
     except MLDependencyError as e:
         console.print(f"[bold red]{str(e)}[/bold red]")
     except ValueError as e:
@@ -405,7 +409,7 @@ def main():
 
         console.print(traceback.format_exc())
     finally:
-        if "task" in locals() and task not in (None, False):
+        if task not in (None, False):
             task.close()
 
 
