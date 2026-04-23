@@ -8,8 +8,10 @@ from clearml import Logger, Task
 try:
     from src.cli.run import get_user_choice
     from src.utils.ml_dependencies import import_module_or_raise, import_torch
+    from src.utils.training_preflight import resolve_training_device
 except ImportError:
     from utils.ml_dependencies import import_module_or_raise, import_torch
+    from utils.training_preflight import resolve_training_device
 
     try:
         from cli.run import get_user_choice
@@ -67,6 +69,13 @@ def initialize_clearml_task(project_name, task_name, tags):
 
 
 def main(config_path: Optional[str] = None):
+    cfg = Config(config_path or "config.yaml")
+    requested_device = cfg.training.get("device")
+    device_resolution = resolve_training_device(requested_device, prefer_gpu=True)
+    if device_resolution.cancelled:
+        print("Training cancelled.")
+        return
+
     torch = import_torch()
     training_module = import_module_or_raise("super_gradients.training")
     dataloaders_module = import_module_or_raise(
@@ -95,8 +104,6 @@ def main(config_path: Optional[str] = None):
     detection_output_format_mode = conversion_module.DetectionOutputFormatMode
     export_quantization_mode = conversion_enums_module.ExportQuantizationMode
     data_loader_class = data_loader_module.DataLoader
-
-    cfg = Config(config_path or "config.yaml")
 
     os.environ["CONSOLE_LOG_FILE"] = cfg.experiment["console_log_file"]
 
