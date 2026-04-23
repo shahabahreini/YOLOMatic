@@ -3,6 +3,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 from blessed import Terminal
@@ -170,7 +171,12 @@ def backup_config(config_file):
 
 
 def display_configuration_summary(
-    model_choice, dataset_name, config_file, dataset_info
+    model_choice,
+    dataset_name,
+    config_file,
+    dataset_info,
+    profile_selection=None,
+    profile_context=None,
 ):
     """Display a clean summary of the configuration"""
     console = Console()
@@ -256,6 +262,31 @@ def display_configuration_summary(
         table.add_row("Epochs", str(training.get("epochs", "N/A")))
         table.add_row("Image Size", str(training.get("imgsz", "N/A")))
         table.add_row("Workers", str(training.get("workers", "N/A")))
+        if profile_selection is not None:
+            table.add_row(
+                "Augmentation Profile",
+                format_profile_name(profile_selection["augmentation"]),
+            )
+            table.add_row(
+                "Compute Profile",
+                format_profile_name(profile_selection["compute"]),
+            )
+            worker_value = str(training.get("workers", "N/A"))
+            table.add_row(
+                "Worker Profile",
+                f"{format_profile_name(profile_selection['worker'])} ({worker_value} workers)",
+            )
+        if profile_context is not None:
+            model_metrics = profile_context.get("model_metrics", {})
+            heaviness = model_metrics.get("heaviness")
+            params_millions = model_metrics.get("params_millions")
+            flops_billions = model_metrics.get("flops_billions")
+            if heaviness:
+                table.add_row("Model Heaviness", format_profile_name(str(heaviness)))
+            if params_millions is not None:
+                table.add_row("Model Params", f"{float(params_millions):.1f}M")
+            if flops_billions is not None:
+                table.add_row("Model FLOPs", f"{float(flops_billions):.1f}B")
         table.add_row("Label Smoothing", str(training.get("label_smoothing", "N/A")))
         table.add_row("Cache", str(training.get("cache", "N/A")))
         table.add_row("Close Mosaic", str(training.get("close_mosaic", "N/A")))
@@ -536,12 +567,13 @@ def update_config(model_choice, dataset_choice):
     if "nas" in model_choice.lower():
         generator = YOLONASConfigGenerator(str(dataset_path))
         config_file = f"{model_choice}_{safe_dataset_name}_{timestamp}.yaml"
+        profile_context = None
+        profile_selection = None
     else:
         generator = YOLOConfigGenerator(str(dataset_path))
         config_file = f"{model_choice}_{safe_dataset_name}_{timestamp}.yaml"
-
-    # Generate and save configuration
-    config = generator.generate_config(model_choice)
+        profile_context = generator.get_regular_yolo_profile_context(model_choice)
+        profile_selection = None
 
     # Check dataset type compatibility
     dataset_type = generator.dataset_info.get("task_type", "unknown")
@@ -578,6 +610,27 @@ def update_config(model_choice, dataset_choice):
         ):
             return False
 
+    if "nas" not in model_choice.lower():
+        profile_selection = choose_regular_yolo_profiles(
+            dataset_name,
+            profile_context,
+            model_choice,
+        )
+        if profile_selection is None:
+            return False
+        display_regular_yolo_profile_selection_summary(
+            dataset_name,
+            profile_selection,
+            profile_context,
+        )
+        config = generator.generate_config(
+            model_choice,
+            profile_selection,
+            profile_context,
+        )
+    else:
+        config = generator.generate_config(model_choice)
+
     # Save new config
     config_path = os.path.join(config_dir, config_file)
     with open(config_path, "w") as f:
@@ -587,7 +640,12 @@ def update_config(model_choice, dataset_choice):
 
     # Display summary
     display_configuration_summary(
-        model_choice, dataset_name, config_file, generator.dataset_info
+        model_choice,
+        dataset_name,
+        config_file,
+        generator.dataset_info,
+        profile_selection,
+        profile_context,
     )
     display_paths_info(generator.dataset_info)
 
@@ -611,6 +669,237 @@ def format_size(size_in_bytes):
             return f"{size_in_bytes:.2f} {unit}"
         size_in_bytes /= 1024
     return f"{size_in_bytes:.2f} PB"
+
+
+def format_profile_name(value: str) -> str:
+    return value.replace("_", " ").title()
+
+
+def build_regular_yolo_profile_summary_text(
+    dataset_name: str,
+    profile_context: dict[str, Any],
+    model_choice: str,
+) -> str:
+    model_metrics = profile_context["model_metrics"]
+    dataset_metrics = profile_context["dataset_metrics"]
+    system_metrics = profile_context["system_metrics"]
+    recommended_profiles = profile_context["recommended_profiles"]
+    recommended_worker = profile_context["worker_profiles"][
+        recommended_profiles["worker"]
+    ]
+
+    lines = [
+        f"Dataset: {dataset_name}",
+        (
+            "Model scan: "
+            f"{model_choice} "
+            f"({format_profile_name(model_metrics['heaviness'])} model)"
+        ),
+        (
+            "Dataset scan: "
+            f"{format_size(int(dataset_metrics['total_size_bytes']))}, "
+            f"{int(dataset_metrics['image_count'])} images, "
+            f"{int(dataset_metrics['label_count'])} labels, "
+            f"{int(dataset_metrics['total_file_count'])} files"
+        ),
+        (
+            "System scan: "
+            f"{format_size(int(system_metrics['available_ram_bytes']))} RAM free, "
+            f"{int(system_metrics['cpu_count'])} CPU cores, "
+            f"device={system_metrics['device']}"
+        ),
+    ]
+
+    if system_metrics["available_gpu_memory_bytes"] is not None:
+        gpu_line = f"GPU memory free: {format_size(int(system_metrics['available_gpu_memory_bytes']))}"
+        if system_metrics["total_gpu_memory_bytes"] is not None:
+            gpu_line += f" of {format_size(int(system_metrics['total_gpu_memory_bytes']))} total"
+        lines.append(gpu_line)
+
+    if model_metrics["params_millions"] is not None:
+        lines.append(f"Model params: {model_metrics['params_millions']:.1f}M")
+    if model_metrics["flops_billions"] is not None:
+        lines.append(f"Model FLOPs: {model_metrics['flops_billions']:.1f}B")
+
+    lines.extend(
+        [
+            "",
+            "Recommended profiles:",
+            (
+                f"- Augmentation: {format_profile_name(recommended_profiles['augmentation'])}"
+            ),
+            f"- Compute: {format_profile_name(recommended_profiles['compute'])}",
+            (
+                "- Workers: "
+                f"{format_profile_name(recommended_profiles['worker'])} "
+                f"({int(recommended_worker['workers'])} workers)"
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def select_profile_option(
+    title: str,
+    prompt_text: str,
+    option_descriptions: dict[str, str],
+    recommended_key: str,
+) -> str | None:
+    option_map: dict[str, str] = {}
+    option_labels: list[str] = []
+
+    for key, description in option_descriptions.items():
+        label = f"{format_profile_name(key)} - {description}"
+        if key == recommended_key:
+            label = f"{label} [recommended]"
+        option_map[label] = key
+        option_labels.append(label)
+
+    choice = get_user_choice(
+        option_labels,
+        allow_back=True,
+        title=title,
+        text=prompt_text,
+    )
+    if choice == "Back":
+        return None
+    return option_map[choice]
+
+
+def display_regular_yolo_profile_selection_summary(
+    dataset_name: str,
+    profile_selection: dict[str, str],
+    profile_context: dict[str, Any],
+) -> None:
+    model_metrics = profile_context["model_metrics"]
+    dataset_metrics = profile_context["dataset_metrics"]
+    system_metrics = profile_context["system_metrics"]
+    worker_profile = profile_context["worker_profiles"][profile_selection["worker"]]
+
+    clear_screen()
+    print_stylized_header("Config Profile Summary")
+
+    table = Table(title="Selected Profile Settings", title_style="bold green")
+    table.add_column("Parameter", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Dataset", dataset_name)
+    table.add_row("Model", str(model_metrics["model_choice"]))
+    table.add_row(
+        "Model Heaviness",
+        format_profile_name(str(model_metrics["heaviness"])),
+    )
+    if model_metrics["params_millions"] is not None:
+        table.add_row("Model Params", f"{model_metrics['params_millions']:.1f}M")
+    if model_metrics["flops_billions"] is not None:
+        table.add_row("Model FLOPs", f"{model_metrics['flops_billions']:.1f}B")
+    table.add_row(
+        "Dataset Size",
+        format_size(int(dataset_metrics["total_size_bytes"])),
+    )
+    table.add_row("Image Count", str(int(dataset_metrics["image_count"])))
+    table.add_row("Label Count", str(int(dataset_metrics["label_count"])))
+    table.add_row(
+        "Available RAM",
+        format_size(int(system_metrics["available_ram_bytes"])),
+    )
+    table.add_row("Detected Device", str(system_metrics["device"]))
+    if system_metrics["available_gpu_memory_bytes"] is not None:
+        table.add_row(
+            "Available GPU Memory",
+            format_size(int(system_metrics["available_gpu_memory_bytes"])),
+        )
+    table.add_row(
+        "Augmentation Profile",
+        format_profile_name(profile_selection["augmentation"]),
+    )
+    table.add_row(
+        "Compute Profile",
+        format_profile_name(profile_selection["compute"]),
+    )
+    table.add_row(
+        "Worker Profile",
+        (
+            f"{format_profile_name(profile_selection['worker'])} "
+            f"({int(worker_profile['workers'])} workers)"
+        ),
+    )
+    table.add_row("Worker Notes", str(worker_profile["description"]))
+
+    console.print(table)
+
+
+def choose_regular_yolo_profiles(
+    dataset_name: str,
+    profile_context: dict[str, Any],
+    model_choice: str,
+) -> dict[str, str] | None:
+    summary_text = build_regular_yolo_profile_summary_text(
+        dataset_name,
+        profile_context,
+        model_choice,
+    )
+    recommended_profiles = profile_context["recommended_profiles"]
+
+    initial_choice = get_user_choice(
+        ["Use recommended settings", "Customize selected values"],
+        allow_back=True,
+        title="Regular YOLO Config Profiles",
+        text=f"{summary_text}\n\nChoose how to continue:",
+    )
+
+    if initial_choice == "Back":
+        return None
+    if initial_choice == "Use recommended settings":
+        return dict(recommended_profiles)
+
+    augmentation_options = {
+        "minimum": "Essential training values only, minimal augmentation",
+        "low": "Enables flips, mosaic, and mixup for mild robustness gains",
+        "medium": "Adds color and geometric augmentation for stronger generalization",
+    }
+    compute_options = {
+        "conservative": "Lower memory pressure and safer defaults",
+        "balanced": "Recommended for most systems",
+        "aggressive": "Higher throughput if your RAM and GPU can support it",
+    }
+    worker_options = {
+        key: f"{int(details['workers'])} workers - {details['description']}"
+        for key, details in profile_context["worker_profiles"].items()
+    }
+
+    augmentation_choice = select_profile_option(
+        "Select Augmentation Profile",
+        f"{summary_text}\n\nChoose the augmentation intensity for this dataset:",
+        augmentation_options,
+        recommended_profiles["augmentation"],
+    )
+    if augmentation_choice is None:
+        return None
+
+    compute_choice = select_profile_option(
+        "Select Compute Profile",
+        f"{summary_text}\n\nChoose how strongly YOLOmatic should push system resources:",
+        compute_options,
+        recommended_profiles["compute"],
+    )
+    if compute_choice is None:
+        return None
+
+    worker_choice = select_profile_option(
+        "Select Worker Profile",
+        f"{summary_text}\n\nChoose the dataloader worker profile:",
+        worker_options,
+        recommended_profiles["worker"],
+    )
+    if worker_choice is None:
+        return None
+
+    return {
+        "augmentation": augmentation_choice,
+        "compute": compute_choice,
+        "worker": worker_choice,
+    }
 
 
 def get_model_menu():

@@ -28,6 +28,7 @@ dependencies = [
   "super-gradients>=3.7.1",
   "uv",
   "packaging",
+  "psutil",
   "setuptools<70",
   "pycocotools>=2.0.11",
 ]
