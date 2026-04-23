@@ -4,6 +4,18 @@ from typing import Dict, Optional
 
 import yaml
 
+try:
+    from src.utils.ml_dependencies import MLDependencyError, import_torch
+except ImportError:
+    try:
+        from utils.ml_dependencies import MLDependencyError, import_torch
+    except ImportError:
+        MLDependencyError = RuntimeError
+
+        def import_torch() -> object:
+            raise RuntimeError("torch is not available.")
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -172,7 +184,10 @@ class BaseConfigGenerator:
 
     def _detect_device(self) -> str:
         """Detect available device including MPS for Mac Silicon."""
-        import torch
+        try:
+            torch = import_torch()
+        except MLDependencyError:
+            return "cpu"
 
         if torch.cuda.is_available():
             return "cuda"
@@ -326,7 +341,10 @@ class YOLOConfigGenerator(BaseConfigGenerator):
 
     def _detect_device(self) -> str:
         """Detect available device including MPS for Mac Silicon."""
-        import torch
+        try:
+            torch = import_torch()
+        except MLDependencyError:
+            return "cpu"
 
         if torch.cuda.is_available():
             return "cuda"

@@ -6,14 +6,22 @@ from typing import Sequence
 
 from rich.panel import Panel
 from rich.table import Table
-from ultralytics import YOLO
 
 try:
     from src.cli.run import console, get_user_choice, print_stylized_header
+    from src.utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
 except ImportError:
     from rich.console import Console
 
     console = Console()
+
+    try:
+        from utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
+    except ImportError:
+        MLDependencyError = RuntimeError
+
+        def import_ultralytics_yolo() -> object:
+            raise RuntimeError("ultralytics is not available.")
 
     def print_stylized_header(text: str) -> None:
         console.print(f"[bold cyan]{text}[/bold cyan]")
@@ -199,7 +207,8 @@ def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -
 
 
 def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | None:
-    model = YOLO(str(weight_path))
+    yolo_class = import_ultralytics_yolo()
+    model = yolo_class(str(weight_path))
     results = model.predict(source=str(source_path), conf=conf, save=True)
     if not results:
         return None
@@ -243,6 +252,9 @@ def main() -> None:
         raise SystemExit(0)
     except SystemExit:
         raise
+    except MLDependencyError as error:
+        console.print(f"[bold red]Prediction failed: {error}[/bold red]")
+        raise SystemExit(1) from error
     except Exception as error:
         console.print(f"[bold red]Prediction failed: {error}[/bold red]")
         raise SystemExit(1) from error

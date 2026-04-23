@@ -4,7 +4,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import torch
 import yaml
 from blessed import Terminal
 from rich import box
@@ -20,10 +19,12 @@ from ruamel.yaml import YAML
 try:
     from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
     from src.models.data import model_data_dict
+    from src.utils.ml_dependencies import MLDependencyError, import_torch
 except ImportError:  # fallback for direct execution or legacy layout
     from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
 
     from models import model_data_dict
+    from utils.ml_dependencies import MLDependencyError, import_torch
 
 logging.basicConfig(
     level=logging.WARNING,  # Change from INFO to WARNING
@@ -196,10 +197,16 @@ def display_configuration_summary(
 
     # Detect device including MPS
     device = "💻 CPU"
-    if torch.cuda.is_available():
-        device = "🚀 GPU (CUDA)"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        device = "🚀 GPU (MPS)"
+    try:
+        torch = import_torch()
+    except MLDependencyError:
+        torch = None
+
+    if torch is not None:
+        if torch.cuda.is_available():
+            device = "🚀 GPU (CUDA)"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "🚀 GPU (MPS)"
 
     # Get model info based on config type
     if "nas" in model_choice.lower():
@@ -498,7 +505,10 @@ def detect_device():
     Detect the appropriate device for training based on system capabilities.
     Returns 'cuda' for NVIDIA GPUs, 'mps' for Apple Silicon, or 'cpu' as fallback.
     """
-    import torch
+    try:
+        torch = import_torch()
+    except MLDependencyError:
+        return "cpu"
 
     if torch.cuda.is_available():
         return "cuda"

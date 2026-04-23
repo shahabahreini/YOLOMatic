@@ -6,9 +6,19 @@ from clearml import Task
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from ultralytics import YOLO
 
-from .nas_trainer import main as nas_main
+try:
+    from src.utils.ml_dependencies import (
+        MLDependencyError,
+        import_ultralytics_settings,
+        import_ultralytics_yolo,
+    )
+except ImportError:
+    from utils.ml_dependencies import (
+        MLDependencyError,
+        import_ultralytics_settings,
+        import_ultralytics_yolo,
+    )
 
 # Initialize Rich console
 console = Console()
@@ -101,6 +111,8 @@ def select_config():
 def verify_model_file(model_name):
     """Verify if the model file exists and load it, or download if it's a YOLO model."""
     try:
+        yolo_class = import_ultralytics_yolo()
+
         if "nas" in model_name.lower():
             console.print(
                 f"\n[bold]Detected YOLO-NAS model {model_name}; using SuperGradients trainer[/bold]"
@@ -132,7 +144,7 @@ def verify_model_file(model_name):
             console.print(
                 f"\n[bold]Converting model name {model_name} to {standard_name}[/bold]"
             )
-            model = YOLO(standard_name + ".pt")
+            model = yolo_class(standard_name + ".pt")
             console.print(
                 f"\n[bold green]Successfully loaded/downloaded model: {standard_name}[/bold green]"
             )
@@ -143,11 +155,14 @@ def verify_model_file(model_name):
                     f"[bold red]Error: Model file {model_name} not found[/bold red]"
                 )
                 raise FileNotFoundError(f"Model file {model_name} not found")
-            model = YOLO(model_name)
+            model = yolo_class(model_name)
             console.print(
                 f"\n[bold green]Successfully loaded model: {model_name}[/bold green]"
             )
             return model
+    except MLDependencyError as e:
+        console.print(f"[bold red]{str(e)}[/bold red]")
+        return None
     except Exception as e:
         console.print(
             f"[bold red]Error loading model {model_name}: {str(e)}[/bold red]"
@@ -251,6 +266,10 @@ def main():
             console.print(
                 "\n[bold green]Routing YOLO-NAS configuration to NAS trainer...[/bold green]"
             )
+            try:
+                from src.trainers.nas_trainer import main as nas_main
+            except ImportError:
+                from .nas_trainer import main as nas_main
             nas_main(config_file)
             return
 
@@ -280,8 +299,7 @@ def main():
         )
 
         # Enable TensorBoard explicitly
-        from ultralytics import settings as ultra_settings
-
+        ultra_settings = import_ultralytics_settings()
         ultra_settings.update({"tensorboard": True})
 
         # Start training
@@ -301,6 +319,8 @@ def main():
 
     except FileNotFoundError as e:
         console.print(f"[bold red]Error: {str(e)}[/bold red]")
+    except MLDependencyError as e:
+        console.print(f"[bold red]{str(e)}[/bold red]")
     except Exception as e:
         console.print(f"[bold red]An unexpected error occurred: {str(e)}[/bold red]")
         import traceback

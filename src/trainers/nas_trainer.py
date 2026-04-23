@@ -2,22 +2,13 @@ import os
 from datetime import datetime
 from typing import Optional
 
-import torch
 import yaml
 from clearml import Logger, Task
-from super_gradients.conversion import DetectionOutputFormatMode
-from super_gradients.conversion.conversion_enums import ExportQuantizationMode
-from super_gradients.training import Trainer, models
-from super_gradients.training.dataloaders.dataloaders import (
-    coco_detection_yolo_format_train,
-    coco_detection_yolo_format_val,
-)
-from super_gradients.training.losses import PPYoloELoss
-from super_gradients.training.metrics import DetectionMetrics_050
-from super_gradients.training.models.detection_models.pp_yolo_e import (
-    PPYoloEPostPredictionCallback,
-)
-from torch.utils.data import DataLoader
+
+try:
+    from src.utils.ml_dependencies import import_module_or_raise, import_torch
+except ImportError:
+    from utils.ml_dependencies import import_module_or_raise, import_torch
 
 
 class Config:
@@ -43,17 +34,42 @@ class ClearMLCallback:
 
 
 def main(config_path: Optional[str] = None):
-    # Load configuration
+    torch = import_torch()
+    training_module = import_module_or_raise("super_gradients.training")
+    dataloaders_module = import_module_or_raise(
+        "super_gradients.training.dataloaders.dataloaders"
+    )
+    losses_module = import_module_or_raise("super_gradients.training.losses")
+    metrics_module = import_module_or_raise("super_gradients.training.metrics")
+    pp_yolo_module = import_module_or_raise(
+        "super_gradients.training.models.detection_models.pp_yolo_e"
+    )
+    conversion_module = import_module_or_raise("super_gradients.conversion")
+    conversion_enums_module = import_module_or_raise(
+        "super_gradients.conversion.conversion_enums"
+    )
+    data_loader_module = import_module_or_raise("torch.utils.data")
+
+    trainer_class = training_module.Trainer
+    models = training_module.models
+    coco_detection_yolo_format_train = (
+        dataloaders_module.coco_detection_yolo_format_train
+    )
+    coco_detection_yolo_format_val = dataloaders_module.coco_detection_yolo_format_val
+    pp_yolo_e_loss = losses_module.PPYoloELoss
+    detection_metrics = metrics_module.DetectionMetrics_050
+    pp_yolo_callback = pp_yolo_module.PPYoloEPostPredictionCallback
+    detection_output_format_mode = conversion_module.DetectionOutputFormatMode
+    export_quantization_mode = conversion_enums_module.ExportQuantizationMode
+    data_loader_class = data_loader_module.DataLoader
+
     cfg = Config(config_path or "config.yaml")
 
-    # Set environment variables
     os.environ["CONSOLE_LOG_FILE"] = cfg.experiment["console_log_file"]
 
-    # Setup experiment name
     current_time = datetime.now().strftime("%Y-%m-%d-%H-%M")
     experiment_name = f"{cfg.experiment['name_prefix']}-{current_time}"
 
-    # Initialize ClearML
     task = Task.init(
         project_name=cfg.clearml["project_name"],
         task_name=experiment_name,
@@ -63,20 +79,17 @@ def main(config_path: Optional[str] = None):
         {"user": cfg.experiment["user"], "experiment": cfg.experiment["description"]}
     )
 
-    # Setup trainer
     torch.backends.quantized.engine = "qnnpack"
-    trainer = Trainer(
+    trainer = trainer_class(
         experiment_name=experiment_name, ckpt_root_dir=cfg.experiment["checkpoint_dir"]
     )
 
-    # Prepare dataset parameters
     dataset_params = {
         "data_dir": cfg.dataset["base_dir"],
         "classes": cfg.dataset["classes"],
     }
     task.connect(dataset_params)
 
-    # Create data loaders
     train_data = coco_detection_yolo_format_train(
         dataset_params={
             "data_dir": dataset_params["data_dir"],
@@ -103,7 +116,6 @@ def main(config_path: Optional[str] = None):
         },
     )
 
-    # Prepare training parameters
     train_params = {
         "warmup_initial_lr": cfg.training["learning_rate"]["warmup_initial_lr"],
         "initial_lr": cfg.training["learning_rate"]["initial_lr"],
@@ -129,18 +141,18 @@ def main(config_path: Optional[str] = None):
         },
         "max_epochs": cfg.training["max_epochs"],
         "mixed_precision": cfg.training["mixed_precision"]["enabled"],
-        "loss": PPYoloELoss(
+        "loss": pp_yolo_e_loss(
             use_static_assigner=cfg.model["loss"]["use_static_assigner"],
             num_classes=len(cfg.dataset["classes"]),
             reg_max=cfg.model["loss"]["reg_max"],
         ),
         "valid_metrics_list": [
-            DetectionMetrics_050(
+            detection_metrics(
                 score_thres=cfg.model["metrics"]["score_threshold"],
                 top_k_predictions=cfg.model["metrics"]["top_k_predictions"],
                 num_cls=len(cfg.dataset["classes"]),
                 normalize_targets=True,
-                post_prediction_callback=PPYoloEPostPredictionCallback(
+                post_prediction_callback=pp_yolo_callback(
                     score_threshold=cfg.model["metrics"]["post_prediction"][
                         "score_threshold"
                     ],
@@ -159,14 +171,12 @@ def main(config_path: Optional[str] = None):
 
     task.connect(train_params)
 
-    # Initialize model
     model = models.get(
         cfg.model["name"],
         num_classes=len(cfg.dataset["classes"]),
         pretrained_weights=cfg.model["pretrained_weights"],
     )
 
-    # Train model
     clearml_callback = ClearMLCallback(task)
     trainer.train(
         model=model,
@@ -176,24 +186,22 @@ def main(config_path: Optional[str] = None):
         callbacks=[clearml_callback],
     )
 
-    # Export model
     try:
         export_result = model.export(
             cfg.export["output_name"],
-            output_predictions_format=DetectionOutputFormatMode.FLAT_FORMAT,
-            quantization_mode=ExportQuantizationMode.INT8,
+            output_predictions_format=detection_output_format_mode.FLAT_FORMAT,
+            quantization_mode=export_quantization_mode.INT8,
         )
         print(export_result)
         Logger.current_logger().report_text(f"Export result: {export_result}")
     except Exception as e:
         print(f"Export failed: {e}")
 
-    # Calibration
     dummy_calibration_dataset = [
         torch.randn((3, 640, 640), dtype=torch.float32)
         for _ in range(cfg.export["calibration"]["num_samples"])
     ]
-    dummy_calibration_loader = DataLoader(
+    data_loader_class(
         dummy_calibration_dataset,
         batch_size=cfg.export["calibration"]["batch_size"],
         num_workers=cfg.export["calibration"]["num_workers"],
