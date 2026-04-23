@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 try:
+    from src.cli.run import get_user_choice
     from src.utils.ml_dependencies import (
         MLDependencyError,
         import_ultralytics_settings,
@@ -21,6 +22,20 @@ except ImportError:
         import_ultralytics_yolo,
     )
 
+    try:
+        from cli.run import get_user_choice
+    except ImportError:
+
+        def get_user_choice(
+            options,
+            allow_back=False,
+            title="Select an Option",
+            text="Use ↑↓ keys to navigate, Enter to select:",
+            model_data=None,
+        ):
+            return options[0]
+
+
 # Initialize Rich console
 console = Console()
 
@@ -31,7 +46,6 @@ def parse_args():
     )
     parser.add_argument(
         "--config",
-        required=True,
         help="Path to a training config YAML file, or a filename inside the configs directory.",
     )
     return parser.parse_args()
@@ -83,30 +97,53 @@ def verify_directories(dataset_config):
 
 def select_config(config_path):
     config_folder = "configs"
-    candidate_paths = [config_path, os.path.join(config_folder, config_path)]
-    for candidate_path in candidate_paths:
-        if os.path.isfile(candidate_path):
-            selected_file = os.path.abspath(candidate_path)
-            console.print(
-                f"\n[bold green]Selected configuration: {os.path.basename(selected_file)}[/bold green]"
-            )
-            return selected_file
+    if config_path:
+        candidate_paths = [config_path, os.path.join(config_folder, config_path)]
+        for candidate_path in candidate_paths:
+            if os.path.isfile(candidate_path):
+                selected_file = os.path.abspath(candidate_path)
+                console.print(
+                    f"\n[bold green]Selected configuration: {os.path.basename(selected_file)}[/bold green]"
+                )
+                return selected_file
 
     if not os.path.exists(config_folder):
+        missing_name = config_path or "<auto-select>"
         raise FileNotFoundError(
-            f"Config file '{config_path}' not found and config folder '{config_folder}' does not exist."
+            f"Config file '{missing_name}' not found and config folder '{config_folder}' does not exist."
         )
 
-    yaml_files = [f for f in os.listdir(config_folder) if f.endswith(".yaml")]
+    yaml_files = sorted(f for f in os.listdir(config_folder) if f.endswith(".yaml"))
     if not yaml_files:
+        missing_name = config_path or "<auto-select>"
         raise FileNotFoundError(
-            f"Config file '{config_path}' not found and no YAML files exist in '{config_folder}'."
+            f"Config file '{missing_name}' not found and no YAML files exist in '{config_folder}'."
         )
 
-    available_configs = ", ".join(sorted(yaml_files))
-    raise FileNotFoundError(
-        f"Config file '{config_path}' not found. Available configs: {available_configs}"
+    if config_path:
+        available_configs = ", ".join(yaml_files)
+        raise FileNotFoundError(
+            f"Config file '{config_path}' not found. Available configs: {available_configs}"
+        )
+
+    if len(yaml_files) == 1:
+        selected_file = os.path.abspath(os.path.join(config_folder, yaml_files[0]))
+        console.print(
+            f"\n[bold green]Selected configuration: {yaml_files[0]}[/bold green]"
+        )
+        return selected_file
+
+    selection = get_user_choice(
+        yaml_files + ["Exit"],
+        title="Select Configuration",
+        text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
     )
+    if selection == "Exit":
+        return None
+
+    selected_file = os.path.abspath(os.path.join(config_folder, selection))
+    console.print(f"\n[bold green]Selected configuration: {selection}[/bold green]")
+    return selected_file
 
 
 def verify_model_file(model_name):
@@ -223,6 +260,11 @@ def main():
     try:
         args = parse_args()
         config_file = select_config(args.config)
+        if config_file is None:
+            console.print(
+                "[bold yellow]No configuration selected. Exiting.[/bold yellow]"
+            )
+            return
 
         # Load configuration from selected YAML file
         with open(config_file, "r") as file:
