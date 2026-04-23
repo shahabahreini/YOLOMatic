@@ -12,12 +12,14 @@ try:
     from src.cli.run import get_user_choice
     from src.utils.ml_dependencies import (
         MLDependencyError,
+        import_torch,
         import_ultralytics_settings,
         import_ultralytics_yolo,
     )
 except ImportError:
     from utils.ml_dependencies import (
         MLDependencyError,
+        import_torch,
         import_ultralytics_settings,
         import_ultralytics_yolo,
     )
@@ -227,6 +229,54 @@ def initialize_clearml_task(project_name, task_name, tags):
         return None
 
 
+def resolve_training_device(training_params):
+    requested_device = training_params.get("device")
+    if requested_device is None:
+        return training_params
+
+    try:
+        torch = import_torch()
+    except MLDependencyError:
+        return training_params
+
+    normalized_device = str(requested_device).strip().lower()
+    wants_cuda = (
+        normalized_device == "cuda" or normalized_device.replace(",", "").isdigit()
+    )
+
+    if wants_cuda and not torch.cuda.is_available():
+        torch_version = getattr(torch, "__version__", "unknown")
+        build_hint = (
+            "Your current PyTorch build is CPU-only."
+            if "+cpu" in torch_version
+            else "PyTorch cannot access CUDA in this environment."
+        )
+        console.print(
+            "[bold yellow]CUDA was requested in the training config, but PyTorch cannot use it.[/bold yellow]"
+        )
+        console.print(
+            f"[bold yellow]Detected torch build: {torch_version}[/bold yellow]"
+        )
+        console.print(f"[bold yellow]{build_hint}[/bold yellow]")
+        console.print(
+            "[bold yellow]If `nvidia-smi` works but torch reports no CUDA devices, reinstall a CUDA-enabled PyTorch build for this environment.[/bold yellow]"
+        )
+        selection = get_user_choice(
+            ["Continue on CPU", "Cancel Training"],
+            title="CUDA Device Unavailable",
+            text="Use ↑↓ keys to continue on CPU or cancel training:",
+        )
+        if selection == "Cancel Training":
+            return False
+
+        updated_training_params = dict(training_params)
+        updated_training_params["device"] = "cpu"
+        console.print("[bold yellow]Continuing training on CPU.[/bold yellow]")
+        return updated_training_params
+
+    return training_params
+
+
 def print_config_summary(config, dataset_config):
     """Print a summary of the loaded configurations."""
     console.print(Panel.fit("[bold]Configuration Summary[/bold]", style="bold blue"))
@@ -336,6 +386,11 @@ def main():
             console.print("[bold red]Model verification failed. Exiting.[/bold red]")
             return
 
+        training_params = resolve_training_device(training_params)
+        if training_params is False:
+            console.print("[bold yellow]Training cancelled.[/bold yellow]")
+            return
+
         # Initialize ClearML Task
         current_time = datetime.now().strftime(clearml_settings["task_name_format"])
         task_name = f"{model_name}-{current_time}"
@@ -381,6 +436,14 @@ def main():
         console.print(f"[bold red]Error: {str(e)}[/bold red]")
     except MLDependencyError as e:
         console.print(f"[bold red]{str(e)}[/bold red]")
+    except ValueError as e:
+        if "Invalid CUDA 'device" in str(e):
+            console.print(f"[bold red]{str(e)}[/bold red]")
+            console.print(
+                "[bold yellow]PyTorch cannot see a CUDA device in this environment. If `nvidia-smi` works, reinstall a CUDA-enabled torch build in this `.venv`.[/bold yellow]"
+            )
+        else:
+            console.print(f"[bold red]Error: {str(e)}[/bold red]")
     except Exception as e:
         console.print(f"[bold red]An unexpected error occurred: {str(e)}[/bold red]")
         import traceback
