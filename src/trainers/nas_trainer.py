@@ -6,9 +6,23 @@ import yaml
 from clearml import Logger, Task
 
 try:
+    from src.cli.run import get_user_choice
     from src.utils.ml_dependencies import import_module_or_raise, import_torch
 except ImportError:
     from utils.ml_dependencies import import_module_or_raise, import_torch
+
+    try:
+        from cli.run import get_user_choice
+    except ImportError:
+
+        def get_user_choice(
+            options,
+            allow_back=False,
+            title="Select an Option",
+            text="Use ↑↓ keys to navigate, Enter to select:",
+            model_data=None,
+        ):
+            return options[0]
 
 
 class Config:
@@ -31,6 +45,25 @@ class ClearMLCallback:
             self.logger.report_scalar(
                 title="metrics", series=key, value=value, iteration=epoch
             )
+
+
+def initialize_clearml_task(project_name, task_name, tags):
+    try:
+        return Task.init(
+            project_name=project_name,
+            task_name=task_name,
+            tags=tags,
+        )
+    except Exception as error:
+        print(f"ClearML is not configured: {error}")
+        selection = get_user_choice(
+            ["Continue Without ClearML", "Cancel Training"],
+            title="ClearML Setup Required",
+            text="Use ↑↓ keys to choose whether to continue without ClearML or cancel training:",
+        )
+        if selection == "Cancel Training":
+            return False
+        return None
 
 
 def main(config_path: Optional[str] = None):
@@ -70,14 +103,21 @@ def main(config_path: Optional[str] = None):
     current_time = datetime.now().strftime("%Y-%m-%d-%H-%M")
     experiment_name = f"{cfg.experiment['name_prefix']}-{current_time}"
 
-    task = Task.init(
+    task = initialize_clearml_task(
         project_name=cfg.clearml["project_name"],
         task_name=experiment_name,
         tags=cfg.clearml["tags"],
     )
-    task.set_parameters(
-        {"user": cfg.experiment["user"], "experiment": cfg.experiment["description"]}
-    )
+    if task is False:
+        print("Training cancelled.")
+        return
+    if task is not None:
+        task.set_parameters(
+            {
+                "user": cfg.experiment["user"],
+                "experiment": cfg.experiment["description"],
+            }
+        )
 
     torch.backends.quantized.engine = "qnnpack"
     trainer = trainer_class(
@@ -88,7 +128,8 @@ def main(config_path: Optional[str] = None):
         "data_dir": cfg.dataset["base_dir"],
         "classes": cfg.dataset["classes"],
     }
-    task.connect(dataset_params)
+    if task is not None:
+        task.connect(dataset_params)
 
     train_data = coco_detection_yolo_format_train(
         dataset_params={
@@ -169,7 +210,8 @@ def main(config_path: Optional[str] = None):
         "metric_to_watch": "mAP@0.50",
     }
 
-    task.connect(train_params)
+    if task is not None:
+        task.connect(train_params)
 
     model = models.get(
         cfg.model["name"],
@@ -177,13 +219,13 @@ def main(config_path: Optional[str] = None):
         pretrained_weights=cfg.model["pretrained_weights"],
     )
 
-    clearml_callback = ClearMLCallback(task)
+    callbacks = [ClearMLCallback(task)] if task is not None else []
     trainer.train(
         model=model,
         training_params=train_params,
         train_loader=train_data,
         valid_loader=val_data,
-        callbacks=[clearml_callback],
+        callbacks=callbacks,
     )
 
     try:

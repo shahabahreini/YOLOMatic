@@ -208,6 +208,25 @@ def verify_model_file(model_name):
         return None
 
 
+def initialize_clearml_task(project_name, task_name, tags):
+    try:
+        return Task.init(
+            project_name=project_name,
+            task_name=task_name,
+            tags=tags,
+        )
+    except Exception as error:
+        console.print(f"[bold yellow]ClearML is not configured: {error}[/bold yellow]")
+        selection = get_user_choice(
+            ["Continue Without ClearML", "Cancel Training"],
+            title="ClearML Setup Required",
+            text="Use ↑↓ keys to choose whether to continue without ClearML or cancel training:",
+        )
+        if selection == "Cancel Training":
+            return False
+        return None
+
+
 def print_config_summary(config, dataset_config):
     """Print a summary of the loaded configurations."""
     console.print(Panel.fit("[bold]Configuration Summary[/bold]", style="bold blue"))
@@ -321,20 +340,23 @@ def main():
         current_time = datetime.now().strftime(clearml_settings["task_name_format"])
         task_name = f"{model_name}-{current_time}"
 
-        task = Task.init(
+        task = initialize_clearml_task(
             project_name=clearml_settings["project_name"],
             task_name=task_name,
             tags=[model_name[:4].upper() + model_name[4:]],
         )
+        if task is False:
+            console.print("[bold yellow]Training cancelled.[/bold yellow]")
+            return
 
-        # Log configurations to ClearML
-        task.connect(
-            {
-                "dataset_config": dataset_config,
-                "training_params": training_params,
-                "export_params": export_params,
-            }
-        )
+        if task is not None:
+            task.connect(
+                {
+                    "dataset_config": dataset_config,
+                    "training_params": training_params,
+                    "export_params": export_params,
+                }
+            )
 
         # Enable TensorBoard explicitly
         ultra_settings = import_ultralytics_settings()
