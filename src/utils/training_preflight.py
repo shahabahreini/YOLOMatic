@@ -160,6 +160,19 @@ def _tail_output(text: str, line_count: int = 20) -> str:
     return "\n".join(lines[-line_count:])
 
 
+def _run_repair_command(
+    command: list[str], description: str
+) -> subprocess.CompletedProcess[str]:
+    console.print(f"[bold cyan]{description}[/bold cyan]")
+    with console.status(f"[bold]{description}[/bold]", spinner="dots"):
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+
 def repair_cuda_enabled_torch(
     python_executable: str | None = None,
     index_url: str = DEFAULT_TORCH_CUDA_INDEX_URL,
@@ -191,14 +204,16 @@ def repair_cuda_enabled_torch(
             index_url,
         ],
     ]
+    descriptions = [
+        "Removing existing PyTorch packages from the active environment...",
+        "Installing CUDA-enabled PyTorch packages. This can take several minutes while large wheels download...",
+    ]
 
     outputs: list[str] = []
-    for command in commands:
-        process = subprocess.run(
+    for description, command in zip(descriptions, commands):
+        process = _run_repair_command(
             command,
-            capture_output=True,
-            text=True,
-            check=False,
+            description,
         )
         command_text = " ".join(command)
         combined_output = "\n".join(
@@ -211,6 +226,9 @@ def repair_cuda_enabled_torch(
             inspection = inspect_torch_runtime(executable)
             return False, "\n\n".join(outputs), inspection
 
+    console.print(
+        "[bold cyan]Verifying the repaired PyTorch environment...[/bold cyan]"
+    )
     inspection = inspect_torch_runtime(executable)
     if not inspection.cuda_available:
         outputs.append(
