@@ -58,7 +58,8 @@ def select_weight(project_root: Path, available_weights: Sequence[Path]) -> Path
     selected = get_user_choice(
         options,
         title="Select Weight",
-        text="Use ↑↓ keys to navigate, Enter to select:",
+        text="Pick the trained model weights to use:",
+        breadcrumbs=["YOLOmatic", "Predictor", "Weight Selection"],
     )
     return available_weights[options.index(selected)]
 
@@ -82,12 +83,13 @@ def select_mode() -> str:
     selected = get_user_choice(
         [MODE_LABELS["single"], MODE_LABELS["folder"], "Exit"],
         title="Prediction Mode",
-        text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
+        text="Choose how you want to run predictions:",
         descriptions={
             MODE_LABELS["single"]: "Run prediction on a single image file.",
             MODE_LABELS["folder"]: "Run prediction on all supported images within a folder.",
             "Exit": "Exit the predictor.",
         },
+        breadcrumbs=["YOLOmatic", "Predictor", "Mode Selection"],
     )
     if selected == "Exit":
         raise SystemExit(0)

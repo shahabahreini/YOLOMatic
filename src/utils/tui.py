@@ -4,13 +4,15 @@ import time
 from typing import Any, Sequence
 
 from blessed import Terminal
-from rich.console import Console, Group
+from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
+from rich.align import Align
+from rich import box
 
 # Initialize shared resources
 TUI_CONSOLE = Console()
@@ -25,11 +27,11 @@ def clear_screen() -> None:
 def print_header(text: str) -> None:
     """Print a stylized header."""
     header = Text(text, style="bold cyan", justify="center")
-    TUI_CONSOLE.print(Panel(header, border_style="cyan", padding=(0, 2)))
+    TUI_CONSOLE.print(Panel(header, border_style="cyan", padding=(0, 2), box=box.ROUNDED))
 
 
 class MenuRenderer:
-    """Handles the rendering of the interactive menu using Rich Layout."""
+    """Handles the rendering of the interactive menu using a modern split layout."""
 
     def __init__(
         self,
@@ -39,6 +41,7 @@ class MenuRenderer:
         instruction: str,
         descriptions: dict[str, str] | None = None,
         model_data: list[dict[str, Any]] | None = None,
+        breadcrumbs: list[str] | None = None,
     ):
         self.options = options
         self.current_selection = current_selection
@@ -46,21 +49,49 @@ class MenuRenderer:
         self.instruction = instruction
         self.descriptions = descriptions or {}
         self.model_data = model_data
+        self.breadcrumbs = breadcrumbs or []
 
-    def _render_options(self) -> Group:
-        """Render the list of options with the current selection highlighted."""
+    def _is_header(self, option: str) -> bool:
+        """Check if an option is a header (non-selectable)."""
+        return option.startswith("[") and option.endswith("]")
+
+    def _render_sidebar(self) -> Panel:
+        """Render the list of options in a sidebar with grouping support."""
         items = []
         for i, option in enumerate(self.options):
-            if i == self.current_selection:
-                shortcut = ""
-                if option == "Back":
-                    shortcut = " (or 'b')"
-                elif option == "Exit":
-                    shortcut = " (or 'q')"
-                items.append(Text(f" > {option}{shortcut}", style="bold black on white"))
+            if self._is_header(option):
+                # Header item
+                header_text = option[1:-1].upper()
+                items.append(Text(f"\n {header_text}", style="bold cyan dim"))
+            elif i == self.current_selection:
+                # Active selection
+                prefix = "➤ "
+                text = Text(f"{prefix}{option}", style="bold white on blue")
+                items.append(text)
             else:
-                items.append(Text(f"   {option}", style="dim"))
-        return Group(*items)
+                items.append(Text(f"  {option}", style="dim"))
+        
+        return Panel(
+            Group(*items),
+            title="[bold cyan]Navigation[/bold cyan]",
+            border_style="blue",
+            padding=(0, 1),
+            expand=True
+        )
+
+    def _render_breadcrumbs(self) -> Text:
+        """Render breadcrumbs for the current path."""
+        if not self.breadcrumbs:
+            return Text("")
+        
+        parts = []
+        for i, crumb in enumerate(self.breadcrumbs):
+            style = "bold cyan" if i == len(self.breadcrumbs) - 1 else "dim white"
+            parts.append(Text(crumb, style=style))
+        
+        separator = Text(" › ", style="dim")
+        breadcrumb_text = separator.join(parts)
+        return breadcrumb_text
 
     def _render_model_table(self) -> Table | None:
         """Render a comparison table if model data is available."""
@@ -68,27 +99,61 @@ class MenuRenderer:
             return None
 
         table = Table(
-            title=f"Comparison Table for {self.model_data[0].get('Model', 'Selected Model')}",
+            title=f"Comparison: {self.model_data[0].get('Model', 'Selected Family')}",
             title_style="bold green",
             expand=True,
             border_style="dim",
+            box=box.SIMPLE_HEAD,
+            show_header=True,
+            header_style="bold cyan",
         )
 
-        headers = self.model_data[0].keys()
+        headers = list(self.model_data[0].keys())
         for header in headers:
-            table.add_column(header, justify="center", style="cyan")
+            table.add_column(header, justify="center")
 
         for row in self.model_data:
-            table.add_row(*[str(value) for value in row.values()])
+            current_opt = self.options[self.current_selection]
+            # Precise match for variants
+            is_selected = current_opt == row.get("Model")
+            
+            style = "bold yellow" if is_selected else "dim"
+            table.add_row(*[str(value) for value in row.values()], style=style)
 
         return table
+
+    def _render_status_bar(self) -> Panel:
+        """Render a small status bar with keyboard hints and app version."""
+        from src.__version__ import __version__
+        
+        hints = [
+            ("[bold yellow]↑↓[/bold yellow]", "Move"),
+            ("[bold yellow]Enter[/bold yellow]", "Select"),
+            ("[bold yellow]B[/bold yellow]", "Back"),
+            ("[bold yellow]Q[/bold yellow]", "Quit"),
+        ]
+        
+        parts = []
+        for key, action in hints:
+            parts.append(f"{key} {action}")
+        
+        hints_text = Text.from_markup("  •  ".join(parts))
+        version_text = Text(f"v{__version__}", style="dim cyan")
+        
+        # Create a layout for the status bar to separate hints and version
+        status_table = Table.grid(expand=True)
+        status_table.add_column(justify="left", ratio=1)
+        status_table.add_column(justify="right")
+        status_table.add_row(hints_text, version_text)
+        
+        return Panel(status_table, border_style="dim", padding=(0, 1))
 
     def __rich__(self) -> Layout:
         layout = Layout()
         layout.split_column(
             Layout(name="header", size=3),
-            Layout(name="main"),
-            Layout(name="footer", size=5),
+            Layout(name="body"),
+            Layout(name="footer", size=3),
         )
 
         # Header
@@ -96,35 +161,52 @@ class MenuRenderer:
             Panel(
                 Text(self.title, style="bold cyan", justify="center"),
                 border_style="cyan",
+                box=box.ROUNDED
             )
         )
 
-        # Main Content
-        main_group = [
-            Text(self.instruction, style="bold yellow"),
-            Text(""),  # Spacer
-            self._render_options(),
-        ]
+        # Body - Split into Sidebar and Content
+        layout["body"].split_row(
+            Layout(name="sidebar", ratio=1),
+            Layout(name="content", ratio=3),
+        )
+
+        # Sidebar
+        layout["body"]["sidebar"].update(self._render_sidebar())
+
+        # Content
+        main_content: list[RenderableType] = []
+        
+        # Breadcrumbs at the top of content
+        breadcrumbs = self._render_breadcrumbs()
+        if breadcrumbs:
+            main_content.append(breadcrumbs)
+            main_content.append(Text(""))
+
+        main_content.append(Text(self.instruction, style="italic yellow"))
+        main_content.append(Text(""))
 
         model_table = self._render_model_table()
         if model_table:
-            main_group.insert(0, model_table)
-            main_group.insert(1, Text(""))
-
-        layout["main"].update(Panel(Group(*main_group), border_style="dim"))
-
-        # Footer / Info Box
-        current_option = self.options[self.current_selection]
-        description = self.descriptions.get(current_option, "No additional info available.")
-        
-        layout["footer"].update(
-            Panel(
-                Text.from_markup(f"[bold cyan]Info:[/bold cyan] {description}"),
-                title="Description",
-                title_align="left",
-                border_style="blue",
+            main_content.append(model_table)
+        else:
+            current_option = self.options[self.current_selection]
+            description = self.descriptions.get(current_option, "Explore the options using navigation.")
+            main_content.append(
+                Panel(
+                    Text.from_markup(f"{description}"),
+                    title=f"[bold cyan]{current_option}[/bold cyan]",
+                    border_style="blue",
+                    padding=(1, 2)
+                )
             )
+
+        layout["body"]["content"].update(
+            Panel(Group(*main_content), border_style="dim", padding=(1, 1))
         )
+
+        # Footer
+        layout["footer"].update(self._render_status_bar())
 
         return layout
 
@@ -133,18 +215,25 @@ def get_user_choice(
     options: Sequence[str],
     allow_back: bool = False,
     title: str = "Select an Option",
-    text: str = "Use ↑↓ keys to navigate, Enter to select:",
+    text: str = "Navigate the menu to continue:",
     model_data: list[dict[str, Any]] | None = None,
     descriptions: dict[str, str] | None = None,
+    breadcrumbs: list[str] | None = None,
 ) -> str:
     """
-    Highly refined interactive menu using rich.live and blessed.
+    Highly refined interactive menu with grouped options and breadcrumbs.
     """
     selectable_options = list(options)
     if allow_back and "Back" not in selectable_options:
         selectable_options.append("Back")
 
-    current_selection = 0
+    # Filter out headers for navigation, but keep them for rendering
+    # Actually, we need to know which indices are selectable
+    navigable_indices = [i for i, opt in enumerate(selectable_options) if not (opt.startswith("[") and opt.endswith("]"))]
+    
+    # Map current_selection (index in navigable_indices) to actual index in selectable_options
+    current_nav_idx = 0
+    current_selection = navigable_indices[current_nav_idx]
 
     with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
         renderer = MenuRenderer(
@@ -154,24 +243,28 @@ def get_user_choice(
             text,
             descriptions,
             model_data,
+            breadcrumbs,
         )
         
         with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
             while True:
                 key = TUI_TERM.inkey(timeout=0.1)
 
-                if key.name == "KEY_UP":
-                    current_selection = (current_selection - 1) % len(selectable_options)
-                elif key.name == "KEY_DOWN":
-                    current_selection = (current_selection + 1) % len(selectable_options)
+                if key.name == "KEY_UP" or key.lower() == "k":
+                    current_nav_idx = (current_nav_idx - 1) % len(navigable_indices)
+                elif key.name == "KEY_DOWN" or key.lower() == "j":
+                    current_nav_idx = (current_nav_idx + 1) % len(navigable_indices)
                 elif key.name == "KEY_ENTER":
-                    return selectable_options[current_selection]
+                    return selectable_options[navigable_indices[current_nav_idx]]
                 elif key.lower() == "b" and "Back" in selectable_options:
                     return "Back"
-                elif key.lower() == "q" and "Exit" in selectable_options:
-                    return "Exit"
+                elif key.lower() == "q" or key.name == "KEY_ESCAPE":
+                    if "Exit" in selectable_options:
+                        return "Exit"
+                    return "Back" if "Back" in selectable_options else selectable_options[navigable_indices[0]]
 
                 # Update renderer state
+                current_selection = navigable_indices[current_nav_idx]
                 renderer.current_selection = current_selection
                 live.update(renderer)
 
@@ -184,7 +277,7 @@ def render_table(
     border_style: str = "dim",
 ) -> None:
     """Render a standard table."""
-    table = Table(title=title, title_style=title_style, border_style=border_style, expand=True)
+    table = Table(title=title, title_style=title_style, border_style=border_style, expand=True, box=box.ROUNDED)
     for col in columns:
         table.add_column(col, style="cyan")
     for row in rows:
@@ -194,11 +287,11 @@ def render_table(
 
 def render_summary_panel(title: str, fields: dict[str, Any], border_style: str = "green") -> None:
     """Render a summary information panel."""
-    table = Table.grid(padding=(0, 1))
+    table = Table.grid(padding=(0, 2))
     table.add_column(style="cyan bold")
     table.add_column(style="white")
     
     for key, value in fields.items():
         table.add_row(f"{key}:", str(value))
         
-    TUI_CONSOLE.print(Panel(table, title=title, border_style=border_style, padding=(1, 2)))
+    TUI_CONSOLE.print(Panel(table, title=f"[bold]{title}[/bold]", border_style=border_style, padding=(1, 2), box=box.ROUNDED))

@@ -790,21 +790,23 @@ def choose_regular_yolo_profiles(
 
 
 def get_model_menu():
-    """Get the list of available YOLO models."""
-    # Add 'yolo_nas' to the existing models list
+    """Get the list of available YOLO models grouped by category."""
     models = [
+        "[Detection]",
         "yolo26",
-        "yolo26-seg",
         "yolov12",
-        "yolov12-seg",
         "yolov11",
-        "yolov11-seg",
         "yolov10",
         "yolov9",
-        "yolov9-seg",
         "yolov8",
-        "yolov8-seg",
         "yolox",
+        "[Segmentation]",
+        "yolo26-seg",
+        "yolov12-seg",
+        "yolov11-seg",
+        "yolov9-seg",
+        "yolov8-seg",
+        "[Specialized]",
         "yolo_nas",
     ]
     return models
@@ -815,18 +817,20 @@ def main():
         clear_screen()
         print_stylized_header("YOLO Model Selector")
 
-        # Add version check option to main menu
-        main_menu_options = ["Select Model", "Check Ultralytics Version", "Exit"]
+        # Add version check and about options to main menu
+        main_menu_options = ["Select Model", "Check Ultralytics Version", "About YOLOmatic", "Exit"]
 
         main_choice = get_user_choice(
             main_menu_options,
             title="Main Menu",
-            text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
+            text="Pick a task to begin:",
             descriptions={
                 "Select Model": "Select a YOLO model and dataset to generate a training configuration.",
                 "Check Ultralytics Version": "Check if a new version of the ultralytics package is available and update if needed.",
+                "About YOLOmatic": "Information about the tool and its creator.",
                 "Exit": "Exit the YOLOmatic application.",
             },
+            breadcrumbs=["YOLOmatic"],
         )
 
         if main_choice == "Exit":
@@ -838,13 +842,37 @@ def main():
             check_ultralytics_version()
             continue
 
+        elif main_choice == "About YOLOmatic":
+            clear_screen()
+            from src.__version__ import __version__
+            
+            about_text = [
+                "[bold cyan]YOLOmatic[/bold cyan]",
+                f"Version: [bold]{__version__}[/bold]",
+                "",
+                "A powerful CLI tool for automated YOLO training, configuration,",
+                "and dataset management.",
+                "",
+                "Created by:",
+                "[bold yellow]Shahab Bahreini Jangjoo[/bold yellow]",
+                "[dim]shahabahreini@hotmail.com[/dim]",
+                "",
+                "Thank you for using YOLOmatic!",
+            ]
+            
+            console.print("\n")
+            console.print(Panel(Align.center("\n".join(about_text)), border_style="cyan", padding=(1, 4), box=box.ROUNDED))
+            console.print("\n")
+            input("Press Enter to return to Main Menu...")
+            continue
+
         elif main_choice == "Select Model":
             # Get model choice
             model_types = get_model_menu()
             model_choice = get_user_choice(
                 model_types,
                 title="YOLO Model Selector",
-                text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
+                text="Choose a model family for your project:",
                 allow_back=True,
                 descriptions={
                     "yolo26": "State-of-the-art YOLOv8-based models with improved architecture and performance.",
@@ -861,6 +889,7 @@ def main():
                     "yolox": "Anchor-free YOLO implementation for high performance.",
                     "yolo_nas": "Neural Architecture Search optimized YOLO models from Deci.ai.",
                 },
+                breadcrumbs=["YOLOmatic", "Model Selection"],
             )
 
             if model_choice == "Back":
@@ -874,8 +903,9 @@ def main():
                     nas_models,
                     allow_back=True,
                     title=f"Select {model_choice.upper()} Variant",
-                    text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
+                    text="Choose the model size that fits your hardware:",
                     model_data=model_data_dict["yolo_nas"],
+                    breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
                 )
 
                 if model_variant == "Back":
@@ -889,8 +919,9 @@ def main():
                     variants,
                     allow_back=True,
                     title=f"Select {model_choice.upper()} Variant",
-                    text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
+                    text="Choose the model size that fits your hardware:",
                     model_data=model_data_dict[model_choice],
+                    breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
                 )
 
                 if model_variant == "Back":
