@@ -44,6 +44,12 @@ def find_run_directories(base_dir: str | Path) -> list[Path]:
         parent_dir = run_file.parent
         if parent_dir not in event_dirs:
             event_dirs.append(parent_dir)
+
+    for event_file in base_path.rglob("events.out.tfevents.*"):
+        parent_dir = event_file.parent
+        run_dir = parent_dir.parent if parent_dir.name == "tensorboard" else parent_dir
+        if run_dir not in event_dirs:
+            event_dirs.append(run_dir)
     return sorted(event_dirs)
 
 

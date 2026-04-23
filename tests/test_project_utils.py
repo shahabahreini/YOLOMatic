@@ -4,6 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+
 from src.config.generator import YOLOConfigGenerator
 from src.utils.project import (
     find_available_weights,
@@ -13,6 +16,10 @@ from src.utils.project import (
     list_dataset_directories,
     load_dataset_config,
     verify_dataset_directories,
+)
+from src.utils.tensorboard import (
+    backfill_ultralytics_tensorboard,
+    validate_tensorboard_run,
 )
 
 
@@ -47,6 +54,17 @@ class ProjectUtilsTests(unittest.TestCase):
             run_dir = root / "runs" / "detect" / "train"
             run_dir.mkdir(parents=True)
             (run_dir / "args.yaml").write_text("model: yolo\n", encoding="utf-8")
+
+            self.assertEqual(find_run_directories(root / "runs"), [run_dir])
+
+    def test_find_run_directories_includes_tensorboard_event_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_dir = root / "runs" / "nas" / "experiment-1"
+            log_dir = run_dir / "tensorboard"
+            writer = SummaryWriter(log_dir=str(log_dir))
+            writer.add_scalar("loss/train/total", 1.0, 0)
+            writer.close()
 
             self.assertEqual(find_run_directories(root / "runs"), [run_dir])
 
@@ -103,6 +121,58 @@ class ProjectUtilsTests(unittest.TestCase):
 
     def test_format_size(self) -> None:
         self.assertEqual(format_size(1024), "1.00 KB")
+
+    def test_validate_tensorboard_run_passes_when_required_signals_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir) / "runs" / "detect" / "train1"
+            writer = SummaryWriter(log_dir=str(run_dir / "tensorboard"))
+            writer.add_text("metadata/config", "model: yolo", 0)
+            writer.add_scalar("loss/train/box", 1.0, 0)
+            writer.add_scalar("loss/val/box", 0.8, 0)
+            writer.add_scalar("metrics/precision", 0.7, 0)
+            writer.add_scalar("metrics/recall", 0.6, 0)
+            writer.add_scalar("metrics/map50", 0.5, 0)
+            writer.add_scalar("optimization/lr/pg0", 0.01, 0)
+            writer.add_scalar("runtime/epoch_total_time_sec", 12.0, 0)
+            writer.add_text("artifacts/confusion_paths", "confusion_matrix.png", 0)
+            writer.add_text("artifacts/curves_paths", "PR_curve.png", 0)
+            writer.add_text("artifacts/samples_paths", "val_batch0_pred.jpg", 0)
+            writer.close()
+
+            report = validate_tensorboard_run(run_dir)
+
+            self.assertEqual(report.missing_required, [])
+
+    def test_backfill_ultralytics_tensorboard_creates_complete_dashboard(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir) / "runs" / "detect" / "train42"
+            run_dir.mkdir(parents=True)
+            (run_dir / "results.csv").write_text(
+                "epoch,train/box_loss,val/box_loss,metrics/precision(B),metrics/recall(B),metrics/mAP50(B),lr/pg0\n"
+                "0,1.2,0.9,0.5,0.4,0.3,0.01\n",
+                encoding="utf-8",
+            )
+            image = np.zeros((8, 8, 3), dtype=np.uint8)
+            import cv2
+
+            cv2.imwrite(str(run_dir / "confusion_matrix.png"), image)
+            cv2.imwrite(str(run_dir / "PR_curve.png"), image)
+            cv2.imwrite(str(run_dir / "val_batch0_pred.jpg"), image)
+
+            backfill_ultralytics_tensorboard(
+                run_dir=run_dir,
+                metadata={
+                    "model": "yolo11n",
+                    "dataset": "demo",
+                    "config_path": "configs/demo.yaml",
+                    "run_name": "train42",
+                },
+                device="cpu",
+            )
+
+            report = validate_tensorboard_run(run_dir)
+
+            self.assertEqual(report.missing_required, [])
 
     def test_worker_recommendation_is_conservative_on_tight_systems(self) -> None:
         generator = YOLOConfigGenerator("/tmp/nonexistent-dataset")

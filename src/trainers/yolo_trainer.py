@@ -20,6 +20,12 @@ from src.utils.project import (
     resolve_config_path,
     verify_dataset_directories,
 )
+from src.utils.tensorboard import (
+    backfill_ultralytics_tensorboard,
+    build_tensorboard_metadata,
+    emit_tensorboard_report,
+    validate_tensorboard_run,
+)
 from src.utils.training_preflight import resolve_training_device
 
 
@@ -269,6 +275,9 @@ def main():
             nas_main(config_file)
             return
 
+        current_time = datetime.now().strftime(clearml_settings["task_name_format"])
+        task_name = f"{model_name}-{current_time}"
+
         device_resolution = resolve_training_device(training_params.get("device"))
         if device_resolution.cancelled:
             console.print("[bold yellow]Training cancelled.[/bold yellow]")
@@ -276,6 +285,10 @@ def main():
         if device_resolution.device != training_params.get("device"):
             training_params = dict(training_params)
             training_params["device"] = device_resolution.device
+        if "project" not in training_params:
+            training_params["project"] = "runs"
+        if "name" not in training_params:
+            training_params["name"] = task_name
 
         model = verify_model_file(model_name)
         if model is None:
@@ -283,9 +296,6 @@ def main():
             return
 
         # Initialize ClearML Task
-        current_time = datetime.now().strftime(clearml_settings["task_name_format"])
-        task_name = f"{model_name}-{current_time}"
-
         task = initialize_clearml_task(
             project_name=clearml_settings["project_name"],
             task_name=task_name,
@@ -311,6 +321,8 @@ def main():
         # Start training
         console.print("\n[bold green]Starting training...[/bold green]")
         model.train(data=data_yaml_path, **training_params)
+        save_dir = getattr(getattr(model, "trainer", None), "save_dir", None)
+        run_dir = Path(save_dir) if save_dir else None
 
         # Start validation
         console.print("\n[bold green]Starting validation...[/bold green]")
@@ -319,6 +331,22 @@ def main():
         # Export the model
         console.print("\n[bold green]Exporting model...[/bold green]")
         model.export(**export_params)
+
+        if run_dir is not None:
+            metadata = build_tensorboard_metadata(
+                model_name=model_name,
+                dataset_name=settings["dataset"],
+                config_path=config_file,
+                run_name=task_name,
+                device=training_params.get("device"),
+                training_params=training_params,
+            )
+            backfill_ultralytics_tensorboard(
+                run_dir=run_dir,
+                metadata=metadata,
+                device=training_params.get("device"),
+            )
+            emit_tensorboard_report(console, validate_tensorboard_run(run_dir))
 
         console.print("\n[bold green]Training completed successfully![/bold green]")
 

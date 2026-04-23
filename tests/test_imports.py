@@ -14,6 +14,7 @@ MODULES = [
     "src.cli.tensorboard_launcher",
     "src.trainers.yolo_trainer",
     "src.trainers.nas_trainer",
+    "src.utils.tensorboard",
 ]
 
 

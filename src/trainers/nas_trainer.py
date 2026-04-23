@@ -1,6 +1,7 @@
 import os
 import traceback
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import yaml
@@ -12,6 +13,12 @@ from src.utils.ml_dependencies import (
     MLDependencyError,
     import_module_or_raise,
     import_torch,
+)
+from src.utils.tensorboard import (
+    SuperGradientsTensorBoardCallback,
+    build_tensorboard_metadata,
+    emit_tensorboard_report,
+    validate_tensorboard_run,
 )
 from src.utils.training_preflight import resolve_training_device
 
@@ -35,8 +42,9 @@ class ClearMLCallback:
 
         self.logger = Logger.current_logger()
 
-    def on_validation_end(self, trainer, metrics, **kwargs):
-        epoch = trainer.epoch
+    def on_validation_loader_end(self, context):
+        epoch = int(getattr(context, "epoch", 0))
+        metrics = getattr(context, "metrics_dict", None) or {}
         for key, value in metrics.items():
             self.logger.report_scalar(
                 title="metrics", series=key, value=value, iteration=epoch
@@ -90,6 +98,7 @@ def main(config_path: Optional[str] = None):
             console.print("[bold yellow]Training cancelled.[/bold yellow]")
             return
 
+        os.environ["CONSOLE_LOG_FILE"] = cfg.experiment["console_log_file"]
         validate_numpy_compatibility()
         torch = import_torch()
         training_module = import_module_or_raise("super_gradients.training")
@@ -122,10 +131,9 @@ def main(config_path: Optional[str] = None):
         export_quantization_mode = conversion_enums_module.ExportQuantizationMode
         data_loader_class = data_loader_module.DataLoader
 
-        os.environ["CONSOLE_LOG_FILE"] = cfg.experiment["console_log_file"]
-
         current_time = datetime.now().strftime("%Y-%m-%d-%H-%M")
         experiment_name = f"{cfg.experiment['name_prefix']}-{current_time}"
+        run_dir = Path(cfg.experiment["checkpoint_dir"]) / experiment_name
 
         task = initialize_clearml_task(
             project_name=cfg.clearml["project_name"],
@@ -248,13 +256,26 @@ def main(config_path: Optional[str] = None):
             pretrained_weights=cfg.model["pretrained_weights"],
         )
 
-        callbacks = [ClearMLCallback(task)] if task is not None else []
+        tensorboard_callback = SuperGradientsTensorBoardCallback(
+            run_dir=run_dir,
+            metadata=build_tensorboard_metadata(
+                model_name=cfg.model["name"],
+                dataset_name=Path(cfg.dataset["base_dir"]).name,
+                config_path=config_path or "config.yaml",
+                run_name=experiment_name,
+                device=device_resolution.device,
+                training_params=cfg.training,
+            ),
+        )
+        callbacks = [tensorboard_callback]
+        if task is not None:
+            callbacks.append(ClearMLCallback(task))
+        train_params["phase_callbacks"] = callbacks
         trainer.train(
             model=model,
             training_params=train_params,
             train_loader=train_data,
             valid_loader=val_data,
-            callbacks=callbacks,
         )
 
         try:
@@ -277,6 +298,7 @@ def main(config_path: Optional[str] = None):
             batch_size=cfg.export["calibration"]["batch_size"],
             num_workers=cfg.export["calibration"]["num_workers"],
         )
+        emit_tensorboard_report(console, validate_tensorboard_run(run_dir))
     except FileNotFoundError as error:
         console.print(f"[bold red]Error: {error}[/bold red]")
     except yaml.YAMLError as error:

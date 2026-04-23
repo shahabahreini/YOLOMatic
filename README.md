@@ -169,6 +169,8 @@ Training behavior:
 - If there are multiple YAML configs, YOLOmatic opens a TUI selector.
 - If ClearML is not configured, YOLOmatic prompts you to continue without ClearML or cancel.
 - If CUDA is requested but PyTorch cannot use it, YOLOmatic prompts you to repair the environment, continue on CPU, or cancel.
+- Every run now writes a TensorBoard dashboard contract for decision-making, covering config metadata, core train/validation losses, precision, recall, mAP, learning rate, runtime metrics, and key artifacts when available.
+- At the end of training, YOLOmatic prints a TensorBoard completeness report and warns if any critical metrics or plots are missing.
 
 ### 3. Run Predictions
 
@@ -212,6 +214,8 @@ While training is running (or after it finishes), easily launch TensorBoard to i
 ```sh
 uv run yolomatic-tensorboard
 ```
+
+The launcher now discovers runs from TensorBoard event files in addition to Ultralytics `args.yaml` markers, so YOLO-NAS experiments are included as well.
 
 On Windows, if `uv run` tries to re-sync the environment and fails with an access-denied error on a locked `torch` file, launch the installed entrypoint from the existing virtual environment instead:
 
