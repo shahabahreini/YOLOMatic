@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from src.config.generator import YOLOConfigGenerator
 from src.utils.project import (
     find_available_weights,
     find_run_directories,
@@ -102,3 +103,43 @@ class ProjectUtilsTests(unittest.TestCase):
 
     def test_format_size(self) -> None:
         self.assertEqual(format_size(1024), "1.00 KB")
+
+    def test_worker_recommendation_is_conservative_on_tight_systems(self) -> None:
+        generator = YOLOConfigGenerator("/tmp/nonexistent-dataset")
+        profile, reason = generator._recommend_worker_profile(
+            model_metrics={"heaviness": "heavy"},
+            dataset_metrics={
+                "total_size_bytes": 24 * 1024**3,
+                "total_file_count": 150000,
+                "image_count": 80000,
+            },
+            system_metrics={
+                "cpu_count": 8,
+                "available_ram_bytes": 12 * 1024**3,
+                "available_gpu_memory_bytes": 8 * 1024**3,
+                "device": "cuda",
+            },
+        )
+
+        self.assertEqual(profile, "light")
+        self.assertIn("limited RAM headroom", reason)
+
+    def test_worker_recommendation_only_goes_heavy_with_clear_headroom(self) -> None:
+        generator = YOLOConfigGenerator("/tmp/nonexistent-dataset")
+        profile, reason = generator._recommend_worker_profile(
+            model_metrics={"heaviness": "light"},
+            dataset_metrics={
+                "total_size_bytes": 2 * 1024**3,
+                "total_file_count": 18000,
+                "image_count": 12000,
+            },
+            system_metrics={
+                "cpu_count": 24,
+                "available_ram_bytes": 64 * 1024**3,
+                "available_gpu_memory_bytes": 16 * 1024**3,
+                "device": "cuda",
+            },
+        )
+
+        self.assertEqual(profile, "heavy")
+        self.assertIn("strong CPU core count", reason)

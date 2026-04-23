@@ -490,6 +490,7 @@ def build_regular_yolo_profile_summary_text(
     recommended_worker = profile_context["worker_profiles"][
         recommended_profiles["worker"]
     ]
+    worker_reason = profile_context.get("worker_recommendation_reason", "")
 
     lines = [
         f"Dataset: {dataset_name}",
@@ -543,6 +544,17 @@ def build_regular_yolo_profile_summary_text(
                 f"{format_profile_name(recommended_profiles['worker'])} "
                 f"({int(recommended_worker['workers'])} workers)"
             ),
+        ]
+    )
+    if worker_reason:
+        lines.append(f"- Worker rationale: {worker_reason}")
+    lines.extend(
+        [
+            "",
+            "Worker guidance:",
+            "- More workers are a throughput setting, not a quality setting.",
+            "- Too many workers can reduce stability through CPU contention, RAM pressure, storage thrashing, and noisier batch timing.",
+            "- If validation metrics drop after raising workers, move back toward Light or Medium.",
         ]
     )
     return "\n".join(lines)
@@ -644,6 +656,11 @@ def display_regular_yolo_profile_selection_summary(
         ),
     )
     table.add_row("Worker Notes", str(worker_profile["description"]))
+    if profile_context.get("worker_recommendation_reason"):
+        table.add_row(
+            "Worker Rationale",
+            str(profile_context["worker_recommendation_reason"]),
+        )
     table.add_row(
         "Augmentation Impact",
         "Controls how many augmentation keys YOLOmatic enables in training",
@@ -654,7 +671,7 @@ def display_regular_yolo_profile_selection_summary(
     )
     table.add_row(
         "Workers Impact",
-        "Controls dataloader parallelism based on RAM, CPU, GPU, dataset pressure, and model heaviness",
+        "Controls dataloader parallelism; more workers can raise throughput, but they can also hurt stability if RAM, CPU, or storage become bottlenecks",
     )
 
     console.print(table)
@@ -757,9 +774,9 @@ def choose_regular_yolo_profiles(
         worker_options,
         recommended_profiles["worker"],
         [
-            "More workers can improve throughput, but they also use more RAM and can stress slower disks.",
-            "If you are unsure, keep the recommended worker profile.",
-            "Heavy worker settings make the most sense when RAM is strong and the GPU needs faster data feeding.",
+            "Workers change throughput, not the optimization target, so higher values are not automatically better.",
+            "Too many workers can reduce training quality indirectly by causing CPU contention, RAM pressure, disk thrashing, and less stable batch preparation.",
+            "If you are unsure, keep the recommended worker profile and only raise it when the GPU is starved and the machine still has clear headroom.",
         ],
     )
     if worker_choice is None:

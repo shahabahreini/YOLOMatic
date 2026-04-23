@@ -64,9 +64,9 @@ COMPUTE_BATCH_TARGETS: dict[str, float | int] = {
 }
 
 WORKER_PROFILE_RATIOS: dict[str, float] = {
-    "light": 0.33,
-    "medium": 0.60,
-    "heavy": 0.85,
+    "light": 0.25,
+    "medium": 0.45,
+    "heavy": 0.65,
 }
 
 MODEL_VARIANT_RANKS = {
@@ -546,16 +546,16 @@ class BaseConfigGenerator:
         )
         total_file_count = int(dataset_metrics["total_file_count"])
 
-        safe_capacity = min(16, max(2, cpu_count - 1))
+        safe_capacity = min(12, max(2, cpu_count - 2))
 
         if available_ram_gib < 8:
             safe_capacity = min(safe_capacity, 4)
         elif available_ram_gib < 16:
-            safe_capacity = min(safe_capacity, 6)
+            safe_capacity = min(safe_capacity, 5)
         elif available_ram_gib < 32:
-            safe_capacity = min(safe_capacity, 8)
+            safe_capacity = min(safe_capacity, 7)
         elif available_ram_gib < 64:
-            safe_capacity = min(safe_capacity, 12)
+            safe_capacity = min(safe_capacity, 10)
 
         if dataset_to_ram_ratio > 1.0:
             safe_capacity = max(2, safe_capacity - 4)
@@ -564,20 +564,23 @@ class BaseConfigGenerator:
 
         if total_file_count > 100000:
             safe_capacity = max(2, safe_capacity - 2)
-        elif total_file_count < 10000 and available_ram_gib >= 16:
-            safe_capacity = min(cpu_count, safe_capacity + 1)
+        elif total_file_count < 10000:
+            safe_capacity = max(2, safe_capacity - 1)
 
         if (
             system_metrics["device"] == "cuda"
             and available_gpu_gib >= 12
             and available_ram_gib >= 32
         ):
-            safe_capacity = min(cpu_count, safe_capacity + 2)
+            safe_capacity = min(cpu_count, safe_capacity + 1)
+
+        if system_metrics["device"] == "cpu":
+            safe_capacity = max(2, safe_capacity - 1)
 
         if model_metrics["heaviness"] == "light":
             safe_capacity = min(cpu_count, safe_capacity + 1)
         elif model_metrics["heaviness"] == "heavy":
-            safe_capacity = max(2, safe_capacity - 1)
+            safe_capacity = max(2, safe_capacity - 2)
 
         safe_capacity = max(2, min(cpu_count, safe_capacity))
 
@@ -594,6 +597,13 @@ class BaseConfigGenerator:
             min(cpu_count, worker_counts["heavy"]),
         )
 
+        if cpu_count <= 8:
+            worker_counts["heavy"] = min(worker_counts["heavy"], max(3, cpu_count - 1))
+        if available_ram_gib < 16:
+            worker_counts["heavy"] = min(worker_counts["heavy"], 4)
+        elif available_ram_gib < 32:
+            worker_counts["heavy"] = min(worker_counts["heavy"], 6)
+
         worker_counts["light"] = min(worker_counts["light"], cpu_count)
         worker_counts["medium"] = min(worker_counts["medium"], cpu_count)
         worker_counts["heavy"] = min(worker_counts["heavy"], cpu_count)
@@ -601,17 +611,83 @@ class BaseConfigGenerator:
         return {
             "light": {
                 "workers": worker_counts["light"],
-                "description": "Lower RAM pressure, safer for large datasets or limited memory",
+                "description": "Safer baseline with lower RAM pressure and lower risk of dataloader contention",
             },
             "medium": {
                 "workers": worker_counts["medium"],
-                "description": "Balanced throughput for most systems",
+                "description": "Balanced throughput for most systems without pushing loader concurrency too hard",
             },
             "heavy": {
                 "workers": worker_counts["heavy"],
-                "description": "Highest data-loading throughput if RAM and storage can keep up",
+                "description": "Throughput-oriented option only for strong RAM, CPU, and storage headroom",
             },
         }
+
+    def _recommend_worker_profile(
+        self,
+        model_metrics: dict[str, Any],
+        dataset_metrics: dict[str, Any],
+        system_metrics: dict[str, Any],
+    ) -> tuple[str, str]:
+        cpu_count = int(system_metrics["cpu_count"])
+        available_ram_gib = self._to_gib(system_metrics["available_ram_bytes"])
+        available_gpu_gib = self._to_gib(system_metrics["available_gpu_memory_bytes"])
+        dataset_to_ram_ratio = self._ratio(
+            int(dataset_metrics["total_size_bytes"]),
+            int(system_metrics["available_ram_bytes"]),
+        )
+        total_file_count = int(dataset_metrics["total_file_count"])
+        image_count = int(dataset_metrics["image_count"])
+        score = 0
+        reasons: list[str] = []
+
+        if cpu_count >= 16:
+            score += 1
+            reasons.append("strong CPU core count")
+        elif cpu_count <= 8:
+            score -= 1
+            reasons.append("limited CPU core count")
+
+        if available_ram_gib >= 32:
+            score += 1
+            reasons.append("healthy RAM headroom")
+        elif available_ram_gib < 16:
+            score -= 2
+            reasons.append("limited RAM headroom")
+
+        if dataset_to_ram_ratio > 1.0:
+            score -= 2
+            reasons.append("dataset is larger than free RAM")
+        elif dataset_to_ram_ratio > 0.5:
+            score -= 1
+            reasons.append("dataset is large relative to free RAM")
+        elif dataset_to_ram_ratio < 0.2:
+            score += 1
+            reasons.append("dataset is small relative to free RAM")
+
+        if total_file_count > 100000:
+            score -= 1
+            reasons.append("very high file-count dataset")
+        elif image_count < 5000 and total_file_count < 20000:
+            score -= 1
+            reasons.append("smaller dataset usually does not benefit from many workers")
+
+        if system_metrics["device"] == "cuda" and available_gpu_gib >= 12:
+            score += 1
+            reasons.append("GPU can benefit from steady batch feeding")
+        elif system_metrics["device"] == "cpu":
+            score -= 1
+            reasons.append("CPU training gains less from high worker counts")
+
+        if model_metrics["heaviness"] == "heavy":
+            score -= 1
+            reasons.append("heavier model already puts more pressure on the system")
+
+        if score >= 3:
+            return "heavy", ", ".join(reasons)
+        if score <= 0:
+            return "light", ", ".join(reasons)
+        return "medium", ", ".join(reasons)
 
     def get_regular_yolo_profile_context(self, model_choice: str) -> dict[str, Any]:
         self.extract_dataset_info()
@@ -633,17 +709,18 @@ class BaseConfigGenerator:
             dataset_metrics,
             system_metrics,
         )
-        worker_profile = {
-            "conservative": "light",
-            "balanced": "medium",
-            "aggressive": "heavy",
-        }[compute_profile]
+        worker_profile, worker_reason = self._recommend_worker_profile(
+            model_metrics,
+            dataset_metrics,
+            system_metrics,
+        )
 
         return {
             "model_metrics": model_metrics,
             "dataset_metrics": dataset_metrics,
             "system_metrics": system_metrics,
             "worker_profiles": worker_profiles,
+            "worker_recommendation_reason": worker_reason,
             "recommended_profiles": {
                 "augmentation": augmentation_profile,
                 "compute": compute_profile,
