@@ -1,4 +1,4 @@
-# YOLO26, YOLO12, YOLO11 Integration Guide
+# YOLOmatic Integration Guide
 
 ## Quick Start
 
@@ -15,10 +15,36 @@ uv sync
 
 After installation you can run the CLI via the `yolomatic` entrypoints managed by `uv`.
 
+### Optional Roboflow Setup
+
+If you plan to upload trained checkpoints to Roboflow, create a local `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+Then fill in:
+
+```env
+ROBOFLOW_API_KEY=
+ROBOFLOW_WORKSPACE=
+ROBOFLOW_PROJECT_IDS=
+```
+
+Use your Roboflow **workspace slug** for `ROBOFLOW_WORKSPACE`, not a project name or display label.
+
 ## Versioning
 
-The project version is stored in `pyproject.toml` and controlled with `uv`.
-Use `uv version` or `uv version --bump <patch|minor|major>` to adjust it.
+Project versions are managed with the `bump` command. It updates both `src/__version__.py` and `pyproject.toml`.
+
+```bash
+uv run bump patch
+uv run bump minor
+uv run bump major
+uv run bump 2.1.0
+
+uv sync
+```
 
 ### First Run
 
@@ -41,9 +67,22 @@ uv run yolomatic-predict
 # Or run prediction directly with explicit arguments
 uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.pt --source /path/to/image.jpg
 
+# Upload a trained checkpoint to Roboflow
+uv run yolomatic-upload
+
+# Or upload directly with explicit arguments
+uv run yolomatic-upload --weight runs/segment/train2/weights/best.pt --workspace your-workspace-slug --project-ids vegmask --model-type yolo26l --model-name train2-best
+
 # Monitor training logs
 uv run yolomatic-tensorboard
 ```
+
+Upload tips:
+
+- Choose a full checkpoint such as `best.pt` or `last.pt`.
+- Generated artifacts like `state_dict.pt` are not uploadable checkpoints.
+- YOLO26 uploads require a size-specific Roboflow type such as `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
+- YOLO-NAS training is supported in YOLOmatic, but Roboflow upload compatibility still depends on Roboflow SDK support for the selected checkpoint family.
 
 ---
 
@@ -151,7 +190,7 @@ uv run yolomatic-tensorboard
 
 ### Computer Vision Tasks
 
-All three models support:
+Core YOLO families in this repository support:
 
 - ✅ **Object Detection**: Identify and locate objects
 - ✅ **Instance Segmentation**: Detect and delineate boundaries
@@ -161,7 +200,7 @@ All three models support:
 
 ### Operational Modes
 
-All three models support:
+Core YOLO families in this repository support:
 
 - ✅ **Inference**: Run predictions
 - ✅ **Validation**: Evaluate performance

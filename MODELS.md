@@ -127,6 +127,14 @@ All tasks support: Inference, Validation, Training, Export
 - Neural Architecture Search-based
 - mAP range: 47.5 - 53.2
 
+### Roboflow Upload Notes
+
+- YOLOmatic exposes a dedicated `yolomatic-upload` CLI for Roboflow uploads.
+- Upload a **full checkpoint** such as `best.pt` or `last.pt`, not generated artifacts like `state_dict.pt`.
+- YOLO26 uploads require a **size-specific** Roboflow model type such as `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
+- Workspace defaults can be supplied with `.env` using `ROBOFLOW_API_KEY`, `ROBOFLOW_WORKSPACE`, and `ROBOFLOW_PROJECT_IDS`.
+- YOLO-NAS training is supported in YOLOmatic, but upload compatibility still depends on the Roboflow SDK's support for the selected checkpoint family.
+
 ---
 
 ## Model Selection Recommendations
