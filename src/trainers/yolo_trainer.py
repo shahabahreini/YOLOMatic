@@ -387,8 +387,7 @@ def main():
 
         console.print(traceback.format_exc())
     finally:
-        # Ensure ClearML task is closed
-        if "task" in locals():
+        if "task" in locals() and task not in (None, False):
             task.close()
 
 
