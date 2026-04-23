@@ -89,6 +89,12 @@ uv run yolomatic-upload --weight runs/segment/train2/weights/best.pt --workspace
 uv run yolomatic-tensorboard
 ```
 
+On Windows, if `uv run` tries to re-sync the environment and fails with an access-denied error on a locked `torch` file, launch the TensorBoard selector through the existing virtual environment instead:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
+```
+
 Training runtime notes:
 
 - If multiple YAML configs exist in `configs/`, `yolomatic-train` opens a TUI selector.

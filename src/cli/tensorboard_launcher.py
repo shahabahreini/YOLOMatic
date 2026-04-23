@@ -27,6 +27,10 @@ except ImportError:
                 pass
 
 
+def build_tensorboard_command(selected_logdir):
+    return [sys.executable, "-m", "tensorboard.main", "--logdir", selected_logdir]
+
+
 def find_run_directories(base_dir):
     """
     Find all subdirectories that contain TensorBoard event files.
@@ -88,14 +92,22 @@ def main():
     )
 
     try:
-        cmd = ["tensorboard", "--logdir", selected_logdir]
+        cmd = build_tensorboard_command(selected_logdir)
         subprocess.run(cmd, check=True)
     except FileNotFoundError:
-        console.print("[bold red]Error: 'tensorboard' command not found.[/bold red]")
+        console.print("[bold red]Error: Python interpreter not found.[/bold red]")
         console.print(
-            "Please ensure that 'tensorboard' is installed in your environment."
+            "Please ensure that YOLOmatic is running from a valid virtual environment."
         )
         sys.exit(1)
+    except subprocess.CalledProcessError as exc:
+        console.print(
+            f"[bold red]TensorBoard exited with status code {exc.returncode}.[/bold red]"
+        )
+        console.print(
+            "Please ensure that 'tensorboard' is installed in your current environment."
+        )
+        sys.exit(exc.returncode)
     except KeyboardInterrupt:
         console.print("\n[bold yellow]TensorBoard stopped.[/bold yellow]")
         sys.exit(0)

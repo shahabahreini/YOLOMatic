@@ -213,6 +213,12 @@ While training is running (or after it finishes), easily launch TensorBoard to i
 uv run yolomatic-tensorboard
 ```
 
+On Windows, if `uv run` tries to re-sync the environment and fails with an access-denied error on a locked `torch` file, launch the installed entrypoint from the existing virtual environment instead:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
+```
+
 ---
 
 ## ClearML Integration
