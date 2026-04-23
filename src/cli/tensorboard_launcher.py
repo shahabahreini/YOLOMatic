@@ -1,50 +1,12 @@
 import subprocess
 import sys
-from pathlib import Path
 
-# Try to import from src.cli.run for consistent UI, fallback if not possible
-try:
-    from src.cli.run import console, get_user_choice, print_stylized_header, term
-    from src.utils.tui import clear_screen, render_table
-except ImportError:
-    from rich.console import Console
-    console = Console()
-    term = None
-    def clear_screen(): pass
-    def render_table(t, c, r): console.print(t)
-
-    def print_stylized_header(text):
-        console.print(f"[bold cyan]{text}[/bold cyan]")
-
-    def get_user_choice(options, **kwargs):
-        for i, opt in enumerate(options):
-            console.print(f"{i+1}. {opt}")
-        return options[int(input("Select: ")) - 1]
+from src.utils.cli import console, get_user_choice, print_stylized_header
+from src.utils.project import find_run_directories
 
 
 def build_tensorboard_command(selected_logdir):
     return [sys.executable, "-m", "tensorboard.main", "--logdir", selected_logdir]
-
-
-def find_run_directories(base_dir):
-    """
-    Find all subdirectories that contain TensorBoard event files.
-    """
-    event_dirs = []
-    base_path = Path(base_dir)
-
-    if not base_path.exists():
-        return event_dirs
-
-    # Recursively search for run directories (typically contain args.yaml)
-    for run_file in base_path.rglob("args.yaml"):
-        parent_dir = run_file.parent
-        if parent_dir not in event_dirs:
-            event_dirs.append(parent_dir)
-
-    return sorted(event_dirs)
-
-
 def main():
     """
     Launch TensorBoard with interactive run selection.

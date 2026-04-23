@@ -8,21 +8,7 @@ from typing import Any
 
 from rich.console import Console
 
-try:
-    from src.cli.run import get_user_choice
-except ImportError:
-    try:
-        from cli.run import get_user_choice
-    except ImportError:
-
-        def get_user_choice(
-            options,
-            allow_back=False,
-            title="Select an Option",
-            text="Use ↑↓ keys to navigate, Enter to select:",
-            model_data=None,
-        ):
-            return options[0]
+from src.utils.cli import get_user_choice
 
 
 console = Console()

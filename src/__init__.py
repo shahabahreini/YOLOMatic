@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 try:
     # prefer importlib.metadata (Python 3.8+)
     from importlib.metadata import version, PackageNotFoundError
@@ -26,7 +28,8 @@ def _get_version() -> str:
         except ImportError:
             import tomli as _toml  # type: ignore
 
-        with open("pyproject.toml", "rb") as f:
+        project_root = Path(__file__).resolve().parent.parent
+        with open(project_root / "pyproject.toml", "rb") as f:
             data = _toml.load(f)
         return data.get("project", {}).get("version", "0.0.0")
 

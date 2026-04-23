@@ -5,38 +5,21 @@ from pathlib import Path
 from typing import Sequence
 
 from rich.panel import Panel
-from rich.table import Table
 
-try:
-    from src.cli.run import console, get_user_choice, print_stylized_header
-    from src.utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
-    from src.utils.tui import (
-        clear_screen,
-        render_summary_panel,
-        render_table,
-    )
-except ImportError:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-    console = Console()
-    
-    def clear_screen(): pass
-    def render_summary_panel(t, f): console.print(Panel(str(f), title=t))
-    def render_table(t, c, r): console.print(Table(title=t))
-    
-    try:
-        from utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
-    except ImportError:
-        MLDependencyError = RuntimeError
-        def import_ultralytics_yolo(): raise RuntimeError("ultralytics not found")
-
-    def print_stylized_header(text: str) -> None:
-        console.print(f"[bold cyan]{text}[/bold cyan]")
-
-    def get_user_choice(options, **kwargs) -> str:
-        for i, o in enumerate(options): console.print(f"{i+1}. {o}")
-        return options[int(input("Select: ")) - 1]
+from src.utils.cli import (
+    console,
+    get_user_choice,
+    print_stylized_header,
+    render_summary_panel,
+    render_table,
+)
+from src.utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
+from src.utils.project import (
+    find_available_weights,
+    format_weight_label,
+    project_root,
+    render_weight_rows,
+)
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -68,28 +51,6 @@ def parse_args() -> argparse.Namespace:
         help="Confidence threshold for predictions.",
     )
     return parser.parse_args()
-
-
-def find_available_weights(project_root: Path) -> list[Path]:
-    discovered: dict[Path, Path] = {}
-    for weight_path in project_root.glob("*.pt"):
-        discovered[weight_path.resolve()] = weight_path
-    runs_dir = project_root / "runs"
-    if runs_dir.exists():
-        for weight_path in runs_dir.glob("**/weights/*.pt"):
-            discovered[weight_path.resolve()] = weight_path
-    return sorted(
-        discovered.values(),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-
-
-def format_weight_label(project_root: Path, weight_path: Path) -> str:
-    try:
-        return str(weight_path.relative_to(project_root))
-    except ValueError:
-        return str(weight_path)
 
 
 def select_weight(project_root: Path, available_weights: Sequence[Path]) -> Path:
@@ -186,8 +147,7 @@ def resolve_source(mode: str, requested_source: str | None) -> Path:
 
 
 def render_weight_table(project_root: Path, available_weights: Sequence[Path]) -> None:
-    rows = [[str(i), format_weight_label(project_root, p)] for i, p in enumerate(available_weights, 1)]
-    render_table("Available Weights", ["#", "Weight"], rows)
+    render_table("Available Weights", ["#", "Weight"], render_weight_rows(project_root, available_weights))
 
 
 def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -> None:
@@ -213,9 +173,9 @@ def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | 
 
 def main() -> None:
     args = parse_args()
-    project_root = Path.cwd()
+    root = project_root()
     print_stylized_header("YOLO Predictor")
-    available_weights = find_available_weights(project_root)
+    available_weights = find_available_weights(root)
     if not available_weights:
         console.print(
             Panel(
@@ -228,7 +188,7 @@ def main() -> None:
     render_weight_table(project_root, available_weights)
 
     try:
-        selected_weight = resolve_weight(project_root, args.weight, available_weights)
+        selected_weight = resolve_weight(root, args.weight, available_weights)
         mode = args.mode or select_mode()
         source_path = resolve_source(mode, args.source)
         render_prediction_summary(selected_weight, mode, source_path)

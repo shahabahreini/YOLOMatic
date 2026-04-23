@@ -4,38 +4,16 @@ from datetime import datetime
 from typing import Optional
 
 import yaml
-from clearml import Logger, Task
 from packaging.version import InvalidVersion, Version
 from rich.console import Console
 
-try:
-    from src.cli.run import get_user_choice
-    from src.utils.ml_dependencies import (
-        MLDependencyError,
-        import_module_or_raise,
-        import_torch,
-    )
-    from src.utils.training_preflight import resolve_training_device
-except ImportError:
-    from utils.ml_dependencies import (
-        MLDependencyError,
-        import_module_or_raise,
-        import_torch,
-    )
-    from utils.training_preflight import resolve_training_device
-
-    try:
-        from cli.run import get_user_choice
-    except ImportError:
-
-        def get_user_choice(
-            options,
-            allow_back=False,
-            title="Select an Option",
-            text="Use ↑↓ keys to navigate, Enter to select:",
-            model_data=None,
-        ):
-            return options[0]
+from src.utils.cli import get_user_choice
+from src.utils.ml_dependencies import (
+    MLDependencyError,
+    import_module_or_raise,
+    import_torch,
+)
+from src.utils.training_preflight import resolve_training_device
 
 
 console = Console()
@@ -53,6 +31,8 @@ class Config:
 class ClearMLCallback:
     def __init__(self, task):
         self.task = task
+        from clearml import Logger
+
         self.logger = Logger.current_logger()
 
     def on_validation_end(self, trainer, metrics, **kwargs):
@@ -81,6 +61,8 @@ def validate_numpy_compatibility() -> None:
 
 def initialize_clearml_task(project_name, task_name, tags):
     try:
+        from clearml import Task
+
         return Task.init(
             project_name=project_name,
             task_name=task_name,

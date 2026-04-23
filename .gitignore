@@ -1,5 +1,6 @@
 # folders
 /datasets/
+.codex
 config_history/
 
 # Byte-compiled / optimized / DLL files
@@ -128,7 +129,7 @@ dmypy.json
 .pyre/
 
 # configs
-*.yaml
+/configs/*.yaml
 
 # results
 runs/*
@@ -140,6 +141,5 @@ runs/*
 .vscode/
 .idea/
 .idea/*
-.DS_Store
 .DS_Store
 yolomatic.egg-info

@@ -15,39 +15,21 @@ from urllib.parse import urlparse
 
 import yaml
 from rich.panel import Panel
-from rich.table import Table
 
-try:
-    from src.cli.predict import find_available_weights, format_weight_label
-    from src.cli.run import console, get_user_choice, print_stylized_header
-    from src.utils.ml_dependencies import MLDependencyError, import_torch
-    from src.utils.tui import (
-        clear_screen,
-        render_summary_panel,
-        render_table,
-    )
-except ImportError:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.table import Table
-    console = Console()
-    
-    def clear_screen(): pass
-    def render_summary_panel(t, f): console.print(Panel(str(f), title=t))
-    def render_table(t, c, r): console.print(Table(title=t))
-
-    try:
-        from utils.ml_dependencies import MLDependencyError, import_torch
-    except ImportError:
-        MLDependencyError = RuntimeError
-        def import_torch(): raise RuntimeError("torch not found")
-
-    def print_stylized_header(text: str) -> None:
-        console.print(f"[bold cyan]{text}[/bold cyan]")
-
-    def get_user_choice(options, **kwargs) -> str:
-        for i, o in enumerate(options): console.print(f"{i+1}. {o}")
-        return options[int(input("Select: ")) - 1]
+from src.utils.cli import (
+    clear_screen,
+    console,
+    get_user_choice,
+    print_stylized_header,
+    render_summary_panel,
+    render_table,
+)
+from src.utils.ml_dependencies import MLDependencyError, import_torch
+from src.utils.project import (
+    find_available_weights,
+    format_weight_label,
+    project_root,
+)
 
 
 COMMON_MODEL_TYPES = [
@@ -557,12 +539,12 @@ def resolve_workspace(
 
 def main() -> None:
     args = parse_args()
-    project_root = Path.cwd()
+    root = project_root()
     print_stylized_header("Roboflow Model Upload")
 
     try:
-        env_config = load_env_config(project_root)
-        available_weights = find_available_weights(project_root)
+        env_config = load_env_config(root)
+        available_weights = find_available_weights(root)
         if not available_weights:
             console.print(
                 Panel(
@@ -585,8 +567,8 @@ def main() -> None:
                 )
             )
             raise SystemExit(1)
-        render_candidate_table(project_root, candidates)
-        selected_candidate = resolve_candidate(project_root, args.weight, candidates)
+        render_candidate_table(root, candidates)
+        selected_candidate = resolve_candidate(root, args.weight, candidates)
 
         workspace_input = args.workspace or prompt_text(
             "Enter Roboflow workspace slug",

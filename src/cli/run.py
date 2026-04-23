@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from blessed import Terminal
 from rich import box
 from rich.align import Align
 from rich.console import Console
@@ -16,23 +15,18 @@ from rich.table import Table
 from rich.text import Text
 from ruamel.yaml import YAML
 
-try:
-    from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
-    from src.models.data import model_data_dict
-    from src.utils.ml_dependencies import MLDependencyError, import_torch
-    from src.utils.tui import (
-        TUI_CONSOLE as console,
-        TUI_TERM as term,
-        clear_screen,
-        get_user_choice,
-        print_header as print_stylized_header,
-        render_summary_panel,
-        render_table,
-    )
-except ImportError:  # fallback for direct execution or legacy layout
-    from config_generator import YOLOConfigGenerator, YOLONASConfigGenerator
-    from models import model_data_dict
-    from utils.ml_dependencies import MLDependencyError, import_torch
+from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
+from src.models.data import model_data_dict
+from src.utils.cli import (
+    clear_screen,
+    console,
+    get_user_choice,
+    print_stylized_header,
+    render_summary_panel,
+    render_table,
+)
+from src.utils.ml_dependencies import MLDependencyError, import_torch
+from src.utils.project import format_size, list_dataset_directories
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -200,7 +194,7 @@ def display_configuration_summary(
 
     # Use the new summary panel for a cleaner look
     fields = {
-        "Model": model_name,
+        "Model": model_choice,
         "Dataset": dataset_name,
         "Device": device,
         "Config File": config_file,
@@ -264,9 +258,6 @@ def display_paths_info(dataset_info):
     console.print(paths_table)
 
 
-# Removed print_stylized_header, now imported from src.utils.tui
-
-
 def list_datasets():
     datasets_folder = "datasets"
     if not os.path.exists(datasets_folder):
@@ -277,18 +268,7 @@ def list_datasets():
         )
         return None
 
-    datasets = []
-    for folder in os.listdir(datasets_folder):
-        folder_path = os.path.join(datasets_folder, folder)
-        if os.path.isdir(folder_path):
-            size = get_folder_size(folder_path)
-            datasets.append(
-                {
-                    "name": folder,
-                    "path": os.path.abspath(folder_path),  # Store full path
-                    "size": format_size(size),
-                }
-            )
+    datasets = list_dataset_directories(datasets_folder)
 
     if not datasets:
         console.print(
@@ -305,8 +285,8 @@ def list_datasets():
 
     console.print(table)
 
-    dataset_names = [d["path"] for d in datasets]  # Use full paths
-    name_to_path = {os.path.basename(p): p for p in dataset_names}
+    dataset_names = [Path(d["path"]) for d in datasets]
+    name_to_path = {path.name: str(path) for path in dataset_names}
 
     dataset_descriptions = {
         d["name"]: f"Select dataset '{d['name']}' ({d['size']}) located at {d['path']}"
@@ -326,9 +306,6 @@ def list_datasets():
 
 
 # Removed print_model_info, now handled by src.utils.tui
-
-
-# Removed get_user_choice, now imported from src.utils.tui
 
 
 def format_timestamp():
@@ -473,26 +450,6 @@ def update_config(model_choice, dataset_choice):
     display_paths_info(generator.dataset_info)
 
     return True
-
-
-def get_folder_size(folder_path):
-    """Calculate the total size of a folder in bytes."""
-    total_size = 0
-    for dirpath, dirnames, filenames in os.walk(folder_path):
-        for filename in filenames:
-            file_path = os.path.join(dirpath, filename)
-            total_size += os.path.getsize(file_path)
-    return total_size
-
-
-def format_size(size_in_bytes):
-    """Format size in bytes to human readable format."""
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if size_in_bytes < 1024:
-            return f"{size_in_bytes:.2f} {unit}"
-        size_in_bytes /= 1024
-    return f"{size_in_bytes:.2f} PB"
-
 
 def format_profile_name(value: str) -> str:
     return value.replace("_", " ").title()
@@ -709,6 +666,15 @@ def choose_regular_yolo_profiles(
         "Back": "Return to dataset selection."
     }
 
+    hint_block = build_hint_block(
+        "Hints",
+        [
+            "Use the recommended option unless you already know you need more or less augmentation.",
+            "Compute controls how hard YOLOmatic pushes memory and throughput.",
+            "Workers control dataloader parallelism and can increase RAM pressure.",
+        ],
+    )
+
     initial_choice = get_user_choice(
         list(start_option_map.keys()),
         allow_back=True,
@@ -716,12 +682,7 @@ def choose_regular_yolo_profiles(
         text=(
             f"{summary_text}\n\n"
             "Pick the fast path if you want the current codebase heuristics to decide for you. "
-            "Pick customize if you want to review each area manually.\n\n"
-            f"{build_hint_block('Hints', [
-                'Use the recommended option unless you already know you need more or less augmentation.',
-                'Compute controls how hard YOLOmatic pushes memory and throughput.',
-                'Workers control dataloader parallelism and can increase RAM pressure.',
-            ])}"
+            f"Pick customize if you want to review each area manually.\n\n{hint_block}"
         ),
         descriptions=start_descriptions,
     )

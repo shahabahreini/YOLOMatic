@@ -1,41 +1,26 @@
 import argparse
 import os
 from datetime import datetime
+from pathlib import Path
 
 import yaml
-from clearml import Task
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-try:
-    from src.cli.run import get_user_choice
-    from src.utils.ml_dependencies import (
-        MLDependencyError,
-        import_ultralytics_settings,
-        import_ultralytics_yolo,
-    )
-    from src.utils.training_preflight import resolve_training_device
-except ImportError:
-    from utils.ml_dependencies import (
-        MLDependencyError,
-        import_ultralytics_settings,
-        import_ultralytics_yolo,
-    )
-    from utils.training_preflight import resolve_training_device
-
-    try:
-        from cli.run import get_user_choice
-    except ImportError:
-
-        def get_user_choice(
-            options,
-            allow_back=False,
-            title="Select an Option",
-            text="Use ↑↓ keys to navigate, Enter to select:",
-            model_data=None,
-        ):
-            return options[0]
+from src.utils.cli import get_user_choice
+from src.utils.ml_dependencies import (
+    MLDependencyError,
+    import_ultralytics_settings,
+    import_ultralytics_yolo,
+)
+from src.utils.project import (
+    list_config_files,
+    load_dataset_config as load_project_dataset_config,
+    resolve_config_path,
+    verify_dataset_directories,
+)
+from src.utils.training_preflight import resolve_training_device
 
 
 # Initialize Rich console
@@ -55,46 +40,16 @@ def parse_args():
 
 def load_dataset_config(dataset_name):
     """Load dataset configuration from data.yaml file."""
-    dataset_path = os.path.abspath(os.path.join("datasets", dataset_name))
-    data_yaml_path = os.path.abspath(os.path.join(dataset_path, "data.yaml"))
-
-    if not os.path.exists(data_yaml_path):
-        console.print(
-            f"[bold red]Error: data.yaml not found in {dataset_path}[/bold red]"
-        )
-        raise FileNotFoundError(f"data.yaml not found in {dataset_path}")
-
-    with open(data_yaml_path, "r") as file:
-        dataset_config = yaml.safe_load(file)
-
-    yaml_directory = os.path.dirname(data_yaml_path)
-    for key in ["train", "val", "test"]:
-        configured_path = str(dataset_config[key])
-        normalized_configured_path = configured_path.replace("\\", "/")
-
-        if os.path.isabs(configured_path):
-            resolved_path = configured_path
-        elif normalized_configured_path.startswith("../"):
-            resolved_path = os.path.join(dataset_path, normalized_configured_path[3:])
-        else:
-            resolved_path = os.path.join(yaml_directory, configured_path)
-
-        dataset_config[key] = os.path.abspath(os.path.normpath(resolved_path))
-
-    return dataset_config, data_yaml_path, dataset_path
+    try:
+        return load_project_dataset_config(dataset_name, datasets_root="datasets")
+    except FileNotFoundError as error:
+        console.print(f"[bold red]Error: {error}[/bold red]")
+        raise
 
 
 def verify_directories(dataset_config):
     """Verify that all required directories exist."""
-    missing_dirs = []
-    for dir_type, dir_path in [
-        ("Training", dataset_config["train"]),
-        ("Validation", dataset_config["val"]),
-        ("Test", dataset_config["test"]),
-    ]:
-        if not os.path.exists(dir_path):
-            missing_dirs.append(f"{dir_type} directory: {dir_path}")
-
+    missing_dirs = verify_dataset_directories(dataset_config)
     if missing_dirs:
         console.print(
             "[bold red]Error: The following directories are missing:[/bold red]"
@@ -108,42 +63,14 @@ def verify_directories(dataset_config):
 
 def select_config(config_path):
     config_folder = "configs"
-    if config_path:
-        candidate_paths = [config_path, os.path.join(config_folder, config_path)]
-        for candidate_path in candidate_paths:
-            if os.path.isfile(candidate_path):
-                selected_file = os.path.abspath(candidate_path)
-                console.print(
-                    f"\n[bold green]Selected configuration: {os.path.basename(selected_file)}[/bold green]"
-                )
-                return selected_file
-
-    if not os.path.exists(config_folder):
-        missing_name = config_path or "<auto-select>"
-        raise FileNotFoundError(
-            f"Config file '{missing_name}' not found and config folder '{config_folder}' does not exist."
-        )
-
-    yaml_files = sorted(f for f in os.listdir(config_folder) if f.endswith(".yaml"))
-    if not yaml_files:
-        missing_name = config_path or "<auto-select>"
-        raise FileNotFoundError(
-            f"Config file '{missing_name}' not found and no YAML files exist in '{config_folder}'."
-        )
-
-    if config_path:
-        available_configs = ", ".join(yaml_files)
-        raise FileNotFoundError(
-            f"Config file '{config_path}' not found. Available configs: {available_configs}"
-        )
-
-    if len(yaml_files) == 1:
-        selected_file = os.path.abspath(os.path.join(config_folder, yaml_files[0]))
+    resolved_path = resolve_config_path(config_path, config_folder)
+    if resolved_path is not None:
         console.print(
-            f"\n[bold green]Selected configuration: {yaml_files[0]}[/bold green]"
+            f"\n[bold green]Selected configuration: {Path(resolved_path).name}[/bold green]"
         )
-        return selected_file
+        return resolved_path
 
+    yaml_files = list_config_files(config_folder)
     selection = get_user_choice(
         yaml_files + ["Exit"],
         title="Select Configuration",
@@ -221,6 +148,8 @@ def verify_model_file(model_name):
 
 def initialize_clearml_task(project_name, task_name, tags):
     try:
+        from clearml import Task
+
         return Task.init(
             project_name=project_name,
             task_name=task_name,
@@ -336,10 +265,7 @@ def main():
             console.print(
                 "\n[bold green]Routing YOLO-NAS configuration to NAS trainer...[/bold green]"
             )
-            try:
-                from src.trainers.nas_trainer import main as nas_main
-            except ImportError:
-                from .nas_trainer import main as nas_main
+            from src.trainers.nas_trainer import main as nas_main
             nas_main(config_file)
             return
 
@@ -384,7 +310,6 @@ def main():
 
         # Start training
         console.print("\n[bold green]Starting training...[/bold green]")
-        os.environ["YOLO_DATASET_DIR"] = dataset_path
         model.train(data=data_yaml_path, **training_params)
 
         # Start validation
