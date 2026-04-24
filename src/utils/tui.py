@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import time
+from dataclasses import dataclass
 from typing import Any, Sequence
 
 from blessed import Terminal
 from rich import box
-from rich.align import Align
 from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
-from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
@@ -44,6 +42,8 @@ class MenuRenderer:
         descriptions: dict[str, str] | None = None,
         model_data: list[dict[str, Any]] | None = None,
         breadcrumbs: list[str] | None = None,
+        tip: str | None = None,
+        status_fields: dict[str, str] | None = None,
     ):
         self.options = options
         self.current_selection = current_selection
@@ -52,6 +52,8 @@ class MenuRenderer:
         self.descriptions = descriptions or {}
         self.model_data = model_data
         self.breadcrumbs = breadcrumbs or []
+        self.tip = tip
+        self.status_fields = status_fields or {}
 
     def _is_header(self, option: str) -> bool:
         """Check if an option is a header (non-selectable)."""
@@ -260,6 +262,36 @@ class MenuRenderer:
 
         return Panel(status_table, border_style="dim", padding=(0, 1))
 
+    def _render_context_panel(self, current_option: str) -> Panel:
+        """Compact top-of-right-panel strip: breadcrumbs + current choice + status fields."""
+        lines: list[RenderableType] = []
+
+        breadcrumb_line = self._render_breadcrumbs()
+        if breadcrumb_line.plain:
+            lines.append(breadcrumb_line)
+
+        lines.append(
+            Text.from_markup(
+                f"Current Choice: [bold yellow]{current_option}[/bold yellow]"
+            )
+        )
+
+        if self.status_fields:
+            status_table = Table.grid(padding=(0, 2))
+            status_table.add_column(style="dim cyan")
+            status_table.add_column(style="white")
+            for key, value in self.status_fields.items():
+                status_table.add_row(f"{key}:", str(value))
+            lines.append(status_table)
+
+        return Panel(
+            Group(*lines),
+            border_style="dim",
+            title="[dim]Context[/dim]",
+            title_align="left",
+            padding=(0, 1),
+        )
+
     def __rich__(self) -> Layout:
         layout = Layout()
         layout.split_column(
@@ -286,52 +318,62 @@ class MenuRenderer:
         # Sidebar
         layout["body"]["sidebar"].update(self._render_sidebar())
 
-        # Content Dashboard
         current_option = self.options[self.current_selection]
-        description = self.descriptions.get(
-            current_option, "No additional info available."
-        )
-
-        # Split Right Panel into Header, Main, and Tips
-        content_layout = Layout()
-        content_layout.split_column(
-            Layout(name="ctx", size=4),
-            Layout(name="main"),
-            Layout(name="tips", size=6),
-        )
-
-        # Context Section (Breadcrumbs + Current Selection)
-        ctx_group = [
-            self._render_breadcrumbs(),
-            Text(""),
-            Text.from_markup(
-                f"Current Choice: [bold yellow]{current_option}[/bold yellow]"
-            ),
-        ]
-        content_layout["ctx"].update(
-            Panel(
-                Group(*ctx_group),
-                border_style="dim",
-                title="[dim]Context[/dim]",
-                title_align="left",
+        is_header = current_option.startswith("[") and current_option.endswith("]")
+        if is_header:
+            default_description = (
+                f"[bold cyan]{current_option}[/bold cyan]\n\n"
+                "This is a category header. Use ↑↓ arrow keys to navigate to "
+                "the selectable items below this category."
             )
-        )
+        else:
+            default_description = (
+                f"[bold cyan]{current_option}[/bold cyan]\n\n"
+                "Press [bold yellow]Enter[/bold yellow] to select this option.\n"
+                "Use [bold yellow]↑↓[/bold yellow] to navigate, "
+                "[bold yellow]B[/bold yellow] to go back."
+            )
+        description = self.descriptions.get(current_option, default_description)
 
-        # Main Content Section (Instruction + Table/Description + Charts)
-        main_group = [
-            Text(self.instruction, style="bold yellow"),
-            Text(""),
+        # Compute context panel size: 2 rows of content + 2 rows of chrome
+        # (more if status_fields are provided).
+        breadcrumb_line = self._render_breadcrumbs()
+        ctx_size = 2 + (1 if breadcrumb_line.plain else 0)
+        ctx_size += len(self.status_fields)
+        ctx_size += 2  # panel borders + padding
+        ctx_size = max(4, ctx_size)
+
+        # Right column layout: Context (compact) + Main (flex) + Tip (optional)
+        show_tip = self.tip is not None
+        content_layout = Layout()
+        splits = [
+            Layout(name="ctx", size=ctx_size),
+            Layout(name="main"),
         ]
+        if show_tip:
+            # Reserve 3 rows plus however many wrapped lines the tip needs;
+            # cap at a third of the screen so the main panel keeps dominance.
+            tip_lines = max(1, self.tip.count("\n") + 1)
+            splits.append(Layout(name="tip", size=min(tip_lines + 3, 8)))
+        content_layout.split_column(*splits)
 
+        # Context
+        content_layout["ctx"].update(self._render_context_panel(current_option))
+
+        # Main — instruction rendered with markup + per-option description
         model_table = self._render_model_table()
         family_charts = self._render_family_charts(
             self._family_key_for_option(current_option)
         )
 
+        main_group: list[RenderableType] = []
+        if self.instruction:
+            main_group.append(Text.from_markup(self.instruction, style="yellow"))
+            main_group.append(Text(""))
+
         if model_table:
             main_group.append(model_table)
         elif family_charts:
-            # Split description and charts side by side
             split_table = Table.grid(expand=True)
             split_table.add_column(ratio=5)
             split_table.add_column(ratio=4)
@@ -348,48 +390,25 @@ class MenuRenderer:
                 Group(*main_group),
                 border_style="blue",
                 title="[bold cyan]Details[/bold cyan]",
+                padding=(1, 2),
             )
         )
 
-        # Tips / Explanation Section
-        tips_group = []
-        if "Hints:" in self.instruction or "Hint:" in self.instruction:
-            # Try to extract hints if they are in the instruction string
-            parts = self.instruction.split("Hints:")
-            if len(parts) > 1:
-                tips_group.append(Text("Pro-Tips:", style="bold green"))
-                tips_group.append(Text(parts[1].strip(), style="dim"))
-        elif model_table:
-            tips_group.append(Text("Tip:", style="bold green"))
-            tips_group.append(
-                Text(
-                    "Compare mAP and FLOPs to find the best accuracy-to-speed ratio for your hardware.",
-                    style="dim",
+        # Optional tip panel — only render when the caller passed one, so
+        # screens without a specific tip aren't padded with filler text.
+        if show_tip:
+            content_layout["tip"].update(
+                Panel(
+                    Text.from_markup(self.tip),
+                    border_style="dim green",
+                    title="[bold green]Tip[/bold green]",
+                    title_align="left",
+                    padding=(0, 1),
                 )
             )
-        else:
-            tips_group.append(Text("Guidance:", style="bold green"))
-            tips_group.append(
-                Text(
-                    "Choose the option that best matches your project requirements.",
-                    style="dim",
-                )
-            )
-
-        content_layout["tips"].update(
-            Panel(
-                Group(*tips_group),
-                border_style="dim",
-                title="[dim]Explanation[/dim]",
-                title_align="left",
-            )
-        )
 
         layout["body"]["content"].update(content_layout)
-
-        # Footer
         layout["footer"].update(self._render_status_bar())
-
         return layout
 
 
@@ -401,9 +420,17 @@ def get_user_choice(
     model_data: list[dict[str, Any]] | None = None,
     descriptions: dict[str, str] | None = None,
     breadcrumbs: list[str] | None = None,
+    tip: str | None = None,
+    status_fields: dict[str, str] | None = None,
 ) -> str:
     """
     Highly refined interactive menu with grouped options and breadcrumbs.
+
+    Optional:
+        tip           – a screen-specific hint shown in a small bottom-right panel.
+                        When omitted, the panel is hidden (no generic filler).
+        status_fields – key/value pairs rendered in the Context strip at the
+                        top of the right pane (e.g. detected dataset format).
     """
     selectable_options = list(options)
     if allow_back and "Back" not in selectable_options:
@@ -430,6 +457,8 @@ def get_user_choice(
             descriptions,
             model_data,
             breadcrumbs,
+            tip=tip,
+            status_fields=status_fields,
         )
 
         with Live(
@@ -503,3 +532,339 @@ def render_summary_panel(
             box=box.ROUNDED,
         )
     )
+
+
+@dataclass
+class ParameterDefinition:
+    """Definition of a configurable parameter with metadata."""
+
+    name: str
+    category: str
+    default: Any
+    value_type: str
+    description: str
+    help_text: str
+    min_value: float | None = None
+    max_value: float | None = None
+    allowed_values: list[str] | None = None
+
+
+class MultiSelectRenderer:
+    """Handles rendering of a multi-select checkbox menu for parameter selection."""
+
+    def __init__(
+        self,
+        parameters: list[ParameterDefinition],
+        selected: set[str],
+        current_index: int,
+        title: str,
+        instruction: str,
+        category_filter: str | None = None,
+    ):
+        self.parameters = parameters
+        self.selected = selected
+        self.current_index = current_index
+        self.title = title
+        self.instruction = instruction
+        self.category_filter = category_filter
+        self.filtered_params = self._filter_params()
+
+    def _filter_params(self) -> list[ParameterDefinition]:
+        if self.category_filter is None:
+            return self.parameters
+        return [p for p in self.parameters if p.category == self.category_filter]
+
+    def _render_checkbox(self, param: ParameterDefinition, is_active: bool) -> Text:
+        checked = "[x]" if param.name in self.selected else "[ ]"
+        if is_active:
+            return Text(f"{checked} {param.name}", style="bold white on blue")
+        return Text(
+            f"{checked} {param.name}",
+            style="dim" if param.name not in self.selected else "white",
+        )
+
+    def _render_sidebar(self) -> Panel:
+        # Window size - number of visible items
+        VISIBLE_ITEMS = 30
+
+        total_items = len(self.filtered_params)
+        if total_items == 0:
+            return Panel(
+                Text("No parameters available", style="dim"),
+                title="[bold cyan]Parameters[/bold cyan]",
+                border_style="blue",
+                padding=(0, 1),
+            )
+
+        # Calculate visible window
+        half_window = VISIBLE_ITEMS // 2
+        if total_items <= VISIBLE_ITEMS:
+            start_idx = 0
+            end_idx = total_items
+        elif self.current_index < half_window:
+            start_idx = 0
+            end_idx = VISIBLE_ITEMS
+        elif self.current_index > total_items - half_window - 1:
+            start_idx = total_items - VISIBLE_ITEMS
+            end_idx = total_items
+        else:
+            start_idx = self.current_index - half_window
+            end_idx = self.current_index + half_window + (VISIBLE_ITEMS % 2)
+
+        items: list[Text] = []
+
+        # Show indicator if there are more items above
+        if start_idx > 0:
+            items.append(Text(f"↑ {start_idx} more above", style="dim cyan"))
+
+        # Render visible items with categories
+        current_category: str | None = None
+        for i in range(start_idx, end_idx):
+            param = self.filtered_params[i]
+
+            # Show category header when it changes
+            if param.category != current_category:
+                current_category = param.category
+                # Add spacing between categories (except at start)
+                if items and not (start_idx > 0 and len(items) == 1):
+                    items.append(Text(""))
+                items.append(
+                    Text(f"[{current_category.upper()}]", style="bold cyan dim")
+                )
+
+            is_active = i == self.current_index
+            items.append(self._render_checkbox(param, is_active))
+
+        # Show indicator if there are more items below
+        if end_idx < total_items:
+            remaining = total_items - end_idx
+            items.append(Text(f"↓ {remaining} more below", style="dim cyan"))
+
+        return Panel(
+            Group(*items),
+            title=f"[bold cyan]Parameters ({self.current_index + 1}/{total_items})[/bold cyan]",
+            border_style="blue",
+            padding=(0, 1),
+            expand=True,
+        )
+
+    def _render_content(self) -> Panel:
+        if not self.filtered_params or self.current_index >= len(self.filtered_params):
+            return Panel(Text("No parameters available"), border_style="dim")
+
+        param = self.filtered_params[self.current_index]
+
+        info_lines = [
+            Text.from_markup(f"[bold cyan]Parameter:[/bold cyan] {param.name}"),
+            Text.from_markup(f"[bold cyan]Category:[/bold cyan] {param.category}"),
+            Text.from_markup(f"[bold cyan]Type:[/bold cyan] {param.value_type}"),
+            Text.from_markup(f"[bold cyan]Default:[/bold cyan] {param.default}"),
+            Text(""),
+            Text.from_markup("[bold yellow]Description:[/bold yellow]"),
+            Text(param.description),
+            Text(""),
+            Text.from_markup("[bold green]Help:[/bold green]"),
+            Text(param.help_text, style="dim"),
+        ]
+
+        if param.min_value is not None or param.max_value is not None:
+            info_lines.append(Text(""))
+            range_str = f"Range: {param.min_value if param.min_value is not None else '-∞'} to {param.max_value if param.max_value is not None else '+∞'}"
+            info_lines.append(
+                Text.from_markup(f"[bold magenta]{range_str}[/bold magenta]")
+            )
+
+        if param.allowed_values:
+            info_lines.append(Text(""))
+            info_lines.append(
+                Text.from_markup(
+                    f"[bold magenta]Allowed values:[/bold magenta] {', '.join(param.allowed_values)}"
+                )
+            )
+
+        return Panel(
+            Group(*info_lines),
+            title="[bold cyan]Parameter Details[/bold cyan]",
+            border_style="blue",
+            padding=(1, 2),
+            expand=True,
+        )
+
+    def _render_status_bar(self) -> Panel:
+        hints = [
+            ("[bold yellow]↑↓[/bold yellow]", "Move"),
+            ("[bold yellow]Space[/bold yellow]", "Toggle"),
+            ("[bold yellow]Enter[/bold yellow]", "Confirm"),
+            ("[bold yellow]A[/bold yellow]", "Select All"),
+            ("[bold yellow]N[/bold yellow]", "None"),
+            ("[bold yellow]Q[/bold yellow]", "Cancel"),
+        ]
+
+        parts = [f"{key} {action}" for key, action in hints]
+        hints_text = Text.from_markup("  •  ".join(parts))
+
+        selected_count = len(self.selected)
+        count_text = Text(f"Selected: {selected_count}", style="bold cyan")
+
+        status_table = Table.grid(expand=True)
+        status_table.add_column(justify="left", ratio=1)
+        status_table.add_column(justify="right")
+        status_table.add_row(hints_text, count_text)
+
+        return Panel(status_table, border_style="dim", padding=(0, 1))
+
+    def __rich__(self) -> Layout:
+        layout = Layout()
+        layout.split_column(
+            Layout(name="header", size=3),
+            Layout(name="body"),
+            Layout(name="footer", size=3),
+        )
+
+        layout["header"].update(
+            Panel(
+                Text(self.title, style="bold cyan", justify="center"),
+                border_style="cyan",
+                box=box.ROUNDED,
+            )
+        )
+
+        layout["body"].split_row(
+            Layout(name="sidebar", ratio=1),
+            Layout(name="content", ratio=2),
+        )
+
+        layout["body"]["sidebar"].update(self._render_sidebar())
+        layout["body"]["content"].update(self._render_content())
+        layout["footer"].update(self._render_status_bar())
+
+        return layout
+
+
+def get_user_multi_select(
+    parameters: list[ParameterDefinition],
+    title: str = "Select Parameters",
+    instruction: str = "Use Space to toggle parameters, Enter to confirm:",
+    pre_selected: set[str] | None = None,
+) -> set[str] | None:
+    """
+    Interactive multi-select checkbox menu for parameter selection.
+
+    Returns a set of selected parameter names, or None if cancelled.
+    """
+    selected = pre_selected.copy() if pre_selected else set()
+    current_index = 0
+
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
+        renderer = MultiSelectRenderer(
+            parameters=parameters,
+            selected=selected,
+            current_index=current_index,
+            title=title,
+            instruction=instruction,
+        )
+
+        with Live(
+            renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True
+        ) as live:
+            while True:
+                key = TUI_TERM.inkey(timeout=0.1)
+
+                if key.name == "KEY_UP" or key.lower() == "k":
+                    current_index = (current_index - 1) % len(parameters)
+                elif key.name == "KEY_DOWN" or key.lower() == "j":
+                    current_index = (current_index + 1) % len(parameters)
+                elif key == " ":
+                    param = parameters[current_index]
+                    if param.name in selected:
+                        selected.remove(param.name)
+                    else:
+                        selected.add(param.name)
+                elif key.name == "KEY_ENTER":
+                    return selected
+                elif key.lower() == "a":
+                    selected = {p.name for p in parameters}
+                elif key.lower() == "n":
+                    selected = set()
+                elif key.lower() == "q" or key.name == "KEY_ESCAPE":
+                    return None
+
+                renderer.current_index = current_index
+                renderer.selected = selected
+                live.update(renderer)
+
+
+def get_parameter_value_input(
+    param: ParameterDefinition,
+    current_value: Any | None = None,
+) -> Any | None:
+    """
+    Interactive input for a parameter value with validation.
+
+    Returns the entered value, or None to skip/keep default.
+    """
+    clear_screen()
+    print_header(f"Set Value: {param.name}")
+
+    console = TUI_CONSOLE
+    console.print(
+        Panel(
+            Group(
+                Text.from_markup(f"[bold cyan]Parameter:[/bold cyan] {param.name}"),
+                Text.from_markup(f"[bold cyan]Type:[/bold cyan] {param.value_type}"),
+                Text.from_markup(f"[bold cyan]Default:[/bold cyan] {param.default}"),
+                Text(""),
+                Text(param.description),
+                Text(""),
+                Text.from_markup(f"[dim]{param.help_text}[/dim]"),
+            ),
+            border_style="blue",
+            padding=(1, 2),
+        )
+    )
+
+    value_to_edit = current_value if current_value is not None else param.default
+    console.print(f"\nCurrent value: [bold yellow]{value_to_edit}[/bold yellow]")
+    console.print("[dim]Press Enter to keep current, or type a new value:[/dim]")
+
+    try:
+        user_input = input("\nNew value: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+    if not user_input:
+        return value_to_edit
+
+    try:
+        if param.value_type == "int":
+            value = int(user_input)
+            if param.min_value is not None and value < param.min_value:
+                console.print(f"[red]Value must be >= {param.min_value}[/red]")
+                return None
+            if param.max_value is not None and value > param.max_value:
+                console.print(f"[red]Value must be <= {param.max_value}[/red]")
+                return None
+            return value
+        elif param.value_type == "float":
+            value = float(user_input)
+            if param.min_value is not None and value < param.min_value:
+                console.print(f"[red]Value must be >= {param.min_value}[/red]")
+                return None
+            if param.max_value is not None and value > param.max_value:
+                console.print(f"[red]Value must be <= {param.max_value}[/red]")
+                return None
+            return value
+        elif param.value_type == "bool":
+            return user_input.lower() in ("true", "yes", "1", "on")
+        elif param.value_type == "str":
+            if param.allowed_values and user_input not in param.allowed_values:
+                console.print(
+                    f"[red]Allowed values: {', '.join(param.allowed_values)}[/red]"
+                )
+                return None
+            return user_input
+        else:
+            return user_input
+    except ValueError as e:
+        console.print(f"[red]Invalid value: {e}[/red]")
+        return None

@@ -166,7 +166,29 @@ def initialize_clearml_task(project_name, task_name, tags):
         selection = get_user_choice(
             ["Continue Without ClearML", "Cancel Training"],
             title="ClearML Setup Required",
-            text="Use ↑↓ keys to choose whether to continue without ClearML or cancel training:",
+            text=(
+                "[yellow]ClearML experiment tracking could not be initialized.[/yellow] "
+                "Training can still run, but per-epoch metrics, artifacts, and "
+                "parameters will not be logged to the ClearML server."
+            ),
+            descriptions={
+                "Continue Without ClearML": (
+                    "[bold yellow]Train without remote experiment tracking.[/bold yellow]\n\n"
+                    "• Local TensorBoard logs in [cyan]runs/[/cyan] still work.\n"
+                    "• Useful if you're iterating locally and don't need a shared dashboard.\n"
+                    "• You can re-run `clearml-init` later and the next run will log normally."
+                ),
+                "Cancel Training": (
+                    "[bold red]Abort so you can configure ClearML first.[/bold red]\n\n"
+                    "• Run [cyan]clearml-init[/cyan] in another terminal to set up credentials.\n"
+                    "• Or edit [cyan]~/clearml.conf[/cyan] directly."
+                ),
+            },
+            status_fields={"error": str(error)[:120]},
+            tip=(
+                "ClearML is optional — YOLOmatic runs fine without it. Only block "
+                "training here if you specifically need the ClearML dashboard for this run."
+            ),
         )
         if selection == "Cancel Training":
             return False

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from src.utils.tui import (
     TUI_CONSOLE,
+    ParameterDefinition,
     clear_screen,
+    get_parameter_value_input,
     get_user_choice,
+    get_user_multi_select,
     print_header,
     render_summary_panel,
     render_table,
@@ -16,6 +19,9 @@ __all__ = [
     "clear_screen",
     "console",
     "get_user_choice",
+    "get_user_multi_select",
+    "get_parameter_value_input",
+    "ParameterDefinition",
     "print_stylized_header",
     "render_summary_panel",
     "render_table",

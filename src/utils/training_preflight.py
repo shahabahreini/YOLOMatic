@@ -312,44 +312,90 @@ def resolve_training_device(
     if inspection.cuda_available:
         return TrainingDeviceResolution(cancelled=False, device=normalized_device)
 
-    console.print(
-        "[bold yellow]CUDA was requested for training, but PyTorch cannot use it in the current environment.[/bold yellow]"
-    )
-    if inspection.version:
-        console.print(
-            f"[bold yellow]Detected torch build: {inspection.version} (CUDA build: {inspection.cuda_build})[/bold yellow]"
-        )
+    status_fields: dict[str, str] = {
+        "torch": (
+            f"{inspection.version} (CUDA: {inspection.cuda_build or 'none'})"
+            if inspection.version
+            else "not importable"
+        ),
+        "nvidia-smi": "NVIDIA GPU detected" if has_nvidia_gpu else "no GPU detected",
+    }
     if inspection.numpy_version:
-        console.print(
-            f"[bold yellow]Detected NumPy version: {inspection.numpy_version}[/bold yellow]"
-        )
+        status_fields["numpy"] = inspection.numpy_version
     if inspection.error:
-        console.print(
-            f"[bold yellow]Torch import error: {inspection.error}[/bold yellow]"
-        )
-    if has_nvidia_gpu:
-        console.print(
-            "[bold yellow]An NVIDIA GPU was detected via `nvidia-smi`, so this is likely a CUDA-enabled PyTorch installation issue.[/bold yellow]"
-        )
-    else:
-        console.print(
-            "[bold yellow]No NVIDIA GPU was detected via `nvidia-smi`, so automatic CUDA repair is unlikely to help.[/bold yellow]"
-        )
-    console.print(
-        "[bold yellow]`nvidia-smi` working does not guarantee that PyTorch can use CUDA.[/bold yellow]"
-    )
+        status_fields["import error"] = inspection.error
 
     if has_nvidia_gpu:
+        summary = (
+            "[yellow]CUDA was requested but PyTorch cannot use it in this environment.[/yellow] "
+            "An NVIDIA GPU is present, so this is almost certainly a CUDA-enabled "
+            "PyTorch installation issue — a CPU-only torch wheel is installed, or "
+            "cuDNN / CUDA runtime libraries are missing. "
+            "[dim]`nvidia-smi` working does not guarantee PyTorch can use the GPU.[/dim]"
+        )
+        descriptions = {
+            "Repair CUDA PyTorch": (
+                "[bold green]Reinstall torch / torchvision / torchaudio with CUDA 12.8 wheels.[/bold green]\n\n"
+                f"• Index: [cyan]{index_url}[/cyan]\n"
+                f"• Keeps [cyan]{DEFAULT_NUMPY_CONSTRAINT}[/cyan] for super-gradients compatibility.\n"
+                "• Takes a few minutes (large wheels download).\n"
+                "• Needs network access and write access to the current Python env."
+            ),
+            "Continue on CPU": (
+                "[bold yellow]Train on CPU instead.[/bold yellow]\n\n"
+                "• Works without any reinstall, but training is dramatically slower.\n"
+                "• Fine for smoke tests and tiny datasets; impractical for real runs."
+            ),
+            "Cancel Training": (
+                "[bold red]Abort and return to the main menu.[/bold red]\n\n"
+                "Pick this if you'd rather fix the environment manually "
+                "(e.g. `uv sync`, reinstall CUDA drivers, or swap Python envs)."
+            ),
+        }
+        tip = (
+            "If repair has failed before on this machine, skip it and fix the env by hand — "
+            "rerunning the same repair rarely succeeds on the second attempt."
+        )
         selection = get_user_choice(
-            ["Fix CUDA-enabled PyTorch now", "Continue on CPU", "Cancel Training"],
+            ["Repair CUDA PyTorch", "Continue on CPU", "Cancel Training"],
             title="CUDA Device Unavailable",
-            text="Use ↑↓ keys to repair PyTorch, continue on CPU, or cancel training:",
+            text=summary,
+            descriptions=descriptions,
+            breadcrumbs=["YOLOmatic", "Training", "GPU Check"],
+            status_fields=status_fields,
+            tip=tip,
         )
     else:
+        summary = (
+            "[yellow]CUDA was requested but PyTorch cannot use it in this environment.[/yellow] "
+            "No NVIDIA GPU was found via `nvidia-smi`, so automatic CUDA repair "
+            "would not help. Either this host has no NVIDIA GPU, or the driver "
+            "is not installed / reachable from this shell."
+        )
+        descriptions = {
+            "Continue on CPU": (
+                "[bold yellow]Train on CPU.[/bold yellow]\n\n"
+                "• Works everywhere, but dramatically slower than GPU.\n"
+                "• Fine for a smoke test or tiny dataset."
+            ),
+            "Cancel Training": (
+                "[bold red]Abort and return to the main menu.[/bold red]\n\n"
+                "Pick this if you need to install NVIDIA drivers, move to a "
+                "GPU host, or switch to an MPS-enabled env first."
+            ),
+        }
+        tip = (
+            "On Apple Silicon, set [bold]device: mps[/bold] in your config instead of "
+            "[bold]cuda[/bold] — that path is faster than CPU and supported end-to-end."
+        )
         selection = get_user_choice(
             ["Continue on CPU", "Cancel Training"],
             title="CUDA Device Unavailable",
-            text="Use ↑↓ keys to continue on CPU or cancel training:",
+            text=summary,
+            descriptions=descriptions,
+            breadcrumbs=["YOLOmatic", "Training", "GPU Check"],
+            status_fields=status_fields,
+            tip=tip,
         )
 
     if selection == "Cancel Training":
@@ -373,14 +419,41 @@ def resolve_training_device(
         )
         return TrainingDeviceResolution(cancelled=False, device=normalized_device)
 
-    console.print("[bold red]Automatic CUDA-enabled PyTorch repair failed.[/bold red]")
-    tail_output = _tail_output(output)
-    if tail_output:
-        console.print(tail_output)
+    tail_output = _tail_output(output) or "(no output captured)"
+    failure_summary = (
+        "[red]Automatic CUDA-enabled PyTorch repair did not succeed.[/red] "
+        "Common causes: no network access, wrong Python env selected, or the "
+        "host genuinely lacks a working NVIDIA driver / CUDA toolkit. The last "
+        "lines of the pip output are shown in the Context box above."
+    )
+    failure_status = {
+        "post-repair torch": post_repair_inspection.version or "unknown",
+        "cuda_available": str(post_repair_inspection.cuda_available),
+        "last pip output": tail_output.splitlines()[-1] if tail_output else "—",
+    }
+    fallback_descriptions = {
+        "Continue on CPU": (
+            "[bold yellow]Train on CPU for now.[/bold yellow]\n\n"
+            "• Lets you move forward with this run without fixing the env.\n"
+            "• Expect dramatically slower training than on a working GPU."
+        ),
+        "Cancel Training": (
+            "[bold red]Abort so you can fix the environment manually.[/bold red]\n\n"
+            "Recommended if the pip output shows a concrete error "
+            "(network failure, permission denied, incompatible CUDA version, …)."
+        ),
+    }
     fallback_selection = get_user_choice(
         ["Continue on CPU", "Cancel Training"],
         title="CUDA Repair Failed",
-        text="Use ↑↓ keys to continue on CPU or cancel training:",
+        text=failure_summary,
+        descriptions=fallback_descriptions,
+        breadcrumbs=["YOLOmatic", "Training", "GPU Check", "Repair Failed"],
+        status_fields=failure_status,
+        tip=(
+            "Full pip output was just printed to the scrollback — scroll up after this "
+            "menu to see it."
+        ),
     )
     if fallback_selection == "Cancel Training":
         return TrainingDeviceResolution(cancelled=True, device=None)

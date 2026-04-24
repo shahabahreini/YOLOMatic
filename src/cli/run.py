@@ -1,7 +1,6 @@
 import logging
 import os
 import sys
-import time
 import traceback
 from contextlib import contextmanager
 from datetime import datetime
@@ -15,21 +14,550 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 from ruamel.yaml import YAML
 
 from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
 from src.models.data import model_data_dict
 from src.utils.cli import (
+    ParameterDefinition,
     clear_screen,
     console,
+    get_parameter_value_input,
     get_user_choice,
+    get_user_multi_select,
     print_stylized_header,
     render_summary_panel,
     render_table,
 )
 from src.utils.ml_dependencies import MLDependencyError, import_torch
 from src.utils.project import format_size, list_dataset_directories
+
+# Comprehensive YOLO training parameter definitions for fully customized config
+YOLO_TRAINING_PARAMETERS: list[ParameterDefinition] = [
+    # Core Training Parameters
+    ParameterDefinition(
+        name="epochs",
+        category="core",
+        default=300,
+        value_type="int",
+        description="Number of training epochs",
+        help_text="Total number of complete passes through the training dataset. More epochs can improve accuracy but may cause overfitting. For most datasets, 100-300 epochs are sufficient.",
+        min_value=1,
+        max_value=10000,
+    ),
+    ParameterDefinition(
+        name="patience",
+        category="core",
+        default=50,
+        value_type="int",
+        description="Early stopping patience",
+        help_text="Number of epochs to wait without improvement in validation metrics before stopping training early. Set to 0 to disable early stopping. Prevents overfitting and saves time.",
+        min_value=0,
+        max_value=500,
+    ),
+    ParameterDefinition(
+        name="batch",
+        category="core",
+        default=-1,
+        value_type="int",
+        description="Batch size for training",
+        help_text="Number of images processed together in one forward/backward pass. -1 enables auto-batch which automatically finds the largest batch size that fits in GPU memory. Larger batches provide more stable gradients but require more VRAM.",
+        min_value=-1,
+        max_value=1024,
+    ),
+    ParameterDefinition(
+        name="imgsz",
+        category="core",
+        default=640,
+        value_type="int",
+        description="Input image size",
+        help_text="Size to which input images are resized (square). Larger sizes can detect smaller objects but require more memory and computation. Common values: 320 (fast), 640 (standard), 1280 (high quality).",
+        min_value=32,
+        max_value=2048,
+    ),
+    ParameterDefinition(
+        name="device",
+        category="hardware",
+        default="0",
+        value_type="str",
+        description="Device for training",
+        help_text="Device to run training on. '0' for first GPU, '0,1' for multi-GPU, 'cpu' for CPU training, or 'mps' for Apple Silicon. Auto-detects CUDA if available.",
+        allowed_values=[
+            "0",
+            "0,1",
+            "0,1,2,3",
+            "cpu",
+            "mps",
+            "cuda",
+            "npu",
+            "npu:0",
+            "-1",
+        ],
+    ),
+    ParameterDefinition(
+        name="workers",
+        category="hardware",
+        default=8,
+        value_type="int",
+        description="DataLoader workers",
+        help_text="Number of parallel processes for data loading. More workers can speed up data loading but use more CPU and RAM. Set to 0 for main process loading (slower but less resource intensive).",
+        min_value=0,
+        max_value=64,
+    ),
+    ParameterDefinition(
+        name="cache",
+        category="hardware",
+        default="False",
+        value_type="str",
+        description="Cache dataset in memory",
+        help_text="Whether to cache the entire dataset in RAM for faster access. 'True' or 'ram' loads all images into memory. 'disk' caches to disk. 'False' disables caching.",
+        allowed_values=["True", "False", "ram", "disk"],
+    ),
+    ParameterDefinition(
+        name="optimizer",
+        category="optimizer",
+        default="auto",
+        value_type="str",
+        description="Optimizer type",
+        help_text="Optimization algorithm for weight updates. 'auto' lets YOLO choose (usually SGD for large batches, AdamW for small). SGD is more stable for large datasets, AdamW adapts learning rates per parameter.",
+        allowed_values=[
+            "auto",
+            "SGD",
+            "Adam",
+            "AdamW",
+            "Adamax",
+            "NAdam",
+            "RAdam",
+            "RMSProp",
+            "MuSGD",
+        ],
+    ),
+    ParameterDefinition(
+        name="lr0",
+        category="optimizer",
+        default=0.01,
+        value_type="float",
+        description="Initial learning rate",
+        help_text="Starting learning rate for the optimizer. Higher values train faster but may diverge. Lower values are more stable but slower. Typical values: 0.01 (SGD), 0.001 (Adam).",
+        min_value=0.000001,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="lrf",
+        category="optimizer",
+        default=0.01,
+        value_type="float",
+        description="Final learning rate factor",
+        help_text="Final learning rate = lr0 * lrf. Determines how much the learning rate decreases by the end of training. Smaller values mean more aggressive decay.",
+        min_value=0.0001,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="momentum",
+        category="optimizer",
+        default=0.937,
+        value_type="float",
+        description="SGD momentum / Adam beta1",
+        help_text="Momentum factor for SGD (accelerates convergence) or beta1 for Adam optimizers. Higher values smooth out updates using past gradients. Typical: 0.9-0.95 for SGD, 0.9 for Adam.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="weight_decay",
+        category="optimizer",
+        default=0.0005,
+        value_type="float",
+        description="Weight decay (L2 regularization)",
+        help_text="L2 regularization coefficient that penalizes large weights to prevent overfitting. Applied to all trainable parameters. Higher values = stronger regularization.",
+        min_value=0.0,
+        max_value=0.1,
+    ),
+    ParameterDefinition(
+        name="warmup_epochs",
+        category="optimizer",
+        default=3.0,
+        value_type="float",
+        description="Warmup epochs",
+        help_text="Number of epochs to gradually ramp up learning rate from a small value to lr0. Helps stabilize early training. Can be fractional (e.g., 3.5 epochs).",
+        min_value=0.0,
+        max_value=50.0,
+    ),
+    ParameterDefinition(
+        name="warmup_momentum",
+        category="optimizer",
+        default=0.8,
+        value_type="float",
+        description="Warmup initial momentum",
+        help_text="Starting momentum during warmup period, gradually increasing to the full momentum value. Lower initial momentum reduces instability in early training.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    # Augmentation Parameters
+    ParameterDefinition(
+        name="hsv_h",
+        category="augmentation",
+        default=0.015,
+        value_type="float",
+        description="HSV hue augmentation",
+        help_text="Maximum fraction of hue shift in HSV color space. Adds random hue variations to images. Helps model generalize to different lighting conditions. 0 = disabled.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="hsv_s",
+        category="augmentation",
+        default=0.7,
+        value_type="float",
+        description="HSV saturation augmentation",
+        help_text="Maximum fraction of saturation shift. Makes colors more or less vivid randomly. Important for generalizing to different camera/color settings.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="hsv_v",
+        category="augmentation",
+        default=0.4,
+        value_type="float",
+        description="HSV value (brightness) augmentation",
+        help_text="Maximum fraction of brightness shift. Simulates different lighting conditions. Critical for robust detection in varying light environments.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="degrees",
+        category="augmentation",
+        default=0.0,
+        value_type="float",
+        description="Rotation degrees",
+        help_text="Maximum degrees to rotate images randomly. Helps the model detect objects at different orientations. Start with small values (5-15) unless objects can be upside-down.",
+        min_value=-180.0,
+        max_value=180.0,
+    ),
+    ParameterDefinition(
+        name="translate",
+        category="augmentation",
+        default=0.1,
+        value_type="float",
+        description="Translation fraction",
+        help_text="Maximum fraction of image size to translate (shift) images randomly. Helps with detecting objects that may be near image edges. Fraction of image dimension.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="scale",
+        category="augmentation",
+        default=0.5,
+        value_type="float",
+        description="Scale augmentation",
+        help_text="Gain factor for scaling (1 +/- scale). 0.5 means images scaled 0.5x to 1.5x. Essential for detecting objects at different distances/sizes.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="shear",
+        category="augmentation",
+        default=0.0,
+        value_type="float",
+        description="Shear degrees",
+        help_text="Maximum degrees for shear transformation (slanting). Distorts images along an axis. Usually not needed unless objects can appear sheared (e.g., perspective views).",
+        min_value=-180.0,
+        max_value=180.0,
+    ),
+    ParameterDefinition(
+        name="perspective",
+        category="augmentation",
+        default=0.0,
+        value_type="float",
+        description="Perspective distortion",
+        help_text="Strength of random perspective transformation. Simulates viewing objects from different angles. Useful for applications with varying camera viewpoints.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="flipud",
+        category="augmentation",
+        default=0.0,
+        value_type="float",
+        description="Vertical flip probability",
+        help_text="Probability of flipping images vertically (upside-down). Only enable if objects can naturally appear upside-down in your use case.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="fliplr",
+        category="augmentation",
+        default=0.5,
+        value_type="float",
+        description="Horizontal flip probability",
+        help_text="Probability of flipping images horizontally (mirror). Almost always useful (0.5 is standard) unless objects have left/right asymmetry that matters.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="mosaic",
+        category="augmentation",
+        default=1.0,
+        value_type="float",
+        description="Mosaic augmentation probability",
+        help_text="Probability of combining 4 images into a mosaic. Excellent for teaching models about objects near edges and small object detection. Strongly recommended (1.0).",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="mixup",
+        category="augmentation",
+        default=0.0,
+        value_type="float",
+        description="MixUp augmentation probability",
+        help_text="Probability of blending two images together. Helps with model regularization and handling occlusions. Can hurt performance if dataset is small.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="copy_paste",
+        category="augmentation",
+        default=0.0,
+        value_type="float",
+        description="Copy-paste augmentation probability",
+        help_text="Probability of copying objects from one image and pasting onto another. Great for instance segmentation and increasing object density in training images.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="auto_augment",
+        category="augmentation",
+        default="randaugment",
+        value_type="str",
+        description="Auto augmentation policy",
+        help_text="Automatic augmentation strategy to apply. 'randaugment' applies random compositions of basic augmentations. Set to empty string to disable.",
+        allowed_values=["", "randaugment", "autoaugment", "augmix"],
+    ),
+    ParameterDefinition(
+        name="erasing",
+        category="augmentation",
+        default=0.4,
+        value_type="float",
+        description="Random erasing probability",
+        help_text="Probability of randomly erasing (covering) rectangular regions of images. Forces model to learn from partial object views. Common in classification.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="close_mosaic",
+        category="augmentation",
+        default=10,
+        value_type="int",
+        description="Disable mosaic last N epochs",
+        help_text="Number of final epochs to disable mosaic augmentation. Disabling before end helps stabilize training and can improve final metrics. Set to 0 to keep mosaic until end.",
+        min_value=0,
+        max_value=100,
+    ),
+    # Loss Parameters
+    ParameterDefinition(
+        name="box",
+        category="loss",
+        default=7.5,
+        value_type="float",
+        description="Box loss gain",
+        help_text="Weight for bounding box regression loss. Higher values prioritize accurate localization. Standard values are 7.5 for YOLOv8/11/12 and 7.5 for YOLO26.",
+        min_value=0.0,
+        max_value=20.0,
+    ),
+    ParameterDefinition(
+        name="cls",
+        category="loss",
+        default=0.5,
+        value_type="float",
+        description="Classification loss gain",
+        help_text="Weight for classification loss. Higher values prioritize correct class prediction over localization. Usually kept lower than box loss.",
+        min_value=0.0,
+        max_value=10.0,
+    ),
+    ParameterDefinition(
+        name="dfl",
+        category="loss",
+        default=1.5,
+        value_type="float",
+        description="Distribution Focal Loss gain",
+        help_text="Weight for Distribution Focal Loss used in bounding box regression. Only applies to models using DFL. Helps with precise bounding box edges.",
+        min_value=0.0,
+        max_value=10.0,
+    ),
+    # Advanced Parameters
+    ParameterDefinition(
+        name="amp",
+        category="advanced",
+        default=True,
+        value_type="bool",
+        description="Automatic Mixed Precision",
+        help_text="Enable Automatic Mixed Precision (AMP) training. Uses FP16 for some operations to speed up training and reduce memory usage. Usually safe to leave enabled.",
+    ),
+    ParameterDefinition(
+        name="pretrained",
+        category="advanced",
+        default=True,
+        value_type="bool",
+        description="Use pretrained weights",
+        help_text="Whether to start from pretrained COCO weights or train from scratch. Pretrained weights significantly speed up convergence. Disable only for very different domains.",
+    ),
+    ParameterDefinition(
+        name="deterministic",
+        category="advanced",
+        default=False,
+        value_type="bool",
+        description="Deterministic training",
+        help_text="Force deterministic algorithms for reproducibility. May be slower but ensures same results across runs. Useful for debugging and research.",
+    ),
+    ParameterDefinition(
+        name="seed",
+        category="advanced",
+        default=0,
+        value_type="int",
+        description="Random seed",
+        help_text="Seed for random number generators. Set to any positive integer for reproducible results. 0 means random seed each run.",
+        min_value=0,
+        max_value=999999,
+    ),
+    ParameterDefinition(
+        name="rect",
+        category="advanced",
+        default=False,
+        value_type="bool",
+        description="Rectangular training",
+        help_text="Use rectangular inference/training instead of square. Can improve speed when images have extreme aspect ratios. May affect accuracy slightly.",
+    ),
+    ParameterDefinition(
+        name="save_period",
+        category="advanced",
+        default=-1,
+        value_type="int",
+        description="Save checkpoint every N epochs",
+        help_text="Frequency of saving model checkpoints during training. -1 means only save final model. Positive values save intermediate models (useful for resuming or ensemble).",
+        min_value=-1,
+        max_value=1000,
+    ),
+    ParameterDefinition(
+        name="fraction",
+        category="advanced",
+        default=1.0,
+        value_type="float",
+        description="Dataset fraction to use",
+        help_text="Fraction of training dataset to use (0.0 to 1.0). Useful for quick experiments or when using a subset of a large dataset. 1.0 uses all data.",
+        min_value=0.01,
+        max_value=1.0,
+    ),
+    # Segmentation-specific Parameters
+    ParameterDefinition(
+        name="overlap_mask",
+        category="segmentation",
+        default=True,
+        value_type="bool",
+        description="Keep overlapping masks",
+        help_text="For segmentation: whether to allow overlapping object masks (True) or merge them (False). True preserves individual object boundaries.",
+    ),
+    ParameterDefinition(
+        name="mask_ratio",
+        category="segmentation",
+        default=4,
+        value_type="int",
+        description="Mask downsampling ratio",
+        help_text="Downsampling factor for segmentation masks relative to image size. Higher values = smaller masks = less memory but coarser masks. 4 is standard (640px image -> 160px mask).",
+        min_value=1,
+        max_value=16,
+    ),
+    # Validation Parameters
+    ParameterDefinition(
+        name="val",
+        category="validation",
+        default=True,
+        value_type="bool",
+        description="Run validation during training",
+        help_text="Whether to run validation after each epoch to monitor performance on the validation set. Disable to speed up training when you don't need intermediate metrics.",
+    ),
+    ParameterDefinition(
+        name="conf",
+        category="validation",
+        default=0.001,
+        value_type="float",
+        description="Confidence threshold for validation",
+        help_text="Minimum confidence score for detections during validation. Lower values (0.001) include more predictions for mAP calculation. Higher values filter low-confidence detections.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="max_det",
+        category="validation",
+        default=300,
+        value_type="int",
+        description="Maximum detections per image",
+        help_text="Maximum number of detections to consider per image during validation. Prevents memory issues in scenes with many objects.",
+        min_value=1,
+        max_value=10000,
+    ),
+    ParameterDefinition(
+        name="plots",
+        category="validation",
+        default=True,
+        value_type="bool",
+        description="Generate validation plots",
+        help_text="Whether to generate and save validation plots (PR curves, confusion matrix, etc.) after training. Requires matplotlib.",
+    ),
+    # Additional Advanced Parameters (from latest Ultralytics docs)
+    ParameterDefinition(
+        name="time",
+        category="core",
+        default=None,
+        value_type="float",
+        description="Maximum training time",
+        help_text="Maximum training time in hours. If set, overrides epochs when time limit is reached first. Useful for time-constrained training jobs.",
+        min_value=0.0,
+        max_value=1000.0,
+    ),
+    ParameterDefinition(
+        name="cos_lr",
+        category="optimizer",
+        default=False,
+        value_type="bool",
+        description="Cosine learning rate scheduler",
+        help_text="Use cosine annealing learning rate scheduler. Smoothly decreases LR following cosine curve instead of linear decay. Often improves final results.",
+    ),
+    ParameterDefinition(
+        name="nbs",
+        category="loss",
+        default=64,
+        value_type="int",
+        description="Nominal batch size",
+        help_text="Nominal batch size for loss normalization. Used to normalize loss when using gradient accumulation or varying batch sizes. Standard is 64.",
+        min_value=1,
+        max_value=1024,
+    ),
+    ParameterDefinition(
+        name="multi_scale",
+        category="advanced",
+        default=0.0,
+        value_type="float",
+        description="Multi-scale training",
+        help_text="Enable multi-scale training by varying image size +/- this fraction during training. Helps model generalize to different object sizes. 0.0 disables, 0.1 varies by +/-10%.",
+        min_value=0.0,
+        max_value=1.0,
+    ),
+    ParameterDefinition(
+        name="resume",
+        category="advanced",
+        default=False,
+        value_type="bool",
+        description="Resume training",
+        help_text="Resume training from last checkpoint. Automatically finds the most recent run and continues from there. Useful after interruptions.",
+    ),
+    ParameterDefinition(
+        name="single_cls",
+        category="advanced",
+        default=False,
+        value_type="bool",
+        description="Single class mode",
+        help_text="Treat all classes as a single class. Useful when you want to detect objects without distinguishing between classes (object vs no-object).",
+    ),
+]
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -183,9 +711,7 @@ def _render_dependency_summary(statuses):
     elif minor or patch:
         updates = minor + patch
         names = ", ".join(s.package.name for s in updates)
-        body = (
-            f"[bold yellow]{len(updates)} non-breaking update(s) available:[/bold yellow] {names}"
-        )
+        body = f"[bold yellow]{len(updates)} non-breaking update(s) available:[/bold yellow] {names}"
         border = "yellow"
     elif unknown:
         names = ", ".join(s.package.name for s in unknown)
@@ -438,6 +964,10 @@ def display_configuration_summary(
             }
         )
 
+    # Indicate if this is a fully customized config
+    if profile_selection and profile_selection.get("mode") == "fully_customized":
+        fields["Config Mode"] = "Fully Customized"
+
     render_summary_panel("Configuration Summary", fields)
 
     # Simplified dataset paths display
@@ -619,37 +1149,189 @@ def update_config(model_choice, dataset_choice):
     dataset_type = generator.dataset_info.get("task_type", "unknown")
     is_seg_model = "-seg" in model_choice.lower()
 
+    # Determine if there's a mismatch
+    mismatch_type = None
     if (
         dataset_type == "segmentation"
         and not is_seg_model
         and "nas" not in model_choice.lower()
     ):
-        console.print(
-            "\n[bold red]⚠️ WARNING: You selected a Bounding Box (Detection) model, but the dataset appears to be for Instance Segmentation![/bold red]"
-        )
-        if (
-            get_user_choice(
-                ["Continue Anyway", "Go Back"],
-                text="Do you want to continue?",
-                title="Dataset Mismatch",
-            )
-            == "Go Back"
-        ):
-            return False
+        mismatch_type = "seg_model_needed"
     elif dataset_type == "detection" and is_seg_model:
-        console.print(
-            "\n[bold red]⚠️ WARNING: You selected a Segmentation model, but the dataset appears to be for Bounding Box Detection![/bold red]"
-        )
-        if (
-            get_user_choice(
-                ["Continue Anyway", "Go Back"],
-                text="Do you want to continue?",
-                title="Dataset Mismatch",
-            )
-            == "Go Back"
-        ):
-            return False
+        mismatch_type = "det_model_needed"
+    elif dataset_type == "unknown":
+        mismatch_type = "unknown"
 
+    if mismatch_type:
+        classes = generator.dataset_info.get("classes", []) or []
+        num_classes = len(classes)
+        dataset_path_display = str(generator.dataset_path)
+
+        if mismatch_type == "seg_model_needed":
+            title = "Dataset / Model Mismatch"
+            model_kind = "detection"
+            detected_label_format = "Segmentation polygons (7+ odd values per line)"
+            expected_by_model = "Bounding boxes (5 values per line)"
+            recommended_model = f"{model_choice}-seg"
+            summary = (
+                f"[yellow]Your model expects boxes, but your labels are polygons.[/yellow] "
+                f"[bold]{model_choice}[/bold] is a detection model — it only predicts "
+                f"[bold](x, y, w, h)[/bold] — while the label files under "
+                f"[cyan]{dataset_name}[/cyan] contain segmentation polygons. "
+                f"Training will discard the mask data and, in most cases, train "
+                f"a detector that is weaker than one started from box labels directly."
+            )
+            continue_detail = (
+                "[bold yellow]Train the detection model on polygon labels anyway.[/bold yellow]\n\n"
+                f"• [cyan]{model_choice}[/cyan] will collapse each polygon to its "
+                "bounding box at load time.\n"
+                "• Mask granularity and per-pixel precision are [red]lost[/red] — "
+                "the trained model predicts boxes, not masks.\n"
+                "• Pick this only if you actually want box outputs from polygon "
+                "labels and accept the signal loss."
+            )
+            change_model_detail = (
+                "[bold green]Go back and pick a segmentation model.[/bold green]  [dim](recommended)[/dim]\n\n"
+                f"• Recommended: [green]{recommended_model}[/green] — same backbone, "
+                "adds a mask head that consumes polygons directly.\n"
+                "• Any [green]-seg[/green] variant (yolo26-seg, yolov11-seg, "
+                "yolov9-seg, yolov8-seg) works on your current labels without "
+                "any dataset changes.\n"
+                "• Fastest path when the dataset is already annotated as polygons."
+            )
+            fix_dataset_detail = (
+                "[bold cyan]Keep the detection model and flatten polygons to boxes first.[/bold cyan]\n\n"
+                "• Convert each polygon to its tight bounding box (ultralytics "
+                "CLI, or a short script that reads the label .txt files).\n"
+                "• Update [dim]data.yaml[/dim] so labels are 5 values per line.\n"
+                "• Re-run YOLOmatic once the labels are in detection format."
+            )
+            tip = (
+                "If you're unsure which way to go, [bold]Choose a Different Model[/bold] "
+                "is safest — it keeps your polygon data intact and just swaps the "
+                "model head."
+            )
+        elif mismatch_type == "det_model_needed":
+            title = "Dataset / Model Mismatch"
+            model_kind = "segmentation"
+            detected_label_format = "Bounding boxes (5 values per line)"
+            expected_by_model = "Segmentation polygons (7+ odd values per line)"
+            recommended_model = model_choice.replace("-seg", "")
+            summary = (
+                f"[yellow]Your model expects polygons, but your labels are boxes.[/yellow] "
+                f"[bold]{model_choice}[/bold] is a segmentation model — its mask head "
+                "needs polygon vertices to learn boundaries — while the label files "
+                f"under [cyan]{dataset_name}[/cyan] contain only bounding boxes. "
+                "Segmentation training on box-only data typically fails outright or "
+                "produces invalid masks."
+            )
+            continue_detail = (
+                "[bold red]Train the segmentation model on box-only labels anyway.[/bold red]\n\n"
+                "• The mask head has no polygon data to learn from — training "
+                "usually [red]crashes at loss computation[/red] or yields "
+                "unusable mask predictions.\n"
+                "• Only pick this if you are deliberately debugging "
+                "Ultralytics' segmentation pipeline."
+            )
+            change_model_detail = (
+                "[bold green]Go back and pick the detection variant.[/bold green]  [dim](recommended)[/dim]\n\n"
+                f"• Recommended: [green]{recommended_model}[/green] — same family, "
+                "drops the mask head so it works on box labels as-is.\n"
+                "• Any non-seg variant works on your current labels without "
+                "any dataset changes.\n"
+                "• Fastest path when your labels are already boxes."
+            )
+            fix_dataset_detail = (
+                "[bold cyan]Keep the segmentation model and re-annotate with polygons.[/bold cyan]\n\n"
+                "• Boxes cannot be 'upgraded' to masks — you need real per-pixel "
+                "annotation.\n"
+                "• Use Roboflow, CVAT, or Label Studio to trace polygons over "
+                "each instance.\n"
+                "• Re-run YOLOmatic once labels have 7+ odd values per line "
+                "(class id + polygon points)."
+            )
+            tip = (
+                "If you just need a working training run, [bold]Choose a Different Model[/bold] "
+                "is the cheapest fix — re-annotating a dataset can take hours to days."
+            )
+        else:  # unknown
+            title = "Dataset Format Not Recognized"
+            model_kind = "unknown"
+            detected_label_format = "Could not determine (labels missing or empty?)"
+            expected_by_model = "YOLO .txt labels (boxes or polygons)"
+            recommended_model = "—"
+            summary = (
+                "[yellow]YOLOmatic scanned the dataset but could not classify the "
+                "label format.[/yellow] Either the label files are missing, empty, "
+                "or in a format YOLO does not recognize (for example, still in "
+                "COCO JSON form).\n\n"
+                f"Scanned path: [cyan]{dataset_path_display}[/cyan]\n"
+                "Expected layout: one [bold].txt[/bold] per image with [bold]5 values[/bold] "
+                "per line (boxes) or [bold]7+ odd values[/bold] per line (polygons)."
+            )
+            continue_detail = (
+                "[bold red]Proceed without a confirmed label format.[/bold red]\n\n"
+                "• Ultralytics will attempt to train, but the run will "
+                "[red]fail at data loading[/red] if no labels are actually present.\n"
+                "• Only pick this if you know the labels exist somewhere "
+                "YOLOmatic's detector didn't check."
+            )
+            change_model_detail = (
+                "[bold cyan]Return to the model picker.[/bold cyan]\n\n"
+                "• Useful if you want to try a different model family while you "
+                "investigate the dataset in parallel.\n"
+                "• Note: the mismatch will re-appear on the next run until "
+                "the labels are fixed."
+            )
+            fix_dataset_detail = (
+                "[bold green]Stop and fix the dataset first.[/bold green]  [dim](recommended)[/dim]\n\n"
+                "• Confirm [dim]train/labels/*.txt[/dim] exist and are non-empty.\n"
+                "• Check [dim]data.yaml[/dim] `train:` / `val:` paths resolve to "
+                "the right folders.\n"
+                "• If labels are COCO JSON, convert them to YOLO .txt first.\n"
+                "• Re-run YOLOmatic once the label format is in place."
+            )
+            tip = (
+                "Most common cause: [bold]data.yaml[/bold] paths point to a folder that "
+                "exists but contains no .txt files, or images live in one folder and "
+                "labels in another with mismatched names."
+            )
+
+        status_fields: dict[str, str] = {
+            "Selected Model": f"{model_choice} ({model_kind})",
+            "Dataset": f"{dataset_name} ({num_classes} classes)",
+            "Labels Found": detected_label_format,
+            "Model Expects": expected_by_model,
+        }
+        if recommended_model != "—":
+            status_fields["Suggested Model"] = recommended_model
+
+        options = [
+            "Continue Anyway",
+            "Choose a Different Model",
+            "Fix Dataset First",
+        ]
+        descriptions = {
+            "Continue Anyway": continue_detail,
+            "Choose a Different Model": change_model_detail,
+            "Fix Dataset First": fix_dataset_detail,
+        }
+
+        choice = get_user_choice(
+            options,
+            title=title,
+            text=summary,
+            descriptions=descriptions,
+            breadcrumbs=["YOLOmatic", "Configure Model", "Dataset Type Check"],
+            status_fields=status_fields,
+            tip=tip,
+        )
+
+        if choice != "Continue Anyway":
+            return False
+        # Continue with "Continue Anyway"
+
+    custom_params = None
     if "nas" not in model_choice.lower():
         profile_selection = choose_regular_yolo_profiles(
             dataset_name,
@@ -658,16 +1340,34 @@ def update_config(model_choice, dataset_choice):
         )
         if profile_selection is None:
             return False
-        display_regular_yolo_profile_selection_summary(
-            dataset_name,
-            profile_selection,
-            profile_context,
-        )
-        config = generator.generate_config(
-            model_choice,
-            profile_selection,
-            profile_context,
-        )
+
+        # Handle fully customized mode
+        if profile_selection.get("mode") == "fully_customized":
+            result = run_fully_customized_config_flow(
+                dataset_name, model_choice, profile_context
+            )
+            if result is None:
+                return False
+            custom_params = result.get("params", {})
+            # Generate base config and apply custom params directly
+            config = generator.generate_config(
+                model_choice,
+                dict(profile_context["recommended_profiles"]),
+                profile_context,
+            )
+            # Override with custom parameters
+            config["training"].update(custom_params)
+        else:
+            display_regular_yolo_profile_selection_summary(
+                dataset_name,
+                profile_selection,
+                profile_context,
+            )
+            config = generator.generate_config(
+                model_choice,
+                profile_selection,
+                profile_context,
+            )
     else:
         config = generator.generate_config(model_choice)
 
@@ -917,10 +1617,12 @@ def choose_regular_yolo_profiles(
     start_option_map = {
         "Recommended": "recommended",
         "Customize": "customize",
+        "Fully Customized": "fully_customized",
     }
     start_descriptions = {
         "Recommended": "Fastest path - let YOLOmatic heuristics decide augmentation, compute, and worker settings for you.",
         "Customize": "Manual path - review and choose your own augmentation intensity, compute aggressiveness, and worker counts.",
+        "Fully Customized": "Expert path - individually select and configure every training parameter with detailed explanations.",
         "Back": "Return to dataset selection.",
     }
 
@@ -949,6 +1651,8 @@ def choose_regular_yolo_profiles(
         return None
     if start_option_map[initial_choice] == "recommended":
         return dict(recommended_profiles)
+    if start_option_map[initial_choice] == "fully_customized":
+        return {"mode": "fully_customized"}
 
     augmentation_options = {
         "minimum": "Essential training values only with almost no extra augmentation",
@@ -1012,6 +1716,157 @@ def choose_regular_yolo_profiles(
         "compute": compute_choice,
         "worker": worker_choice,
     }
+
+
+def run_fully_customized_config_flow(
+    dataset_name: str,
+    model_choice: str,
+    profile_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    """
+    Interactive flow for fully customized parameter selection.
+
+    Allows users to check/uncheck individual parameters and set custom values
+    with detailed explanations for each parameter.
+    """
+    from rich import box
+    from rich.panel import Panel
+    from rich.table import Table
+
+    clear_screen()
+    print_stylized_header("Fully Customized Configuration")
+
+    console.print(
+        Panel(
+            "[bold yellow]Welcome to the Fully Customized Config Mode![/bold yellow]\n\n"
+            "In this mode, you can:\n"
+            "- [cyan]Check/uncheck[/cyan] each parameter you want to include in your config\n"
+            "- [cyan]Read detailed explanations[/cyan] of what each parameter does\n"
+            "- [cyan]Set custom values[/cyan] for each selected parameter\n\n"
+            "[dim]Press Space to toggle parameters, Enter to confirm selection.[/dim]",
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
+    # Get default pre-selected parameters (core + hardware minimum)
+    pre_selected = {
+        "epochs",
+        "patience",
+        "batch",
+        "imgsz",
+        "device",
+        "workers",
+        "optimizer",
+    }
+
+    # Run multi-select to choose parameters
+    selected_params = get_user_multi_select(
+        parameters=YOLO_TRAINING_PARAMETERS,
+        title="Select Training Parameters",
+        instruction="Use Space to toggle, A for all, N for none, Enter to confirm:",
+        pre_selected=pre_selected,
+    )
+
+    if selected_params is None:
+        return None
+
+    if not selected_params:
+        console.print("[yellow]No parameters selected. Using defaults.[/yellow]")
+        return {"mode": "fully_customized", "params": {}}
+
+    # Now let user customize values for selected parameters
+    clear_screen()
+    print_stylized_header("Configure Parameter Values")
+
+    console.print(
+        f"[bold cyan]Selected {len(selected_params)} parameters.[/bold cyan]\n"
+        "Now let's set custom values for each. Press Enter to keep defaults.\n"
+    )
+
+    custom_values: dict[str, Any] = {}
+
+    # Group parameters by category for better UX
+    category_order = [
+        "core",
+        "hardware",
+        "optimizer",
+        "augmentation",
+        "loss",
+        "advanced",
+        "segmentation",
+        "validation",
+    ]
+
+    param_lookup = {p.name: p for p in YOLO_TRAINING_PARAMETERS}
+
+    for category in category_order:
+        category_params = [
+            p
+            for p in YOLO_TRAINING_PARAMETERS
+            if p.category == category and p.name in selected_params
+        ]
+        if not category_params:
+            continue
+
+        console.print(f"\n[bold cyan]━━━ {category.upper()} ━━━[/bold cyan]")
+
+        for param in category_params:
+            value = get_parameter_value_input(param)
+            if value is not None:
+                custom_values[param.name] = value
+
+    # Display summary
+    clear_screen()
+    print_stylized_header("Configuration Summary")
+
+    table = Table(
+        title=f"Selected Parameters ({len(custom_values)} configured)",
+        title_style="bold green",
+        border_style="dim",
+        box=box.ROUNDED,
+    )
+    table.add_column("Parameter", style="cyan")
+    table.add_column("Value", style="yellow")
+    table.add_column("Category", style="dim")
+
+    for name, value in sorted(custom_values.items()):
+        param = param_lookup.get(name)
+        if param:
+            table.add_row(name, str(value), param.category)
+
+    console.print(table)
+
+    if (
+        get_user_choice(
+            ["Confirm and Continue", "Go Back and Modify"],
+            title="Confirm Configuration",
+            text=(
+                "Review the custom parameter table above. "
+                "These values will be written into your training YAML."
+            ),
+            descriptions={
+                "Confirm and Continue": (
+                    "[bold green]Accept these values and write the training YAML.[/bold green]\n\n"
+                    "• The generated config is saved to [cyan]configs/[/cyan] with a timestamp.\n"
+                    "• You can still edit the YAML by hand before launching training."
+                ),
+                "Go Back and Modify": (
+                    "[bold yellow]Return to the parameter editor.[/bold yellow]\n\n"
+                    "• Your current selections are preserved; only edit what you want to change.\n"
+                    "• Useful if you spotted a typo or want to tune a value before committing."
+                ),
+            },
+            tip=(
+                "Anything you change later in the YAML will override what you picked here — "
+                "no need to start over."
+            ),
+        )
+        == "Go Back and Modify"
+    ):
+        return None
+
+    return {"mode": "fully_customized", "params": custom_values}
 
 
 def get_model_menu():
@@ -1176,9 +2031,7 @@ def _main_loop_iteration():
         elif main_choice == "Combine Datasets":
             from src.utils.combine_datasets import main as combine_main
 
-            _safe_subcommand(
-                "Dataset Combiner", combine_main, prog="yolomatic-combine"
-            )
+            _safe_subcommand("Dataset Combiner", combine_main, prog="yolomatic-combine")
             continue
 
         elif main_choice == "About YOLOmatic":
