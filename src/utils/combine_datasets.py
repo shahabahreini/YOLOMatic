@@ -273,9 +273,15 @@ Automatically created by the **Robust YOLO Dataset Combiner** (parallel + hard-l
 def main():
     console.print(Panel.fit("🚀 [bold]Robust YOLO Dataset Combiner[/bold] (Parallel + Hard-Link Optimized)", border_style="blue"))
 
-    datasets = find_datasets()
+    # YOLOmatic projects keep source datasets under ./datasets/. Fall back to
+    # the current directory so the script still works when invoked from an
+    # arbitrary folder layout.
+    search_root = "datasets" if Path("datasets").is_dir() else "."
+    datasets = find_datasets(search_root)
     if not datasets:
-        console.print("[red]No YOLO datasets (with data.yaml) found in current folder.[/red]")
+        console.print(
+            f"[red]No YOLO datasets (with data.yaml) found in '{search_root}'.[/red]"
+        )
         return
 
     # Show available datasets

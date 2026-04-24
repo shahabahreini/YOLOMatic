@@ -2,9 +2,11 @@ import logging
 import os
 import sys
 import time
+import traceback
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import yaml
 from rich import box
@@ -36,6 +38,87 @@ logging.basicConfig(
 )
 logging.getLogger("src.config.generator").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _scoped_argv(prog: str) -> Iterator[None]:
+    """Temporarily replace ``sys.argv`` so sub-commands' argparse calls see a
+    clean argument vector instead of inheriting the TUI's own args.
+    """
+    saved_argv = sys.argv
+    sys.argv = [prog]
+    try:
+        yield
+    finally:
+        sys.argv = saved_argv
+
+
+def _safe_subcommand(
+    label: str,
+    target: Callable[..., Any],
+    *,
+    prog: str | None = None,
+) -> None:
+    """Run a submodule's ``main()`` from the TUI with unified error handling.
+
+    The TUI invokes each command-line tool (training, prediction, TensorBoard,
+    upload, dataset tools) by calling its ``main`` directly rather than
+    shelling out. That keeps the session in one process but means any
+    ``sys.exit``/``KeyboardInterrupt``/unexpected exception inside the
+    sub-command would otherwise kill the TUI. This wrapper neutralises all of
+    those, shows a panelled error, and always pauses for Enter so the user
+    can read the output before the menu redraws.
+    """
+    clear_screen()
+    entrypoint_name = prog or label.lower().replace(" ", "-")
+    try:
+        with _scoped_argv(entrypoint_name):
+            target()
+    except SystemExit as error:
+        code = error.code
+        if code not in (None, 0):
+            console.print(
+                Panel(
+                    f"[bold yellow]{label} exited with status {code}.[/bold yellow]",
+                    border_style="yellow",
+                    padding=(1, 2),
+                )
+            )
+    except KeyboardInterrupt:
+        console.print(f"\n[bold yellow]{label} cancelled by user.[/bold yellow]")
+    except MLDependencyError as error:
+        console.print(
+            Panel(
+                f"[bold red]{label} cannot run — missing dependency:[/bold red]\n{error}\n\n"
+                "[dim]Run `uv sync` (or re-install requirements) and try again.[/dim]",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+    except FileNotFoundError as error:
+        console.print(
+            Panel(
+                f"[bold red]{label} failed — file not found:[/bold red] {error}",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+    except Exception as error:
+        console.print(
+            Panel(
+                f"[bold red]{label} failed unexpectedly:[/bold red] {error}",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+        console.print(traceback.format_exc(), style="dim")
+    finally:
+        console.print()
+        try:
+            input("Press Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            # User hit Ctrl+D/Ctrl+C at the pause prompt — just return.
+            console.print()
 
 
 def check_ultralytics_version():
@@ -837,12 +920,56 @@ def get_model_menu():
 
 def main():
     while True:
+        try:
+            _main_loop_iteration()
+        except KeyboardInterrupt:
+            # Ctrl+C at the main menu exits cleanly instead of dumping a trace.
+            clear_screen()
+            console.print("\n[bold cyan]\U0001f44b Goodbye![/bold cyan]")
+            return
+        except _ExitTUI:
+            clear_screen()
+            console.print("\U0001f44b Goodbye!", style="bold cyan")
+            return
+        except Exception as error:
+            # Last-resort safety net — report and re-enter the menu rather than
+            # crashing the whole TUI.
+            console.print(
+                Panel(
+                    f"[bold red]An unexpected error occurred:[/bold red] {error}",
+                    border_style="red",
+                    padding=(1, 2),
+                )
+            )
+            console.print(traceback.format_exc(), style="dim")
+            try:
+                input("\nPress Enter to return to the main menu...")
+            except (EOFError, KeyboardInterrupt):
+                return
+
+
+class _ExitTUI(Exception):
+    """Raised internally when the user chooses Exit from the main menu."""
+
+
+def _main_loop_iteration():
+    while True:
         clear_screen()
         print_stylized_header("YOLO Model Selector")
 
-        # Add version check and about options to main menu
+        # Full workflow surface: configure, train, predict, monitor, publish,
+        # and curate datasets — all routed through the same TUI.
         main_menu_options = [
-            "Select Model",
+            "[Configure & Train]",
+            "Configure Model",
+            "Train Model",
+            "[Evaluate & Monitor]",
+            "Run Prediction",
+            "Launch TensorBoard",
+            "[Datasets & Deployment]",
+            "Combine Datasets",
+            "Upload to Roboflow",
+            "[Maintenance]",
             "Check Ultralytics Version",
             "About YOLOmatic",
             "Exit",
@@ -853,15 +980,38 @@ def main():
             title="Main Menu",
             text="Pick a task to begin:",
             descriptions={
-                "Select Model": (
-                    "Launch the core YOLOmatic workflow. You will select a model family, "
-                    "pick a specific variant based on your hardware constraints, and "
-                    "configure training parameters for your dataset."
+                "Configure Model": (
+                    "Walk through the YOLOmatic wizard to pick a model family, choose a "
+                    "variant that fits your hardware, and auto-generate a training YAML "
+                    "tailored to your dataset and system resources."
+                ),
+                "Train Model": (
+                    "Train (and validate + export) a YOLO or YOLO-NAS model using one of "
+                    "the saved configs under ./configs. Routes YOLO-NAS to SuperGradients "
+                    "and everything else to Ultralytics automatically."
+                ),
+                "Run Prediction": (
+                    "Run inference on a single image or a folder of images using trained "
+                    "weights discovered in the project root or runs/ directory."
+                ),
+                "Launch TensorBoard": (
+                    "Open a TensorBoard dashboard against a specific run or the entire "
+                    "runs/ directory. YOLOmatic back-fills metrics, artifacts, and sample "
+                    "images automatically."
+                ),
+                "Combine Datasets": (
+                    "Merge several YOLO datasets into a unified one — class names are "
+                    "deduplicated, labels are remapped, and images are hard-linked where "
+                    "possible for near-zero cost."
+                ),
+                "Upload to Roboflow": (
+                    "Publish a trained checkpoint to Roboflow. Reads ROBOFLOW_API_KEY / "
+                    "WORKSPACE / PROJECT_IDS from .env and stages the weight correctly for "
+                    "Roboflow's deploy API."
                 ),
                 "Check Ultralytics Version": (
-                    "Stay up to date with the latest YOLO improvements. This will check "
-                    "PyPI for the latest 'ultralytics' package and offer to update "
-                    "your environment."
+                    "Check PyPI for the latest 'ultralytics' release and offer to update "
+                    "the current environment."
                 ),
                 "About YOLOmatic": "Technical details, creator info, and version history.",
                 "Exit": "Safely exit the application.",
@@ -870,12 +1020,44 @@ def main():
         )
 
         if main_choice == "Exit":
-            clear_screen()
-            console.print("\U0001f44b Goodbye!", style="bold cyan")
-            break
+            raise _ExitTUI()
 
         elif main_choice == "Check Ultralytics Version":
             check_ultralytics_version()
+            continue
+
+        elif main_choice == "Train Model":
+            from src.trainers.yolo_trainer import main as trainer_main
+
+            _safe_subcommand("Training", trainer_main, prog="yolomatic-train")
+            continue
+
+        elif main_choice == "Run Prediction":
+            from src.cli.predict import main as predict_main
+
+            _safe_subcommand("Prediction", predict_main, prog="yolomatic-predict")
+            continue
+
+        elif main_choice == "Launch TensorBoard":
+            from src.cli.tensorboard_launcher import main as tensorboard_main
+
+            _safe_subcommand(
+                "TensorBoard", tensorboard_main, prog="yolomatic-tensorboard"
+            )
+            continue
+
+        elif main_choice == "Upload to Roboflow":
+            from src.cli.upload import main as upload_main
+
+            _safe_subcommand("Roboflow Upload", upload_main, prog="yolomatic-upload")
+            continue
+
+        elif main_choice == "Combine Datasets":
+            from src.utils.combine_datasets import main as combine_main
+
+            _safe_subcommand(
+                "Dataset Combiner", combine_main, prog="yolomatic-combine"
+            )
             continue
 
         elif main_choice == "About YOLOmatic":
@@ -911,7 +1093,7 @@ def main():
             input("Press Enter to return to Main Menu...")
             continue
 
-        elif main_choice == "Select Model":
+        elif main_choice == "Configure Model":
             # Get model choice
             model_types = get_model_menu()
             model_choice = get_user_choice(
@@ -1139,15 +1321,45 @@ def main():
                 model_choice = model_variant
 
             # Continue with dataset selection...
-            dataset_choice = list_datasets()
+            try:
+                dataset_choice = list_datasets()
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Failed to list datasets:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to return to the main menu...")
+                continue
             if dataset_choice == "Back":
                 continue
             elif dataset_choice is None:
                 continue
 
-            # Show summary and update config
+            # Show summary and update config. Any failure during config
+            # generation must not tear down the TUI — report and return.
             print_summary(model_choice, dataset_choice)
-            if not update_config(model_choice, dataset_choice):
+            try:
+                if not update_config(model_choice, dataset_choice):
+                    continue
+            except KeyboardInterrupt:
+                console.print(
+                    "\n[bold yellow]Configuration cancelled by user.[/bold yellow]"
+                )
+                input("\nPress Enter to return to the main menu...")
+                continue
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Configuration failed:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                console.print(traceback.format_exc(), style="dim")
+                input("\nPress Enter to return to the main menu...")
                 continue
 
             # Ask if user wants to continue
