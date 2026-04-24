@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -9,13 +10,77 @@ from typing import Any
 from rich.console import Console
 
 from src.utils.cli import get_user_choice
+from src.utils.ml_dependencies import prepare_ml_runtime
 
 
 console = Console()
 DEFAULT_TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 DEFAULT_NUMPY_CONSTRAINT = "numpy==1.23.0"
+# The inspection script runs in a clean subprocess, so it must replicate the
+# NVIDIA library-path bootstrap that `ml_dependencies.prepare_ml_runtime` does
+# in-process. Without this, torch can't find bundled cuDNN/CUDA runtime wheels
+# and `torch.cuda.is_available()` returns False — which previously pushed every
+# fresh invocation into the repair flow, even when the prior repair succeeded.
 _TORCH_INSPECTION_SCRIPT = """
 import json
+import os
+import platform
+import sys
+from pathlib import Path
+
+
+def _candidate_nvidia_lib_dirs():
+    relative_dirs = [
+        "nvidia/cudnn/lib",
+        "nvidia/cublas/lib",
+        "nvidia/cuda_runtime/lib",
+        "nvidia/cuda_nvrtc/lib",
+        "nvidia/cuda_cupti/lib",
+        "nvidia/cufft/lib",
+        "nvidia/curand/lib",
+        "nvidia/cusolver/lib",
+        "nvidia/cusparse/lib",
+        "nvidia/nvjitlink/lib",
+        "nvidia/nvtx/lib",
+        "nvidia/cufile/lib",
+    ]
+    seen = set()
+    found = []
+    for raw_path in sys.path:
+        if not raw_path:
+            continue
+        site_packages = Path(raw_path)
+        if site_packages.name != "site-packages" or not site_packages.exists():
+            continue
+        for rel in relative_dirs:
+            lib_dir = site_packages / rel
+            if lib_dir.exists() and lib_dir.is_dir():
+                resolved = lib_dir.resolve()
+                if resolved not in seen:
+                    seen.add(resolved)
+                    found.append(resolved)
+    return found
+
+
+def _prepare_runtime():
+    system = platform.system()
+    if system == "Windows":
+        env_var = "PATH"
+    elif system == "Darwin":
+        env_var = "DYLD_LIBRARY_PATH"
+    else:
+        env_var = "LD_LIBRARY_PATH"
+    existing = [p for p in os.environ.get(env_var, "").split(os.pathsep) if p]
+    for lib_dir in _candidate_nvidia_lib_dirs():
+        lib_dir_str = str(lib_dir)
+        if lib_dir_str not in existing:
+            existing.append(lib_dir_str)
+    if existing:
+        os.environ[env_var] = os.pathsep.join(existing)
+
+
+_prepare_runtime()
+
 payload = {}
 try:
     import torch
@@ -68,11 +133,15 @@ def inspect_torch_runtime(
     python_executable: str | None = None,
 ) -> TorchInspectionResult:
     executable = python_executable or sys.executable
+    # Mirror what `import_torch` does before the real import, so the subprocess
+    # (which inherits our env) can find bundled cuDNN/CUDA runtime wheels.
+    prepare_ml_runtime()
     process = subprocess.run(
         [executable, "-c", _TORCH_INSPECTION_SCRIPT],
         capture_output=True,
         text=True,
         check=False,
+        env=os.environ.copy(),
     )
     if process.returncode != 0:
         error = (process.stderr or process.stdout or "Unknown error").strip()
@@ -186,7 +255,7 @@ def repair_cuda_enabled_torch(
             "torchvision",
             "torchaudio",
             DEFAULT_NUMPY_CONSTRAINT,
-            "--index-url",
+            "--extra-index-url",
             index_url,
         ],
     ]
