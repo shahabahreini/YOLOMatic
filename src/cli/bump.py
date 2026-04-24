@@ -4,19 +4,18 @@ import sys
 from pathlib import Path
 
 # Paths relative to project root (where command is usually run)
-VERSION_FILE = Path("src/__version__.py")
 PYPROJECT_FILE = Path("pyproject.toml")
 
 
 def get_current_version():
-    if not VERSION_FILE.exists():
-        print(f"Error: Could not find {VERSION_FILE}", file=sys.stderr)
+    if not PYPROJECT_FILE.exists():
+        print(f"Error: Could not find {PYPROJECT_FILE}", file=sys.stderr)
         sys.exit(1)
 
-    content = VERSION_FILE.read_text("utf-8")
-    match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+    content = PYPROJECT_FILE.read_text("utf-8")
+    match = re.search(r'^\s*version\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
     if not match:
-        print(f"Error: Could not parse version from {VERSION_FILE}", file=sys.stderr)
+        print(f"Error: Could not parse version from {PYPROJECT_FILE}", file=sys.stderr)
         sys.exit(1)
 
     return match.group(1)
@@ -87,11 +86,20 @@ def main():
 
     try:
         from src.utils.tui import TUI_CONSOLE as console
-        def print_success(msg): console.print(f"[bold green]{msg}[/bold green]")
-        def print_info(msg): console.print(f"[bold cyan]{msg}[/bold cyan]")
+
+        def print_success(msg):
+            console.print(f"[bold green]{msg}[/bold green]")
+
+        def print_info(msg):
+            console.print(f"[bold cyan]{msg}[/bold cyan]")
+
     except ImportError:
-        def print_success(msg): print(f"SUCCESS: {msg}")
-        def print_info(msg): print(msg)
+
+        def print_success(msg):
+            print(f"SUCCESS: {msg}")
+
+        def print_info(msg):
+            print(msg)
 
     current_version = get_current_version()
     new_version = bump_version(current_version, args.type.lower())
@@ -102,16 +110,7 @@ def main():
 
     print_info(f"Bumping version: {current_version} -> {new_version}")
 
-    # 1. Update src/__version__.py
-    v_pattern = r'__version__\s*=\s*["\'][^"\']+["\']'
-    v_replacement = f'__version__ = "{new_version}"'
-    if write_version_to_file(VERSION_FILE, v_pattern, v_replacement, new_version):
-        print_info(f"Updated {VERSION_FILE}")
-    else:
-        print(f"Failed to update {VERSION_FILE}", file=sys.stderr)
-        sys.exit(1)
-
-    # 2. Update pyproject.toml
+    # Update only pyproject.toml (single source of truth). `src/__version__.py` reads pyproject at runtime.
     p_pattern = r'version\s*=\s*["\'][^"\']+["\']'
     p_replacement = f'version = "{new_version}"'
     if write_version_to_file(PYPROJECT_FILE, p_pattern, p_replacement, new_version):
