@@ -32,7 +32,55 @@ dependencies = [
   "setuptools<70",
   "pycocotools>=2.0.11",
 ]
-description = "Automated YOLO training utilities and CLI"
+description = "Automated YOLO training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS models with an interactive terminal interface."
+keywords = [
+  "yolo",
+  "yolo26",
+  "yolov12",
+  "yolov11",
+  "yolov10",
+  "yolov9",
+  "yolov8",
+  "yolox",
+  "yolo-nas",
+  "object-detection",
+  "instance-segmentation",
+  "pose-estimation",
+  "oriented-object-detection",
+  "computer-vision",
+  "deep-learning",
+  "machine-learning",
+  "ultralytics",
+  "pytorch",
+  "training-cli",
+  "tui",
+  "clearml",
+  "roboflow",
+  "tensorboard",
+  "coco",
+  "model-training",
+  "automated-training",
+  "edge-deployment",
+  "onnx",
+  "cuda",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Utilities",
+]
 license = "Apache-2.0"
 name = "yolomatic"
 readme = "README.md"

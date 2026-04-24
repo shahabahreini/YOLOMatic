@@ -23,6 +23,33 @@ Supported model families: **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **Y
 
 ---
 
+## About
+
+YOLOmatic automates the end-to-end workflow for training YOLO-based computer vision models using [Ultralytics](https://github.com/ultralytics/ultralytics) and [SuperGradients](https://github.com/Deci-AI/super-gradients). It targets practitioners who need a reproducible, hardware-aware training pipeline without writing boilerplate configuration or shell scripts.
+
+**Supported tasks:** object detection, instance segmentation, image classification, pose estimation, oriented object detection (OBB).
+
+**Supported model families and variants:**
+
+| Family | Variants | Tasks |
+|---|---|---|
+| YOLO26 | n / s / m / l / x + seg / cls / pose / obb | All |
+| YOLOv12 | n / s / m / l / x + seg | Detect, Segment |
+| YOLOv11 | n / s / m / l / x + seg / cls / pose / obb | All |
+| YOLOv10 | N / S / M / B / L / X | Detect |
+| YOLOv9 | t / s / m / c / e + seg | Detect, Segment |
+| YOLOv8 | n / s / m / l / x + seg / cls / pose / obb | All |
+| YOLOX | S / M / L / X | Detect |
+| YOLO-NAS | S / M / L | Detect |
+
+**Toolchain integrations:** PyTorch, ONNX, TensorBoard, ClearML, Roboflow, `uv`.
+
+**Deployment targets:** CUDA GPU (NVIDIA), Apple Silicon MPS, CPU (all platforms), ONNX Runtime, TensorRT.
+
+**Keywords:** yolo training cli, automated yolo training, yolo26 training, yolov12 training, yolov11 training, ultralytics training pipeline, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, clearml yolo, roboflow yolo upload, tensorboard yolo, edge deployment yolo, yolo tui, yolo interactive terminal.
+
+---
+
 ## Table of Contents
 
 1. [Features](#features)
