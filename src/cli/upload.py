@@ -224,7 +224,11 @@ def render_candidate_table(
         ]
         for i, c in enumerate(candidates, 1)
     ]
-    render_table("Available Trained Models", ["#", "Weight", "Model Type", "Task", "Modified"], rows)
+    render_table(
+        "Available Trained Models",
+        ["#", "Weight", "Model Type", "Task", "Modified"],
+        rows,
+    )
 
 
 def resolve_candidate(
@@ -275,6 +279,97 @@ def prompt_project_ids(defaults: Sequence[str]) -> list[str]:
         if project_ids:
             return project_ids
         console.print("[bold red]At least one project ID is required.[/bold red]")
+
+
+def fetch_workspace_projects(workspace: Any) -> list[dict[str, str]]:
+    """Return a list of {id, name} dicts from the resolved workspace object.
+
+    Falls back to an empty list on any failure so the caller can degrade
+    gracefully to a manual text prompt.
+    """
+    try:
+        raw_projects = getattr(workspace, "project_list", []) or []
+        results: list[dict[str, str]] = []
+        for entry in raw_projects:
+            if not isinstance(entry, dict):
+                continue
+            project_id = str(entry.get("id") or entry.get("slug") or "").strip()
+            project_name = str(entry.get("name") or project_id).strip()
+            if project_id:
+                results.append({"id": project_id, "name": project_name})
+        return results
+    except Exception:
+        return []
+
+
+def select_project_ids_from_workspace(
+    workspace: Any, defaults: Sequence[str]
+) -> list[str]:
+    """Offer a TUI picker populated with real project IDs from the workspace.
+
+    If env defaults are provided and all exist in the workspace they are
+    pre-validated and returned immediately. Otherwise the user picks from
+    a list. Falls back to a text prompt when the workspace has no projects.
+    """
+    projects = fetch_workspace_projects(workspace)
+
+    if not projects:
+        console.print(
+            "[dim]No projects found in workspace via API — falling back to manual entry.[/dim]"
+        )
+        return prompt_project_ids(defaults)
+
+    project_ids_in_workspace = {p["id"] for p in projects}
+
+    # If all env defaults are valid IDs in the workspace, use them without prompting.
+    if defaults and all(d in project_ids_in_workspace for d in defaults):
+        return list(defaults)
+
+    # Build picker options.
+    options: list[str] = []
+    descriptions: dict[str, str] = {}
+    for p in projects:
+        label = f"{p['name']}  [dim]({p['id']})[/dim]"
+        options.append(label)
+        descriptions[label] = f"Project ID: {p['id']}"
+
+    options.append("Enter manually")
+    descriptions["Enter manually"] = (
+        "Type one or more project IDs that are not listed above."
+    )
+
+    invalid_defaults = [d for d in defaults if d not in project_ids_in_workspace]
+    prefix = ""
+    if invalid_defaults:
+        prefix = (
+            f"[bold yellow]Note:[/bold yellow] "
+            f"The following project ID(s) from .env were not found in this workspace: "
+            f"{', '.join(invalid_defaults)}\n\n"
+        )
+
+    selection = get_user_choice(
+        options,
+        allow_back=False,
+        title="Select Roboflow Project",
+        text=(
+            f"{prefix}"
+            "Choose the project to upload this model to."
+            " You can select one project at a time."
+        ),
+        descriptions=descriptions,
+        breadcrumbs=["YOLOmatic", "Roboflow Upload", "Project Selection"],
+    )
+
+    if selection == "Enter manually":
+        return prompt_project_ids(defaults)
+
+    # Map the chosen label back to its project ID.
+    for p in projects:
+        label = f"{p['name']}  [dim]({p['id']})[/dim]"
+        if label == selection:
+            return [p["id"]]
+
+    return prompt_project_ids(defaults)
 
 
 def prompt_model_type(detected_model_type: str | None) -> str:
@@ -574,14 +669,16 @@ def main() -> None:
             "Enter Roboflow workspace slug",
             normalize_workspace_value(env_config.workspace),
         )
-        _rf, _workspace, resolved_workspace_name = resolve_workspace(
+        _rf, resolved_workspace, resolved_workspace_name = resolve_workspace(
             env_config.api_key,
             workspace_input,
         )
         project_ids = (
             parse_project_ids(args.project_ids)
             if args.project_ids
-            else prompt_project_ids(env_config.project_ids)
+            else select_project_ids_from_workspace(
+                resolved_workspace, env_config.project_ids
+            )
         )
         model_type = args.model_type or prompt_model_type(
             selected_candidate.detected_model_type

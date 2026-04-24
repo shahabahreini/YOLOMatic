@@ -86,7 +86,9 @@ def select_mode() -> str:
         text="Choose how you want to run predictions:",
         descriptions={
             MODE_LABELS["single"]: "Run prediction on a single image file.",
-            MODE_LABELS["folder"]: "Run prediction on all supported images within a folder.",
+            MODE_LABELS[
+                "folder"
+            ]: "Run prediction on all supported images within a folder.",
             "Exit": "Exit the predictor.",
         },
         breadcrumbs=["YOLOmatic", "Predictor", "Mode Selection"],
@@ -149,7 +151,11 @@ def resolve_source(mode: str, requested_source: str | None) -> Path:
 
 
 def render_weight_table(project_root: Path, available_weights: Sequence[Path]) -> None:
-    render_table("Available Weights", ["#", "Weight"], render_weight_rows(project_root, available_weights))
+    render_table(
+        "Available Weights",
+        ["#", "Weight"],
+        render_weight_rows(project_root, available_weights),
+    )
 
 
 def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -> None:
@@ -187,7 +193,7 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    render_weight_table(project_root, available_weights)
+    render_weight_table(root, available_weights)
 
     try:
         selected_weight = resolve_weight(root, args.weight, available_weights)
