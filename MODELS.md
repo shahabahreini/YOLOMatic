@@ -18,13 +18,27 @@ This document outlines the YOLO models supported in YOLOMatic and their key feat
 
 ### Performance (COCO val2017)
 
-| Model   | mAP 50-95 | Params (M) | FLOPs (B) |
-| ------- | --------- | ---------- | --------- |
-| YOLO26n | 40.9      | 2.4        | 5.4       |
-| YOLO26s | 48.6      | 9.5        | 20.7      |
-| YOLO26m | 53.1      | 20.4       | 68.2      |
-| YOLO26l | 55.0      | 24.8       | 86.4      |
-| YOLO26x | 57.5      | 55.7       | 193.9     |
+| Model   | mAP 50-95 | Speed T4 TensorRT (ms) | Params (M) | FLOPs (B) |
+| ------- | --------- | ---------------------- | ---------- | --------- |
+| YOLO26n | 40.9      | 1.7 ± 0.0              | 2.4        | 5.4       |
+| YOLO26s | 48.6      | 2.5 ± 0.0              | 9.5        | 20.7      |
+| YOLO26m | 53.1      | 4.7 ± 0.1              | 20.4       | 68.2      |
+| YOLO26l | 55.0      | 6.2 ± 0.2              | 24.8       | 86.4      |
+| YOLO26x | 57.5      | 11.8 ± 0.2             | 55.7       | 193.9     |
+
+> CPU ONNX speed benchmarks for YOLO26 have not been officially published. T4 TensorRT figures shown above.
+
+### Segmentation Performance (COCO val2017)
+
+| Model       | mAP box 50-95 | mAP mask 50-95 | Speed CPU ONNX (ms) | Params (M) | FLOPs (B) |
+| ----------- | ------------- | -------------- | ------------------- | ---------- | --------- |
+| YOLO26n-seg | 33.9          | -              | 53.3 ± 0.5          | 2.7        | 9.1       |
+| YOLO26s-seg | 40.0          | -              | 118.4 ± 0.9         | 10.4       | 34.2      |
+| YOLO26m-seg | 44.1          | -              | 328.2 ± 2.4         | 23.6       | 121.5     |
+| YOLO26l-seg | 45.5          | -              | 387.0 ± 3.7         | 28.0       | 139.8     |
+| YOLO26x-seg | 47.0          | -              | 787.0 ± 6.8         | 62.8       | 313.5     |
+
+> Mask mAP benchmarks for YOLO26-seg have not been officially published separately.
 
 ---
 
@@ -83,6 +97,16 @@ This document outlines the YOLO models supported in YOLOMatic and their key feat
 | YOLO11l | 53.4      | 238.6 ± 1.4    | 6.2 ± 0.1           | 25.3       | 86.9      |
 | YOLO11x | 54.7      | 462.8 ± 6.7    | 11.3 ± 0.2          | 56.9       | 194.9     |
 
+### Segmentation Performance (COCO val2017)
+
+| Model      | mAP box 50-95 | mAP mask 50-95 | Params (M) | FLOPs (B) |
+| ---------- | ------------- | -------------- | ---------- | --------- |
+| YOLO11n-seg | 38.9         | 32.0           | 2.9        | 10.4      |
+| YOLO11s-seg | 46.6         | 38.8           | 10.1       | 35.5      |
+| YOLO11m-seg | 51.5         | 41.5           | 22.4       | 123.3     |
+| YOLO11l-seg | 53.4         | 42.9           | 27.6       | 142.2     |
+| YOLO11x-seg | 54.7         | 43.8           | 62.1       | 319.9     |
+
 ### Task Support
 
 - ✅ Object Detection
@@ -113,7 +137,7 @@ All tasks support: Inference, Validation, Training, Export
 
 - 5 variants (n, s, m, l, x)
 - Production-tested stability
-- mAP range: 37.3 - 53.9
+- mAP range: 37.3 - 53.9 (detection); 30.5 - 43.4 mask mAP (segmentation)
 
 ### YOLOX
 
@@ -227,4 +251,6 @@ YOLO26 (Edge optimization) ← Latest/Recommended for edge
 - [YOLO26 Documentation](https://docs.ultralytics.com/models/yolo26/)
 - [YOLO12 Documentation](https://docs.ultralytics.com/models/yolo12/)
 - [YOLO11 Documentation](https://docs.ultralytics.com/models/yolo11/)
+- [YOLOv8 Documentation](https://docs.ultralytics.com/models/yolov8/)
+- [YOLOv9 Documentation](https://docs.ultralytics.com/models/yolov9/)
 - [Ultralytics YOLO Hub](https://docs.ultralytics.com/models/)

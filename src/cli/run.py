@@ -218,19 +218,23 @@ def display_configuration_summary(
 
     if "nas" in model_choice.lower():
         training = config.get("training", {})
-        fields.update({
-            "Batch Size": training.get("batch_size", "N/A"),
-            "Max Epochs": training.get("max_epochs", "N/A"),
-            "Workers": training.get("num_workers", "N/A"),
-        })
+        fields.update(
+            {
+                "Batch Size": training.get("batch_size", "N/A"),
+                "Max Epochs": training.get("max_epochs", "N/A"),
+                "Workers": training.get("num_workers", "N/A"),
+            }
+        )
     else:
         training = config.get("training", {})
-        fields.update({
-            "Batch Size": training.get("batch", "N/A"),
-            "Epochs": training.get("epochs", "N/A"),
-            "Image Size": training.get("imgsz", "N/A"),
-            "Workers": training.get("workers", "N/A"),
-        })
+        fields.update(
+            {
+                "Batch Size": training.get("batch", "N/A"),
+                "Epochs": training.get("epochs", "N/A"),
+                "Image Size": training.get("imgsz", "N/A"),
+                "Workers": training.get("workers", "N/A"),
+            }
+        )
 
     render_summary_panel("Configuration Summary", fields)
 
@@ -240,17 +244,35 @@ def display_configuration_summary(
         structure = config.get("dataset", {}).get("structure", {})
         base_dir = config.get("dataset", {}).get("base_dir", "")
         path_rows = [
-            ["Train", os.path.join(base_dir, structure.get("train", {}).get("images", "N/A"))],
-            ["Validation", os.path.join(base_dir, structure.get("valid", {}).get("images", "N/A"))],
-            ["Test", os.path.join(base_dir, structure.get("test", {}).get("images", "N/A"))],
+            [
+                "Train",
+                os.path.join(base_dir, structure.get("train", {}).get("images", "N/A")),
+            ],
+            [
+                "Validation",
+                os.path.join(base_dir, structure.get("valid", {}).get("images", "N/A")),
+            ],
+            [
+                "Test",
+                os.path.join(base_dir, structure.get("test", {}).get("images", "N/A")),
+            ],
         ]
     else:
         model_config = config.get("model", {})
         data_dir = model_config.get("data_dir", "")
         path_rows = [
-            ["Train", os.path.join(data_dir, model_config.get("train_images_dir", "N/A"))],
-            ["Validation", os.path.join(data_dir, model_config.get("val_images_dir", "N/A"))],
-            ["Test", os.path.join(data_dir, model_config.get("test_images_dir", "N/A"))],
+            [
+                "Train",
+                os.path.join(data_dir, model_config.get("train_images_dir", "N/A")),
+            ],
+            [
+                "Validation",
+                os.path.join(data_dir, model_config.get("val_images_dir", "N/A")),
+            ],
+            [
+                "Test",
+                os.path.join(data_dir, model_config.get("test_images_dir", "N/A")),
+            ],
         ]
 
     render_table("Dataset Paths", ["Type", "Path"], path_rows, title_style="bold blue")
@@ -467,6 +489,7 @@ def update_config(model_choice, dataset_choice):
 
     return True
 
+
 def format_profile_name(value: str) -> str:
     return value.replace("_", " ").title()
 
@@ -582,7 +605,7 @@ def select_profile_option(
         option_map[label] = key
         option_labels.append(label)
         descriptions[label] = description
-    
+
     descriptions["Back"] = "Return to the previous configuration step."
 
     choice = get_user_choice(
@@ -696,7 +719,7 @@ def choose_regular_yolo_profiles(
     start_descriptions = {
         "Recommended": "Fastest path - let YOLOmatic heuristics decide augmentation, compute, and worker settings for you.",
         "Customize": "Manual path - review and choose your own augmentation intensity, compute aggressiveness, and worker counts.",
-        "Back": "Return to dataset selection."
+        "Back": "Return to dataset selection.",
     }
 
     hint_block = build_hint_block(
@@ -818,7 +841,12 @@ def main():
         print_stylized_header("YOLO Model Selector")
 
         # Add version check and about options to main menu
-        main_menu_options = ["Select Model", "Check Ultralytics Version", "About YOLOmatic", "Exit"]
+        main_menu_options = [
+            "Select Model",
+            "Check Ultralytics Version",
+            "About YOLOmatic",
+            "Exit",
+        ]
 
         main_choice = get_user_choice(
             main_menu_options,
@@ -853,28 +881,32 @@ def main():
         elif main_choice == "About YOLOmatic":
             clear_screen()
             from src.__version__ import __version__
-            
+
             # Use a more structured layout for the About screen
             about_table = Table.grid(padding=(0, 2))
             about_table.add_column(style="bold cyan", justify="right")
             about_table.add_column(style="white")
-            
+
             about_table.add_row("Product:", "YOLOmatic")
             about_table.add_row("Version:", f"{__version__}")
             about_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
             about_table.add_row("Contact:", "shahabahreini@hotmail.com")
             about_table.add_row("", "")
-            about_table.add_row("Description:", "A powerful CLI tool for automated YOLO training,")
+            about_table.add_row(
+                "Description:", "A powerful CLI tool for automated YOLO training,"
+            )
             about_table.add_row("", "configuration, and dataset management.")
-            
+
             console.print("\n" * 2)
-            console.print(Panel(
-                Align.center(about_table),
-                title="[bold cyan]About YOLOmatic[/bold cyan]",
-                border_style="cyan",
-                padding=(2, 4),
-                box=box.ROUNDED
-            ))
+            console.print(
+                Panel(
+                    Align.center(about_table),
+                    title="[bold cyan]About YOLOmatic[/bold cyan]",
+                    border_style="cyan",
+                    padding=(2, 4),
+                    box=box.ROUNDED,
+                )
+            )
             console.print("\n")
             input("Press Enter to return to Main Menu...")
             continue
@@ -889,33 +921,89 @@ def main():
                 allow_back=True,
                 descriptions={
                     "yolo26": (
-                        "[bold cyan]YOLO26[/bold cyan]\n"
-                        "State-of-the-art YOLOv8-based models with improved architecture. "
-                        "Excellent for modern tasks requiring high accuracy without sacrificing speed."
+                        "[bold cyan]YOLO26[/bold cyan] — Latest (2026)\n"
+                        "NMS-free end-to-end inference with DFL removed, MuSGD optimizer, and "
+                        "ProgLoss+STAL loss functions. 43% faster CPU inference than YOLO11. "
+                        "Best choice for edge devices, IoT, robotics, and CPU-only deployments. "
+                        "mAP range: 40.9 (nano) to 57.5 (xlarge) on COCO val2017."
                     ),
                     "yolo26-seg": (
-                        "[bold cyan]YOLO26-Seg[/bold cyan]\n"
-                        "Instance segmentation variants. Perfect for pixel-level object detection "
-                        "and boundary identification."
+                        "[bold cyan]YOLO26-Seg[/bold cyan] — Latest (2026)\n"
+                        "Instance segmentation variants of YOLO26. Inherits NMS-free inference, "
+                        "DFL removal, and edge-optimized design. Best for pixel-level detection "
+                        "on resource-constrained hardware. "
+                        "mAP range: 33.9 (nano) to 47.0 (xlarge) on COCO val2017."
                     ),
                     "yolov12": (
-                        "[bold cyan]YOLOv12[/bold cyan]\n"
-                        "The absolute latest generation. Focuses on [italic]extreme[/italic] "
-                        "efficiency. Best for low-power devices and high-FPS requirements."
+                        "[bold cyan]YOLOv12[/bold cyan] — Research Model (2025)\n"
+                        "Attention-centric architecture using Area Attention and R-ELAN. "
+                        "Higher accuracy potential but [bold red]not recommended for production[/bold red] "
+                        "due to training instability and high GPU memory consumption. "
+                        "Requires a GPU. mAP range: 40.6 (nano) to 55.2 (xlarge)."
                     ),
-                    "yolov12-seg": "Latest generation instance segmentation with optimized mask heads.",
-                    "yolov11": "Balanced performance family. A reliable choice for general-purpose detection.",
-                    "yolov11-seg": "Reliable instance segmentation with a proven track record.",
-                    "yolov10": "Real-time model with an anchor-free design for simplified deployment.",
-                    "yolov9": "Features Programmable Gradient Information (PGI) to optimize learning efficiency.",
-                    "yolov9-seg": "Segmentation models leveraging PGI for better mask quality.",
-                    "yolov8": "The industry standard. Highly stable, widely supported, and very reliable.",
-                    "yolov8-seg": "The standard for segmentation tasks in production environments.",
-                    "yolox": "Standard anchor-free implementation. Often preferred for its training stability.",
+                    "yolov12-seg": (
+                        "[bold cyan]YOLOv12-Seg[/bold cyan] — Research Model (2025)\n"
+                        "Segmentation variants of the attention-centric YOLO12 architecture. "
+                        "Benchmark data not yet officially published by Ultralytics. "
+                        "Not recommended for production use."
+                    ),
+                    "yolov11": (
+                        "[bold cyan]YOLOv11[/bold cyan] — Stable (2024)\n"
+                        "Production-ready with 22% fewer parameters than YOLOv8m at higher mAP. "
+                        "Excellent training stability and broad task support. "
+                        "Recommended for enterprise and mission-critical applications. "
+                        "mAP range: 39.5 (nano) to 54.7 (xlarge) on COCO val2017."
+                    ),
+                    "yolov11-seg": (
+                        "[bold cyan]YOLOv11-Seg[/bold cyan] — Stable (2024)\n"
+                        "Production-ready instance segmentation with proven stability. "
+                        "Recommended for segmentation tasks requiring reliable results "
+                        "across varied deployment environments. "
+                        "mAP(mask) range: 38.3 (nano) to 51.8 (xlarge) on COCO val2017."
+                    ),
+                    "yolov10": (
+                        "[bold cyan]YOLOv10[/bold cyan]\n"
+                        "Anchor-free NMS-free inference pioneer (pre-YOLO26). "
+                        "6 size variants (N/S/M/B/L/X). Consider YOLO11 or YOLO26 for new projects. "
+                        "mAP range: 38.5 (nano) to 54.4 (xlarge) on COCO val2017."
+                    ),
+                    "yolov9": (
+                        "[bold cyan]YOLOv9[/bold cyan]\n"
+                        "Introduces Programmable Gradient Information (PGI) to preserve complete "
+                        "information through deep networks. Strong accuracy-to-parameter ratio. "
+                        "mAP range: 38.3 (tiny) to 55.6 (extra-large) on COCO val2017."
+                    ),
+                    "yolov9-seg": (
+                        "[bold cyan]YOLOv9-Seg[/bold cyan]\n"
+                        "Segmentation variants using PGI for improved gradient flow. "
+                        "Benchmark data not officially published by Ultralytics. "
+                        "Stable choice for segmentation with PGI benefits."
+                    ),
+                    "yolov8": (
+                        "[bold cyan]YOLOv8[/bold cyan]\n"
+                        "Industry-standard detection baseline. Highly stable, extensively documented, "
+                        "and widely supported across frameworks. Best for legacy compatibility "
+                        "or when reproducibility with existing pipelines is required. "
+                        "mAP range: 37.3 (nano) to 53.9 (xlarge) on COCO val2017."
+                    ),
+                    "yolov8-seg": (
+                        "[bold cyan]YOLOv8-Seg[/bold cyan]\n"
+                        "The battle-tested segmentation baseline. Extensively supported and "
+                        "the most reliable choice for production segmentation workflows. "
+                        "mAP(mask) range: 36.7 (nano) to 52.6 (xlarge) on COCO val2017."
+                    ),
+                    "yolox": (
+                        "[bold cyan]YOLOX[/bold cyan]\n"
+                        "Anchor-free decoupled-head architecture. Often preferred for its "
+                        "straightforward training behavior and stable convergence. "
+                        "4 variants (S/M/L/X). mAP range: 40.5 to 51.1 on COCO val2017."
+                    ),
                     "yolo_nas": (
                         "[bold cyan]YOLO-NAS[/bold cyan]\n"
-                        "Optimized via Neural Architecture Search. Offers superior accuracy-to-latency "
-                        "ratios on specific hardware targets (NVIDIA T4/Jetson)."
+                        "Optimized via Neural Architecture Search (SuperGradients). "
+                        "Superior accuracy-to-latency ratios on specific hardware targets "
+                        "(NVIDIA T4/Jetson). 3 variants (S/M/L). "
+                        "mAP range: 47.5 (small) to 53.2 (large) on COCO val2017."
                     ),
                 },
                 breadcrumbs=["YOLOmatic", "Model Selection"],

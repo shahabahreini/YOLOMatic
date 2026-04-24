@@ -339,9 +339,9 @@ device: "auto"  # Use best available
 
 **Fastest**:
 
-1. YOLO26n (Estimated ~40ms)
-2. YOLO11n (56.1 ± 0.8ms)
-3. YOLO12n (Slower, exact TBD)
+1. YOLO26n (CPU ONNX not yet published; T4 TensorRT: ~1.7ms)
+2. YOLO11n (56.1 ± 0.8ms CPU ONNX)
+3. YOLO12n (CPU ONNX not published; T4 TensorRT: ~1.64ms)
 
 ### Parameter Efficiency
 
@@ -526,7 +526,6 @@ uv run python -m pip install --force-reinstall numpy==1.23.0
 
 - See `README.md` for installation instructions
 - See `MODELS.md` for detailed model comparison
-- See `INTEGRATION_SUMMARY.md` for implementation details
 
 ---
 
@@ -545,6 +544,6 @@ uv run python -m pip install --force-reinstall numpy==1.23.0
 
 ---
 
-**Last Updated**: January 18, 2026  
-**YOLOMatic Version**: 2.0  
+**Last Updated**: April 24, 2026  
+**YOLOMatic Version**: 3.0.0  
 **Status**: ✅ Fully Supported and Integrated
