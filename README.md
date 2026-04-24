@@ -1,10 +1,25 @@
+<div align="center">
+
 # YOLOmatic
 
-[ Automated Yolo Training ]
+**Automated YOLO Training — Configure, Train, Predict, Upload**
 
-**YOLOmatic** is a CLI toolkit for configuring, training, monitoring, predicting with, and uploading modern YOLO-family models. It currently supports **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, **YOLOX**, and **YOLO-NAS** workflows available in this repository.
+[![macOS](https://img.shields.io/badge/macOS-supported-black?logo=apple&logoColor=white&style=for-the-badge)](https://www.apple.com/macos/)
+[![Linux](https://img.shields.io/badge/Linux-supported-black?logo=linux&logoColor=white&style=for-the-badge)](https://kernel.org/)
+[![Windows](https://img.shields.io/badge/Windows-supported-black?logo=windows&logoColor=white&style=for-the-badge)](https://www.microsoft.com/windows/)
 
-It provides an interactive terminal experience for model selection, dataset binding, prediction, TensorBoard launch, and Roboflow upload, while keeping the project runnable through the existing `uv` environment.
+[![Python](https://img.shields.io/badge/Python-3.10-blue?logo=python&logoColor=white&style=flat-square)](https://www.python.org/)
+[![uv](https://img.shields.io/badge/uv-package%20manager-blueviolet?style=flat-square)](https://docs.astral.sh/uv/)
+[![Ultralytics](https://img.shields.io/badge/Ultralytics-YOLO-00BFFF?style=flat-square)](https://github.com/ultralytics/ultralytics)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green?style=flat-square)](LICENSE.md)
+
+</div>
+
+---
+
+**YOLOmatic** is a production-grade CLI toolkit for the full YOLO training lifecycle — model selection, configuration generation, training, prediction, TensorBoard monitoring, and Roboflow upload — all driven through a rich interactive terminal interface.
+
+Supported model families: **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, **YOLOX**, and **YOLO-NAS**.
 
 ---
 
@@ -17,11 +32,6 @@ It provides an interactive terminal experience for model selection, dataset bind
 5. [Dataset Preparation](#dataset-preparation)
 6. [Environment Variables](#environment-variables)
 7. [Usage Guide](#usage-guide)
-   - [1. Configure Training](#1-configure-training)
-   - [2. Start Training](#2-start-training)
-   - [3. Run Predictions](#3-run-predictions)
-   - [4. Upload to Roboflow](#4-upload-to-roboflow)
-   - [5. Monitor Training](#5-monitor-training)
 8. [ClearML Integration](#clearml-integration)
 9. [Versioning](#versioning)
 10. [Troubleshooting](#troubleshooting)
@@ -32,100 +42,113 @@ It provides an interactive terminal experience for model selection, dataset bind
 
 ## Features
 
-- **Broad Model Support**: Configure and train YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS variants exposed by the CLI.
-- **Interactive Training Setup**: Generate configuration files from the TUI instead of hand-editing YAML from scratch.
-- **Prediction TUI**: Discover available `.pt` weights from the project root and `runs/**/weights/`, then run single-image or folder inference.
-- **Roboflow Upload Command**: Upload trained checkpoints with `yolomatic-upload`, optional `.env` defaults, workspace resolution, and Roboflow model-type prompting.
-- **TensorBoard Launcher**: Discover training runs and start TensorBoard without manually hunting for log directories.
-- **ClearML Integration**: Track training metadata and results through ClearML-enabled training flows.
+| Feature | Description |
+|---|---|
+| **Broad Model Support** | YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS — detection, segmentation, classification, pose, and OBB |
+| **Interactive TUI** | Rich terminal menus for model selection, dataset binding, and config generation — no manual YAML editing required |
+| **Auto-Optimized Configs** | Augmentation, compute, and worker profiles are recommended based on your dataset and hardware automatically |
+| **Smart Training Router** | Standard YOLO and YOLO-NAS configs are routed to the correct trainer automatically |
+| **CUDA Auto-Repair** | Detects CPU-only PyTorch when a GPU is present and offers an in-app repair flow |
+| **Prediction TUI** | Discovers `.pt` weights across the project tree, then runs single-image or batch folder inference |
+| **Roboflow Upload** | Uploads trained checkpoints with workspace resolution, model-type prompting, and `.env` credential support |
+| **TensorBoard Launcher** | Scans all training runs and starts TensorBoard without manually locating log directories |
+| **ClearML Integration** | Tracks hyper-parameters, metrics, and artifacts through ClearML for remote experiment management |
+| **Version Management** | Single-command version bumping via `uv run bump` — `pyproject.toml` is the sole source of truth |
 
 ---
 
 ## Prerequisites
 
-- **Python**: `>=3.10,<3.11`.
-- **`uv` Package Manager**: This repository relies heavily on `uv` for blazing-fast dependency management and reliable project execution. If you don't have it installed:
+- **Python** `>=3.10, <3.11`
+- **`uv` package manager** — fast, reliable dependency management:
+
   ```sh
   curl -LsSf https://astral.sh/uv/install.sh | sh
   ```
-- **Hardware**: A CUDA-compatible GPU is highly recommended for training.
+
+- **Hardware** — a CUDA-compatible GPU is strongly recommended for training; CPU and Apple Silicon MPS are supported as fallbacks.
 
 ---
 
 ## Installation & Setup
 
-1. **Clone the repository**:
+**1. Clone the repository**
 
-   ```sh
-   git clone https://github.com/shahabahreini/YOLOMatic.git
-   cd YOLOMatic
-   ```
+```sh
+git clone https://github.com/shahabahreini/YOLOMatic.git
+cd YOLOMatic
+```
 
-2. **Sync the project environment**:
-   Using `uv`, quickly sync all dependencies and set up the virtual environment:
+**2. Sync the environment**
 
-   ```sh
-   uv sync
-   ```
+```sh
+uv sync
+```
 
-3. **Optional: create a Roboflow environment file**:
-   - Linux/macOS:
+This installs all dependencies and creates the `.venv` in one step.
 
-     ```sh
-     cp .env.example .env
-     ```
+**3. Optional — configure Roboflow credentials**
 
-   - Windows PowerShell:
+```sh
+# Linux / macOS
+cp .env.example .env
 
-     ```powershell
-     Copy-Item .env.example .env
-     ```
+# Windows PowerShell
+Copy-Item .env.example .env
+```
+
+Edit `.env` and fill in your Roboflow API key and workspace slug.
 
 ---
 
 ## Platform Notes
 
-- **Windows**
-  - Use `uv sync` to create `.venv`, but use `\.venv\Scripts\python.exe -m pip ...` for manual PyTorch CUDA repairs.
-  - `uv run pip ...` may re-sync the environment first and can restore CPU-only Torch.
-  - `nvidia-smi` may work even when `torch.cuda.is_available()` is `False`; YOLOmatic now detects this and offers an interactive repair flow.
+### macOS
 
-- **Linux**
-  - If PyTorch fails due to missing cuDNN or CUDA runtime libraries, YOLOmatic prepares the relevant library search path automatically.
-  - NVIDIA runtime libraries inside `.venv` are added to `LD_LIBRARY_PATH` when needed.
+- NVIDIA CUDA is not available on macOS.
+- Apple Silicon (M-series) can use `mps` acceleration when the installed PyTorch build supports it.
+- If GPU acceleration is unavailable, the training flow offers a CPU fallback instead of failing hard.
 
-- **macOS**
-  - NVIDIA CUDA training is not expected.
-  - YOLOmatic can still run on CPU, and Apple Silicon environments can use `mps` when supported by the installed PyTorch build.
-  - If GPU acceleration is unavailable, the training flow offers CPU fallback instead of hard-failing.
+### Linux
+
+- If PyTorch fails due to missing cuDNN or CUDA runtime libraries, YOLOmatic prepares the relevant library search path automatically.
+- NVIDIA runtime libraries inside `.venv` are added to `LD_LIBRARY_PATH` when needed.
+
+### Windows
+
+- Use `uv sync` to create `.venv`, but use `.venv\Scripts\python.exe -m pip ...` for manual PyTorch CUDA repairs.
+- `uv run pip ...` may re-sync the environment and restore a CPU-only Torch build.
+- `nvidia-smi` may report a GPU even when `torch.cuda.is_available()` is `False`; YOLOmatic detects this mismatch and offers an interactive repair flow.
 
 ---
 
 ## Dataset Preparation
 
-Place your custom datasets inside the `datasets/` folder at the root of the project. Your dataset must follow standard YOLO format hierarchy:
+Place datasets inside the `datasets/` folder at the project root, following standard YOLO format:
 
 ```
 YOLOMatic/
-├── datasets/
-│   └── your_dataset_name/
-│       ├── data.yaml        # YOLO dataset config
-│       ├── train/
-│       │   ├── images/
-│       │   └── labels/
-│       ├── valid/
-│       │   ├── images/
-│       │   └── labels/
-│       └── test/
-│           ├── images/
-│           └── labels/
+└── datasets/
+    └── your_dataset_name/
+        ├── data.yaml
+        ├── train/
+        │   ├── images/
+        │   └── labels/
+        ├── valid/
+        │   ├── images/
+        │   └── labels/
+        └── test/
+            ├── images/
+            └── labels/
 ```
+
+`data.yaml` must declare `train`, `val` (or `valid`), and `test` paths, along with `nc` (class count) and `names`.
 
 ---
 
 ## Environment Variables
 
-If you plan to use `yolomatic-upload`, configure a local `.env` file based on `.env.example`.
+Create a `.env` file from `.env.example` to enable Roboflow upload defaults:
 
 ```env
 ROBOFLOW_API_KEY=
@@ -133,54 +156,50 @@ ROBOFLOW_WORKSPACE=
 ROBOFLOW_PROJECT_IDS=
 ```
 
-- `ROBOFLOW_API_KEY`: required for uploads.
-- `ROBOFLOW_WORKSPACE`: optional default workspace slug. Use the **workspace slug**, not a project name or display label.
-- `ROBOFLOW_PROJECT_IDS`: optional comma-separated default project IDs.
+| Variable | Required | Description |
+|---|---|---|
+| `ROBOFLOW_API_KEY` | Yes (for uploads) | Your Roboflow API key |
+| `ROBOFLOW_WORKSPACE` | No | Default workspace **slug** (not display name) |
+| `ROBOFLOW_PROJECT_IDS` | No | Comma-separated default project IDs |
 
-The uploader can also prompt for missing values interactively.
+All values can also be entered interactively when the uploader prompts for them.
 
 ---
 
 ## Usage Guide
 
-YOLOmatic uses five primary commands executed via `uv`.
+YOLOmatic exposes five `uv run` commands covering the full training workflow.
 
 ### 1. Configure Training
-
-Generate an optimized configurations file by interactively selecting your YOLO model and target dataset.
 
 ```sh
 uv run yolomatic
 ```
 
-_Follow the on-screen terminal menus to finalize your setup. A highly optimized YAML configuration file will be uniquely generated._
+Launches the interactive TUI. Navigate model families, select a dataset, and choose augmentation and compute profiles. A uniquely generated, hardware-optimized YAML config is written to `configs/`.
 
 ### 2. Start Training
-
-Once configured, start training with the generated configuration. Standard YOLO configs are handled by the regular trainer, while YOLO-NAS configs are routed to the NAS trainer automatically.
 
 ```sh
 uv run yolomatic-train
 ```
 
-Training behavior:
+| Situation | Behavior |
+|---|---|
+| One config in `configs/` | Auto-selected |
+| Multiple configs in `configs/` | TUI selector opens |
+| ClearML not configured | Prompts to continue without ClearML or cancel |
+| CUDA requested but unavailable | Prompts to repair, continue on CPU, or cancel |
 
-- If there is exactly one YAML config in `configs/`, it is auto-selected.
-- If there are multiple YAML configs, YOLOmatic opens a TUI selector.
-- If ClearML is not configured, YOLOmatic prompts you to continue without ClearML or cancel.
-- If CUDA is requested but PyTorch cannot use it, YOLOmatic prompts you to repair the environment, continue on CPU, or cancel.
-- Every run now writes a TensorBoard dashboard contract for decision-making, covering config metadata, core train/validation losses, precision, recall, mAP, learning rate, runtime metrics, and key artifacts when available.
-- At the end of training, YOLOmatic prints a TensorBoard completeness report and warns if any critical metrics or plots are missing.
+Training writes a full TensorBoard event log covering losses, precision, recall, mAP, learning rate, and runtime metrics. A completeness report is printed at the end of each run.
 
 ### 3. Run Predictions
-
-Launch the interactive prediction TUI to select from available `.pt` weights discovered in the project root and `runs/**/weights/`, then choose either single-image or folder inference.
 
 ```sh
 uv run yolomatic-predict
 ```
 
-You can also provide values directly when you do not want to step through the prompts:
+Discovers `.pt` weights across the project root and `runs/**/weights/`, then prompts for single-image or folder inference mode. Values can also be passed directly:
 
 ```sh
 uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.pt --source /path/to/image.jpg
@@ -188,36 +207,36 @@ uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.
 
 ### 4. Upload to Roboflow
 
-Upload a trained checkpoint to Roboflow using the interactive upload TUI:
-
 ```sh
 uv run yolomatic-upload
 ```
 
-You can also override prompted values directly:
+Interactive upload TUI with workspace resolution and model-type prompting. Direct flag override:
 
 ```sh
-uv run yolomatic-upload --weight runs/segment/train2/weights/best.pt --workspace your-workspace-slug --project-ids vegmask --model-type yolo26l --model-name train2-best
+uv run yolomatic-upload \
+  --weight runs/segment/train2/weights/best.pt \
+  --workspace your-workspace-slug \
+  --project-ids vegmask \
+  --model-type yolo26l \
+  --model-name train2-best
 ```
 
-Upload notes:
+**Upload requirements:**
 
-- Choose a **full checkpoint** such as `best.pt` or `last.pt`.
-- Generated artifacts like `state_dict.pt` are not uploadable checkpoints.
-- For YOLO26 uploads, Roboflow expects a **size-specific model type** such as `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
-- If the configured workspace cannot be loaded, the uploader can fall back to the API key's default workspace or prompt for manual entry.
+- Upload a full checkpoint: `best.pt` or `last.pt`.
+- Do not upload generated artifacts such as `state_dict.pt`.
+- YOLO26 uploads require a size-specific model type: `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
 
 ### 5. Monitor Training
-
-While training is running (or after it finishes), easily launch TensorBoard to inspect your metrics. The tool will scan all training runs and present a selection menu.
 
 ```sh
 uv run yolomatic-tensorboard
 ```
 
-The launcher now discovers runs from TensorBoard event files in addition to Ultralytics `args.yaml` markers, so YOLO-NAS experiments are included as well.
+Scans all runs for TensorBoard event files and Ultralytics `args.yaml` markers (including YOLO-NAS runs), then presents a selection menu before launching TensorBoard.
 
-On Windows, if `uv run` tries to re-sync the environment and fails with an access-denied error on a locked `torch` file, launch the installed entrypoint from the existing virtual environment instead:
+On Windows, if `uv run` fails with an access-denied error on a locked `torch` file, use the venv directly:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
@@ -227,50 +246,64 @@ On Windows, if `uv run` tries to re-sync the environment and fails with an acces
 
 ## ClearML Integration
 
-To track your experiments remotely:
+```sh
+uv run clearml-init
+```
 
-1. Configure your ClearML credentials:
+Follow the prompts to paste your API credentials from your ClearML account. All subsequent training runs will automatically sync hyper-parameters, metrics, and artifacts to your ClearML project.
 
-   ```sh
-   uv run clearml-init
-   ```
+If ClearML is not configured when training starts, YOLOmatic prompts you to continue without it or cancel.
 
-   _(Follow the prompts to paste your API credentials from your ClearML account)_
+---
 
-2. Your generated training configurations handle the rest. YOLOmatic will seamlessly sync hyper-parameters and metrics!
+## Versioning
 
-If ClearML is not configured when training starts, YOLOmatic will ask whether to continue without ClearML or cancel the run.
+Version is managed in `pyproject.toml` as the single source of truth. The `bump` command updates it in one step:
+
+```sh
+uv run bump patch   # 3.0.0 -> 3.0.1
+uv run bump minor   # 3.0.0 -> 3.1.0
+uv run bump major   # 3.0.0 -> 4.0.0
+uv run bump 3.2.0   # set exact version
+```
+
+The TUI footer and About screen read the version live from `pyproject.toml` — no other files need updating.
+
+After bumping, lock the updated version:
+
+```sh
+uv lock
+```
 
 ---
 
 ## Troubleshooting
 
-### PyTorch cannot detect the GPU on Windows or Linux
+### PyTorch cannot detect the GPU
 
-If `nvidia-smi` works but training still reports a CPU-only Torch build or `torch.cuda.is_available() == False`, YOLOmatic now offers an in-app CUDA repair flow.
+If `nvidia-smi` works but `torch.cuda.is_available()` returns `False`, use the in-app CUDA repair flow:
 
-- Choose `Fix CUDA-enabled PyTorch now` in the TUI prompt.
-- The repair uses the active `.venv` interpreter directly.
-- The repair preserves `numpy==1.23.0` so `super-gradients` remains compatible.
+1. Start training with `uv run yolomatic-train`.
+2. Choose **Fix CUDA-enabled PyTorch now** when prompted.
 
-Manual verification command:
+The repair targets the active `.venv` interpreter directly and preserves `numpy==1.23.0` for YOLO-NAS compatibility.
+
+Manual verification:
 
 ```sh
-uv run python -c "import torch, numpy; print('torch', torch.__version__); print('cuda build', torch.version.cuda); print('cuda available', torch.cuda.is_available()); print('device count', torch.cuda.device_count()); print('numpy', numpy.__version__)"
+uv run python -c "import torch, numpy; print(torch.__version__, torch.version.cuda, torch.cuda.is_available(), numpy.__version__)"
 ```
 
-On Windows, if you need to repair manually, prefer:
+Manual repair on Windows:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip uninstall -y torch torchvision torchaudio
 .\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio numpy==1.23.0 --index-url https://download.pytorch.org/whl/cu128
 ```
 
-### YOLO-NAS fails after CUDA repair
+### YOLO-NAS fails after a CUDA repair
 
-`super-gradients 3.7.1` requires `numpy==1.23.0` in this project.
-
-If NumPy drifts higher, restore it with:
+`super-gradients 3.7.1` requires exactly `numpy==1.23.0`. Restore it with:
 
 ```sh
 uv run python -m pip install --force-reinstall numpy==1.23.0
@@ -278,55 +311,37 @@ uv run python -m pip install --force-reinstall numpy==1.23.0
 
 ### ClearML is not configured
 
-Run:
-
 ```sh
 uv run clearml-init
 ```
 
-Or choose `Continue Without ClearML` when prompted.
+Or choose **Continue Without ClearML** when the training TUI prompts.
 
-### macOS GPU notes
+### macOS — no GPU acceleration
 
-- NVIDIA CUDA is not expected on macOS.
-- Apple Silicon users should use an MPS-capable PyTorch build if GPU acceleration is desired.
-- If MPS is unavailable, run training on CPU.
-
----
-
-## Versioning
-
-We manage project versions with the `bump` CLI, which updates both `src/__version__.py` and `pyproject.toml`.
-
-```sh
-# Bump versions automatically
-uv run bump patch   # 0.1.2 → 0.1.3
-uv run bump minor   # 0.1.2 → 0.2.0
-uv run bump major   # 0.1.2 → 1.0.0
-
-# Set an exact value
-uv run bump 1.5.0
-```
-
-After bumping, ensure your environment is locked with the new version:
-
-```sh
-uv sync
-```
+- NVIDIA CUDA is not supported on macOS.
+- Apple Silicon: use an MPS-capable PyTorch build for GPU acceleration.
+- Intel Mac or no MPS: training runs on CPU automatically.
 
 ---
 
 ## Related Docs
 
-- `YOLO_GUIDE.md`: workflow-oriented guide for supported YOLO families and command usage.
-- `MODELS.md`: architecture and model-family reference notes.
+| Document | Purpose |
+|---|---|
+| [`YOLO_GUIDE.md`](YOLO_GUIDE.md) | Workflow guide: model selection, deployment scenarios, export options |
+| [`MODELS.md`](MODELS.md) | Architecture reference, benchmark tables, model family comparison |
 
 ---
 
 ## License
 
-This project is licensed under the Apache License 2.0. See the [LICENSE.md](LICENSE.md) file for details.
+Licensed under the [Apache License 2.0](LICENSE.md).
 
 ---
 
-_Acknowledgments: Built proudly on top of [Ultralytics](https://github.com/ultralytics/ultralytics) and [ClearML](https://github.com/allegroai/clearml)._
+<div align="center">
+
+Built on top of [Ultralytics](https://github.com/ultralytics/ultralytics) and [ClearML](https://github.com/allegroai/clearml).
+
+</div>

@@ -81,6 +81,18 @@ MODEL_VARIANT_RANKS = {
     "e": 4,
 }
 
+TASK_SUFFIXES = ("-seg", "-cls", "-pose", "-obb")
+
+# Explicit batch sizes for non-CUDA devices (MPS, CPU) where Ultralytics
+# AutoBatch is a no-op and falls back to a hard-coded 16. Indexed by
+# heaviness and compute profile so the generated config scales with both
+# the model footprint and the user's chosen aggressiveness.
+NON_CUDA_BATCH_SIZES: dict[str, dict[str, int]] = {
+    "light": {"conservative": 8, "balanced": 16, "aggressive": 24},
+    "medium": {"conservative": 4, "balanced": 8, "aggressive": 12},
+    "heavy": {"conservative": 2, "balanced": 4, "aggressive": 6},
+}
+
 
 class BaseConfigGenerator:
     def __init__(self, dataset_path: str):
@@ -207,38 +219,86 @@ class BaseConfigGenerator:
 
         return resolved_path
 
+    def _candidate_label_dirs(self, train_path: Path) -> list[Path]:
+        """Return plausible locations for the training label files."""
+        candidates: list[Path] = []
+        seen: set[Path] = set()
+
+        def _add(path: Path) -> None:
+            try:
+                resolved = path.resolve()
+            except OSError:
+                return
+            if resolved in seen:
+                return
+            seen.add(resolved)
+            candidates.append(path)
+
+        if train_path and str(train_path).strip():
+            train = Path(train_path)
+            # Standard YOLO layout: sibling "labels" next to "images".
+            _add(train.parent / "labels")
+            # Some datasets nest labels directly under the split folder.
+            _add(train / "labels")
+            _add(train)
+        # Fallback to the conventional dataset root layout.
+        _add(Path(self.dataset_path) / "train" / "labels")
+        _add(Path(self.dataset_path) / "labels" / "train")
+        _add(Path(self.dataset_path) / "labels")
+        return [path for path in candidates if path.exists() and path.is_dir()]
+
     def _detect_dataset_type(self, train_path: Path) -> str:
-        """Analyze label files to detect if dataset is detection or segmentation."""
-        if not train_path or not str(train_path).strip():
-            return "unknown"
+        """Detect whether labels encode bounding boxes or segmentation polygons.
 
-        labels_dir = Path(train_path).parent / "labels"
-        if not labels_dir.exists():
-            # Sometimes it's directly in labels
-            labels_dir = Path(self.dataset_path) / "train" / "labels"
-            if not labels_dir.exists():
-                return "unknown"
+        YOLO bbox rows have 5 whitespace-separated values; segmentation rows have
+        an odd count >= 7 (class id + at least 3 polygon points). Counting across
+        multiple files and lines avoids a single malformed entry flipping the
+        classification.
+        """
+        detection_hits = 0
+        segmentation_hits = 0
+        files_scanned = 0
+        MAX_FILES = 20
+        MAX_LINES_PER_FILE = 50
 
-        try:
-            # Check up to 5 label files
-            checked = 0
-            for label_file in labels_dir.glob("*.txt"):
-                if checked >= 5:
+        for labels_dir in self._candidate_label_dirs(Path(train_path)):
+            try:
+                label_files = sorted(labels_dir.glob("*.txt"))
+            except OSError as error:
+                logger.warning(f"Cannot list labels in {labels_dir}: {error}")
+                continue
+
+            for label_file in label_files:
+                if files_scanned >= MAX_FILES:
                     break
-                with open(label_file, "r") as f:
-                    for line in f:
-                        parts = line.strip().split()
-                        if not parts:
-                            continue
-                        if len(parts) == 5:
-                            return "detection"
-                        elif len(parts) > 5:
-                            return "segmentation"
-                checked += 1
-        except Exception as e:
-            logger.error(f"Error reading label files to detect type: {e}")
+                try:
+                    with open(label_file, "r", encoding="utf-8") as handle:
+                        for line_index, line in enumerate(handle):
+                            if line_index >= MAX_LINES_PER_FILE:
+                                break
+                            parts = line.strip().split()
+                            if not parts:
+                                continue
+                            count = len(parts)
+                            if count == 5:
+                                detection_hits += 1
+                            elif count >= 7 and (count - 1) % 2 == 0:
+                                segmentation_hits += 1
+                except OSError as error:
+                    logger.warning(
+                        f"Skipping unreadable label file {label_file}: {error}"
+                    )
+                    continue
+                files_scanned += 1
 
-        return "unknown"
+            if detection_hits or segmentation_hits:
+                break
+
+        if detection_hits == 0 and segmentation_hits == 0:
+            return "unknown"
+        if segmentation_hits > detection_hits:
+            return "segmentation"
+        return "detection"
 
     def _get_optimal_workers(self) -> int:
         """Get optimal number of workers based on CPU cores."""
@@ -366,13 +426,23 @@ class BaseConfigGenerator:
             return None
 
     def _infer_model_variant_rank(self, model_choice: str) -> int:
-        normalized = model_choice.lower()
-        normalized = normalized.replace("-seg", "")
-        if normalized.startswith("yolov10-"):
-            suffix = normalized.split("-")[-1]
-        else:
-            suffix = normalized[-1:]
-        return MODEL_VARIANT_RANKS.get(suffix, 2)
+        """Return a coarse size rank (0-4) for a YOLO variant name.
+
+        Handles all observed shapes: ``YOLO11n``, ``YOLOv10-N``, ``YOLO-NAS-S``,
+        ``YOLO26n-seg``, ``YOLOv9e``, ``YOLOX-M``. Strips task suffixes and the
+        family-vs-variant separator, then looks up the trailing size letter.
+        """
+        normalized = model_choice.lower().strip()
+        for suffix in TASK_SUFFIXES:
+            if normalized.endswith(suffix):
+                normalized = normalized[: -len(suffix)]
+                break
+        if "-" in normalized:
+            # For YOLO-NAS-S or YOLOv10-B the variant letter is after the last dash.
+            normalized = normalized.rsplit("-", 1)[-1]
+        if not normalized:
+            return 2
+        return MODEL_VARIANT_RANKS.get(normalized[-1], 2)
 
     def _classify_model_heaviness(
         self,
@@ -398,23 +468,38 @@ class BaseConfigGenerator:
             return "medium"
         return "heavy"
 
+    def _resolve_family_key(self, normalized: str) -> str:
+        """Map a lowercased variant name to its key in ``model_data_dict``.
+
+        Variant names in ``model_data_dict`` are inconsistent across families
+        (e.g. ``YOLO11n`` for v11, ``YOLOv10-N`` for v10, ``YOLO-NAS-S`` for NAS).
+        This mapping table covers each observed shape explicitly so a new
+        family name doesn't silently fall through to a missing key.
+        """
+        is_seg = normalized.endswith("-seg")
+        # Ordered list of (prefix, seg_family_key, base_family_key). The first
+        # prefix to match wins, so longer/more specific prefixes come first.
+        prefixes = (
+            ("yolo26", "yolo26-seg", "yolo26"),
+            ("yolov12", "yolov12-seg", "yolov12"),
+            ("yolo12", "yolov12-seg", "yolov12"),
+            ("yolov11", "yolov11-seg", "yolov11"),
+            ("yolo11", "yolov11-seg", "yolov11"),
+            ("yolov10", "yolov10", "yolov10"),
+            ("yolov9", "yolov9-seg", "yolov9"),
+            ("yolov8", "yolov8-seg", "yolov8"),
+            ("yolox", "yolox", "yolox"),
+            ("yolo-nas", "yolo_nas", "yolo_nas"),
+            ("yolo_nas", "yolo_nas", "yolo_nas"),
+        )
+        for prefix, seg_key, base_key in prefixes:
+            if normalized.startswith(prefix):
+                return seg_key if is_seg else base_key
+        return normalized
+
     def _get_model_metrics(self, model_choice: str) -> dict[str, Any]:
         normalized = model_choice.lower()
-        family_key = normalized
-        if normalized.startswith("yolo26"):
-            family_key = "yolo26-seg" if normalized.endswith("-seg") else "yolo26"
-        elif normalized.startswith("yolov12"):
-            family_key = "yolov12-seg" if normalized.endswith("-seg") else "yolov12"
-        elif normalized.startswith("yolov11"):
-            family_key = "yolov11-seg" if normalized.endswith("-seg") else "yolov11"
-        elif normalized.startswith("yolov10"):
-            family_key = "yolov10"
-        elif normalized.startswith("yolov9"):
-            family_key = "yolov9-seg" if normalized.endswith("-seg") else "yolov9"
-        elif normalized.startswith("yolov8"):
-            family_key = "yolov8-seg" if normalized.endswith("-seg") else "yolov8"
-        elif normalized.startswith("yolox"):
-            family_key = "yolox"
+        family_key = self._resolve_family_key(normalized)
 
         variant_rank = self._infer_model_variant_rank(model_choice)
         params_millions: float | None = None
@@ -588,25 +673,30 @@ class BaseConfigGenerator:
         for profile_name, ratio in WORKER_PROFILE_RATIOS.items():
             worker_counts[profile_name] = max(2, math.ceil(safe_capacity * ratio))
 
-        worker_counts["medium"] = max(
-            worker_counts["light"] + 1,
-            min(cpu_count, worker_counts["medium"]),
-        )
-        worker_counts["heavy"] = max(
-            worker_counts["medium"] + 1,
-            min(cpu_count, worker_counts["heavy"]),
-        )
-
+        # Apply RAM/CPU caps to the heavy profile BEFORE enforcing the +1 gaps so
+        # the final clamp to cpu_count doesn't silently erase them.
+        heavy_cap = cpu_count
         if cpu_count <= 8:
-            worker_counts["heavy"] = min(worker_counts["heavy"], max(3, cpu_count - 1))
+            heavy_cap = min(heavy_cap, max(3, cpu_count - 1))
         if available_ram_gib < 16:
-            worker_counts["heavy"] = min(worker_counts["heavy"], 4)
+            heavy_cap = min(heavy_cap, 4)
         elif available_ram_gib < 32:
-            worker_counts["heavy"] = min(worker_counts["heavy"], 6)
+            heavy_cap = min(heavy_cap, 6)
 
-        worker_counts["light"] = min(worker_counts["light"], cpu_count)
-        worker_counts["medium"] = min(worker_counts["medium"], cpu_count)
-        worker_counts["heavy"] = min(worker_counts["heavy"], cpu_count)
+        # Clamp every profile to cpu_count once, then restore monotonicity as
+        # best we can. When cpu_count is so small that the three profiles
+        # collapse onto the same value, accept that — there is no honest way
+        # to distinguish them on a 2-core machine.
+        worker_counts["light"] = max(2, min(worker_counts["light"], cpu_count))
+        worker_counts["medium"] = max(2, min(worker_counts["medium"], cpu_count))
+        worker_counts["heavy"] = max(2, min(worker_counts["heavy"], heavy_cap))
+
+        worker_counts["medium"] = min(
+            cpu_count, max(worker_counts["medium"], worker_counts["light"])
+        )
+        worker_counts["heavy"] = min(
+            heavy_cap, max(worker_counts["heavy"], worker_counts["medium"])
+        )
 
         return {
             "light": {
@@ -755,21 +845,35 @@ class BaseConfigGenerator:
         training = config["training"]
         dataset_metrics = profile_context["dataset_metrics"]
         system_metrics = profile_context["system_metrics"]
+        model_metrics = profile_context["model_metrics"]
         worker_profile = profile_context["worker_profiles"][profile_selection["worker"]]
         compute_profile = profile_selection["compute"]
         device = str(training["device"])
 
         if device == "cuda":
+            # Ultralytics interprets 0 < batch < 1 as a GPU memory fraction for
+            # AutoBatch. Floats here are intentional.
             training["batch"] = COMPUTE_BATCH_TARGETS[compute_profile]
         else:
-            training["batch"] = -1
+            # Ultralytics AutoBatch is a no-op on MPS/CPU (returns default 16),
+            # so pick an explicit size that respects model heaviness and the
+            # user's compute profile instead of silently getting 16.
+            training["batch"] = NON_CUDA_BATCH_SIZES[model_metrics["heaviness"]][
+                compute_profile
+            ]
 
         training["cache"] = self._can_enable_cache(
             compute_profile,
             dataset_metrics,
             system_metrics,
         )
-        training["workers"] = int(worker_profile["workers"])
+
+        workers = int(worker_profile["workers"])
+        # macOS + MPS with Ultralytics' dataloader has a history of stalling
+        # under heavy multi-worker load; cap to a safer number there.
+        if device == "mps":
+            workers = min(workers, 4)
+        training["workers"] = workers
 
         for key in (
             "degrees",
@@ -790,6 +894,15 @@ class BaseConfigGenerator:
 
 
 class YOLONASConfigGenerator(BaseConfigGenerator):
+    @staticmethod
+    def _normalize_nas_name(model_choice: str) -> str:
+        """Convert display names like ``YOLO-NAS-S`` to SuperGradients' ``yolo_nas_s``.
+
+        ``super_gradients.training.models.get`` expects the underscore form;
+        passing the display form (with dashes) raises KeyError at training time.
+        """
+        return model_choice.strip().lower().replace("-", "_")
+
     def generate_config(
         self,
         model_choice: str,
@@ -849,7 +962,7 @@ class YOLONASConfigGenerator(BaseConfigGenerator):
                 "ema": {"enabled": True, "decay": 0.9, "decay_type": "threshold"},
             },
             "model": {
-                "name": model_choice.lower(),
+                "name": self._normalize_nas_name(model_choice),
                 "pretrained_weights": "coco",
                 "loss": {
                     "type": "PPYoloELoss",
@@ -868,7 +981,7 @@ class YOLONASConfigGenerator(BaseConfigGenerator):
                 },
             },
             "export": {
-                "output_name": f"{model_choice.lower()}_int8.onnx",
+                "output_name": f"{self._normalize_nas_name(model_choice)}_int8.onnx",
                 "calibration": {"batch_size": 8, "num_samples": 32, "num_workers": 0},
             },
         }
