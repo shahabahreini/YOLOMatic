@@ -95,6 +95,120 @@ class MenuRenderer:
         breadcrumb_text = separator.join(parts)
         return breadcrumb_text
 
+    def _family_key_for_option(self, option: str) -> str:
+        """Map a menu option string to its model_data_dict family key."""
+        o = option.lower()
+        mapping = {
+            "yolo26-seg": "yolo26-seg",
+            "yolo26": "yolo26",
+            "yolov12-seg": "yolov12-seg",
+            "yolov12": "yolov12",
+            "yolov11-seg": "yolov11-seg",
+            "yolov11": "yolov11",
+            "yolov10": "yolov10",
+            "yolov9-seg": "yolov9-seg",
+            "yolov9": "yolov9",
+            "yolov8-seg": "yolov8-seg",
+            "yolov8": "yolov8",
+            "yolox": "yolox",
+            "yolo_nas": "yolo_nas",
+        }
+        return mapping.get(o, o)
+
+    def _render_family_charts(self, family_key: str) -> RenderableType | None:
+        """Build stacked horizontal bar charts (mAP and Params) for a model family."""
+        from src.models.data import model_data_dict
+
+        rows = model_data_dict.get(family_key)
+        if not rows:
+            return None
+
+        BAR_WIDTH = 22
+        BAR_FILL = "█"
+        BAR_EMPTY = "░"
+
+        def _parse(v: Any) -> float | None:
+            if v is None or str(v).strip() in ("-", ""):
+                return None
+            try:
+                return float(str(v).split()[0].replace("%", ""))
+            except (ValueError, AttributeError):
+                return None
+
+        def _short_name(full: str) -> str:
+            """Extract the size suffix letter(s) from a model name for compact display."""
+            suffixes = ["-seg", "-cls", "-pose", "-obb"]
+            name = full
+            task_tag = ""
+            for sfx in suffixes:
+                if name.lower().endswith(sfx):
+                    name = name[: -len(sfx)]
+                    task_tag = sfx
+                    break
+            # last character(s) are the size identifier
+            label = name[-1:].upper() if name else full
+            return label + task_tag.replace("-seg", "")
+
+        def _bar(value: float, max_val: float, width: int, fill_style: str) -> Text:
+            filled = round((value / max_val) * width) if max_val > 0 else 0
+            bar_text = Text()
+            bar_text.append(BAR_FILL * filled, style=fill_style)
+            bar_text.append(BAR_EMPTY * (width - filled), style="dim")
+            return bar_text
+
+        def _build_chart(
+            title: str,
+            key_candidates: list[str],
+            fill_style: str,
+            unit: str,
+        ) -> Table | None:
+            data: list[tuple[str, float]] = []
+            for row in rows:
+                for key in key_candidates:
+                    val = _parse(row.get(key))
+                    if val is not None:
+                        data.append((_short_name(str(row.get("Model", ""))), val))
+                        break
+            if not data:
+                return None
+
+            max_val = max(v for _, v in data)
+            chart = Table.grid(padding=(0, 1))
+            chart.add_column(justify="right", style="dim", min_width=4)
+            chart.add_column(min_width=BAR_WIDTH)
+            chart.add_column(justify="left", style="bold")
+
+            chart_title = Text(f" {title} ", style="bold cyan")
+            chart.add_row(Text(""), chart_title, Text(""))
+            for label, val in data:
+                chart.add_row(
+                    Text(label, style="dim cyan"),
+                    _bar(val, max_val, BAR_WIDTH, fill_style),
+                    Text(f"{val:.1f}{unit}", style="dim"),
+                )
+            return chart
+
+        mAP_keys = ["mAPval 50-95", "mAPval box 50-95"]
+        param_keys = ["params (M)"]
+
+        map_chart = _build_chart("mAP 50-95", mAP_keys, "green", "")
+        param_chart = _build_chart("Params (M)", param_keys, "cyan", "M")
+
+        parts: list[RenderableType] = []
+        if map_chart:
+            parts.append(Panel(map_chart, border_style="dim green", padding=(0, 1)))
+        if param_chart:
+            parts.append(Panel(param_chart, border_style="dim cyan", padding=(0, 1)))
+
+        if not parts:
+            return None
+
+        chart_table = Table.grid(expand=True)
+        for _ in parts:
+            chart_table.add_column(ratio=1)
+        chart_table.add_row(*parts)
+        return chart_table
+
     def _render_model_table(self) -> Table | None:
         """Render a comparison table if model data is available."""
         if not self.model_data:
@@ -203,15 +317,29 @@ class MenuRenderer:
             )
         )
 
-        # Main Content Section (Instruction + Table/Description)
+        # Main Content Section (Instruction + Table/Description + Charts)
         main_group = [
             Text(self.instruction, style="bold yellow"),
             Text(""),
         ]
 
         model_table = self._render_model_table()
+        family_charts = self._render_family_charts(
+            self._family_key_for_option(current_option)
+        )
+
         if model_table:
             main_group.append(model_table)
+        elif family_charts:
+            # Split description and charts side by side
+            split_table = Table.grid(expand=True)
+            split_table.add_column(ratio=5)
+            split_table.add_column(ratio=4)
+            split_table.add_row(
+                Text.from_markup(description),
+                family_charts,
+            )
+            main_group.append(split_table)
         else:
             main_group.append(Text.from_markup(description))
 
