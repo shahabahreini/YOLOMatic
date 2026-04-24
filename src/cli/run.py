@@ -121,121 +121,240 @@ def _safe_subcommand(
             console.print()
 
 
-def check_ultralytics_version():
-    """Check and update ultralytics package version with professional UX."""
-    try:
-        import subprocess
-        from importlib.metadata import version as get_version
+def _render_dependency_table(statuses):
+    """Build the themed comparison Table for a dependency-health report."""
+    from src.utils.version_check import IMPORTANCE_STYLE, SEVERITY_META
 
-        from packaging import version
+    table = Table(
+        title="Critical Dependencies",
+        title_style="bold cyan",
+        border_style="dim",
+        box=box.ROUNDED,
+        show_header=True,
+        header_style="bold cyan",
+        expand=True,
+    )
+    table.add_column("Package", style="cyan", no_wrap=True)
+    table.add_column("Role", style="dim")
+    table.add_column("Importance", justify="center", no_wrap=True)
+    table.add_column("Installed", justify="center", no_wrap=True)
+    table.add_column("Latest", justify="center", no_wrap=True)
+    table.add_column("Status", justify="left", no_wrap=True)
 
-        pip_command = [sys.executable, "-m", "pip"]
-        active_python = sys.executable
-
-        # Get versions
-        with console.status("[bold]Checking versions...", spinner="dots"):
-            current_version = get_version("ultralytics")
-
-            try:
-                process = subprocess.run(
-                    [*pip_command, "index", "versions", "ultralytics"],
-                    capture_output=True,
-                    text=True,
-                )
-                latest_version = (
-                    process.stdout.split("Available versions: ")[1]
-                    .split(",")[0]
-                    .strip()
-                )
-            except Exception:
-                import json
-                import urllib.request
-
-                url = "https://pypi.org/pypi/ultralytics/json"
-                data = json.load(urllib.request.urlopen(url))
-                latest_version = data["info"]["version"]
-
-        clear_screen()
-        console.print("\n")
-
-        # Version status
-        needs_update = version.parse(current_version) < version.parse(latest_version)
-        status_text = "Update Available" if needs_update else "Up to Date"
-        status_icon = "⚠️" if needs_update else "✅"
-        status_style = "yellow" if needs_update else "green"
-
-        # Create status panel
-        status_panel = Panel(
-            Align.center(
-                f"{status_icon} {status_text}\n\n"
-                f"Current: [bold]{current_version}[/bold]   →   Latest: [bold]{latest_version}[/bold]\n"
-                f"Python: [bold]{active_python}[/bold]",
-                vertical="middle",
-            ),
-            border_style=status_style,
-            padding=(2, 1),
+    for status in statuses:
+        color, glyph, label = SEVERITY_META[status.severity]
+        installed_display = status.installed or "—"
+        latest_display = status.latest or (
+            f"[dim]{status.error}[/dim]" if status.error else "—"
         )
+        table.add_row(
+            status.package.display_name,
+            status.package.description,
+            IMPORTANCE_STYLE[status.package.importance],
+            installed_display,
+            latest_display,
+            f"[{color}]{glyph} {label}[/{color}]",
+        )
+    return table
 
-        console.print(status_panel)
-        console.print("\n")
 
-        # Handle updates if needed
-        if needs_update:
-            if (
-                get_user_choice(
-                    ["Update", "Skip"],
-                    text="Update ultralytics?",
-                )
-                == "Update"
-            ):
-                with console.status("[bold]Updating ultralytics...", spinner="dots"):
-                    result = subprocess.run(
-                        [*pip_command, "install", "--upgrade", "ultralytics"],
-                        capture_output=True,
-                        text=True,
-                    )
+def _render_dependency_summary(statuses):
+    """High-level banner Panel that calls out the most urgent problem."""
+    missing = [s for s in statuses if s.severity == "missing"]
+    major = [s for s in statuses if s.severity == "major"]
+    minor = [s for s in statuses if s.severity == "minor"]
+    patch = [s for s in statuses if s.severity == "patch"]
+    unknown = [s for s in statuses if s.severity == "unknown"]
 
-                console.print("\n")
-                if result.returncode == 0:
-                    updated_version = get_version("ultralytics")
-                    console.print(
-                        Panel(
-                            Align.center(
-                                "✅ Updated successfully\n\n"
-                                f"Installed: [bold]{updated_version}[/bold]\n"
-                                "Note: a future `uv sync` can restore the version from `uv.lock` unless you update the lockfile too.",
-                                vertical="middle",
-                            ),
-                            border_style="green",
-                            padding=(1, 1),
-                        )
-                    )
-                else:
-                    console.print(
-                        Panel(
-                            Align.center(
-                                "❌ Update failed\n\n"
-                                f"Command: [bold]{' '.join(pip_command)} install --upgrade ultralytics[/bold]\n"
-                                f"{(result.stderr or result.stdout or 'No error output').strip()}",
-                                vertical="middle",
-                            ),
-                            border_style="red",
-                            padding=(1, 1),
-                        )
-                    )
+    if missing:
+        names = ", ".join(s.package.name for s in missing)
+        body = (
+            f"[bold red]{len(missing)} critical package(s) missing:[/bold red] {names}\n"
+            "[dim]Run `uv sync` (or `pip install -r requirements.txt`) to install them.[/dim]"
+        )
+        border = "red"
+    elif major:
+        names = ", ".join(s.package.name for s in major)
+        body = (
+            f"[bold red]{len(major)} major update(s) available — breaking changes possible:[/bold red] {names}\n"
+            "[dim]Review release notes before upgrading.[/dim]"
+        )
+        border = "red"
+    elif minor or patch:
+        updates = minor + patch
+        names = ", ".join(s.package.name for s in updates)
+        body = (
+            f"[bold yellow]{len(updates)} non-breaking update(s) available:[/bold yellow] {names}"
+        )
+        border = "yellow"
+    elif unknown:
+        names = ", ".join(s.package.name for s in unknown)
+        body = (
+            f"[bold]PyPI unreachable for {len(unknown)} package(s):[/bold] {names}\n"
+            "[dim]Check your network connection and try Refresh.[/dim]"
+        )
+        border = "dim"
+    else:
+        body = "[bold green]All tracked dependencies are up to date.[/bold green]"
+        border = "green"
 
-    except Exception as e:
-        console.print("\n")
+    return Panel(body, border_style=border, padding=(1, 2), box=box.ROUNDED)
+
+
+def _run_pip_upgrade(packages):
+    """Install --upgrade for the given packages; return True on success."""
+    import subprocess
+
+    pip_command = [sys.executable, "-m", "pip", "install", "--upgrade", *packages]
+    with console.status(
+        f"[bold]Upgrading {len(packages)} package(s)...", spinner="dots"
+    ):
+        result = subprocess.run(pip_command, capture_output=True, text=True)
+
+    if result.returncode == 0:
         console.print(
             Panel(
-                Align.center(f"❌ Error: {str(e)}", vertical="middle"),
-                border_style="red",
-                padding=(1, 1),
+                f"[bold green]Successfully upgraded:[/bold green] "
+                f"{', '.join(packages)}\n\n"
+                "[dim]`uv sync` may re-pin the previous versions from uv.lock — "
+                "regenerate the lockfile to make these upgrades permanent.[/dim]",
+                border_style="green",
+                padding=(1, 2),
+                box=box.ROUNDED,
             )
         )
+        return True
 
-    console.print("\n")
-    input("Press Enter to continue...")
+    error_output = (result.stderr or result.stdout or "No error output").strip()
+    console.print(
+        Panel(
+            f"[bold red]Upgrade failed (exit {result.returncode}).[/bold red]\n\n"
+            f"[dim]{error_output}[/dim]",
+            border_style="red",
+            padding=(1, 2),
+            box=box.ROUNDED,
+        )
+    )
+    return False
+
+
+def check_for_updates():
+    """Themed dependency-health view that matches the rest of the TUI.
+
+    Runs in a loop so Refresh / post-upgrade re-checks stay on the same
+    screen style; Back returns to the main menu. All failure modes are
+    caught so an offline run never kills the TUI.
+    """
+    from src.utils.version_check import check_packages
+
+    while True:
+        try:
+            clear_screen()
+            print_stylized_header("Dependency Health Check")
+
+            try:
+                with console.status(
+                    "[bold]Querying PyPI for the latest versions...",
+                    spinner="dots",
+                ):
+                    statuses = check_packages()
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Dependency check failed:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                        box=box.ROUNDED,
+                    )
+                )
+                input("\nPress Enter to return to the main menu...")
+                return
+
+            console.print(_render_dependency_table(statuses))
+            console.print()
+            console.print(_render_dependency_summary(statuses))
+
+            updatable = [s for s in statuses if s.needs_update]
+            ultralytics_update = next(
+                (s for s in updatable if s.package.name == "ultralytics"),
+                None,
+            )
+            critical_updates = [
+                s for s in updatable if s.package.importance == "critical"
+            ]
+
+            actions: list[str] = []
+            descriptions: dict[str, str] = {}
+
+            if ultralytics_update is not None:
+                actions.append("Update Ultralytics Only")
+                descriptions["Update Ultralytics Only"] = (
+                    f"Upgrade ultralytics from {ultralytics_update.installed} to "
+                    f"{ultralytics_update.latest} — the safest, most common choice."
+                )
+            if len(critical_updates) >= 2 or (
+                critical_updates and ultralytics_update is None
+            ):
+                label = f"Update All Critical ({len(critical_updates)})"
+                actions.append(label)
+                descriptions[label] = (
+                    "Upgrade every critical package with an available update "
+                    "(ultralytics, torch, torchvision). Major-version bumps may "
+                    "introduce breaking changes — review release notes afterwards."
+                )
+            if len(updatable) >= 1:
+                label = f"Update All Tracked ({len(updatable)})"
+                actions.append(label)
+                descriptions[label] = (
+                    "Upgrade every tracked package with an available update, "
+                    "including optional and tooling dependencies."
+                )
+
+            actions.append("Refresh")
+            descriptions["Refresh"] = (
+                "Re-query PyPI and re-read installed versions. Useful after an "
+                "upgrade or when PyPI was temporarily unreachable."
+            )
+            descriptions["Back"] = "Return to the main menu without making changes."
+
+            choice = get_user_choice(
+                actions,
+                allow_back=True,
+                title="Update Actions",
+                text=(
+                    "Pick an action to continue. "
+                    "Recommended action is listed first when available."
+                ),
+                descriptions=descriptions,
+                breadcrumbs=["YOLOmatic", "Dependency Health"],
+            )
+
+            if choice == "Back":
+                return
+            if choice == "Refresh":
+                continue
+
+            if choice == "Update Ultralytics Only":
+                targets = ["ultralytics"]
+            elif choice.startswith("Update All Critical"):
+                targets = [s.package.name for s in critical_updates]
+            elif choice.startswith("Update All Tracked"):
+                targets = [s.package.name for s in updatable]
+            else:
+                return
+
+            clear_screen()
+            print_stylized_header("Applying Updates")
+            _run_pip_upgrade(targets)
+            console.print()
+            input("Press Enter to re-check dependencies...")
+            # Loop back and re-render the fresh state.
+
+        except KeyboardInterrupt:
+            console.print(
+                "\n[bold yellow]Dependency check cancelled by user.[/bold yellow]"
+            )
+            return
 
 
 # Removed clear_screen, now imported from src.utils.tui
@@ -970,7 +1089,7 @@ def _main_loop_iteration():
             "Combine Datasets",
             "Upload to Roboflow",
             "[Maintenance]",
-            "Check Ultralytics Version",
+            "Check for Updates",
             "About YOLOmatic",
             "Exit",
         ]
@@ -1009,9 +1128,11 @@ def _main_loop_iteration():
                     "WORKSPACE / PROJECT_IDS from .env and stages the weight correctly for "
                     "Roboflow's deploy API."
                 ),
-                "Check Ultralytics Version": (
-                    "Check PyPI for the latest 'ultralytics' release and offer to update "
-                    "the current environment."
+                "Check for Updates": (
+                    "Run a dependency health check across every critical package — "
+                    "ultralytics, torch, torchvision, super-gradients, tensorboard, "
+                    "roboflow, onnx, onnxruntime. Each is classified by severity "
+                    "(patch / minor / major / missing), with one-click upgrades."
                 ),
                 "About YOLOmatic": "Technical details, creator info, and version history.",
                 "Exit": "Safely exit the application.",
@@ -1022,8 +1143,8 @@ def _main_loop_iteration():
         if main_choice == "Exit":
             raise _ExitTUI()
 
-        elif main_choice == "Check Ultralytics Version":
-            check_ultralytics_version()
+        elif main_choice == "Check for Updates":
+            check_for_updates()
             continue
 
         elif main_choice == "Train Model":
