@@ -16,9 +16,11 @@ from src.utils.ml_dependencies import (
 )
 from src.utils.project import (
     list_config_files,
-    load_dataset_config as load_project_dataset_config,
     resolve_config_path,
     verify_dataset_directories,
+)
+from src.utils.project import (
+    load_dataset_config as load_project_dataset_config,
 )
 from src.utils.tensorboard import (
     backfill_ultralytics_tensorboard,
@@ -26,8 +28,7 @@ from src.utils.tensorboard import (
     emit_tensorboard_report,
     validate_tensorboard_run,
 )
-from src.utils.training_preflight import resolve_training_device
-
+from src.utils.training_preflight import resolve_training_device, validate_export_config
 
 # Initialize Rich console
 console = Console()
@@ -294,6 +295,7 @@ def main():
                 "\n[bold green]Routing YOLO-NAS configuration to NAS trainer...[/bold green]"
             )
             from src.trainers.nas_trainer import main as nas_main
+
             nas_main(config_file)
             return
 
@@ -339,6 +341,16 @@ def main():
         # Enable TensorBoard explicitly
         ultra_settings = import_ultralytics_settings()
         ultra_settings.update({"tensorboard": True})
+
+        # Validate export configuration early to catch issues before training
+        is_valid, export_errors = validate_export_config(export_params, console)
+        if not is_valid:
+            console.print(
+                "\n[bold red]Export configuration errors detected. Please fix your config file.[/bold red]"
+            )
+            raise ValueError(
+                f"Export config validation failed: {'; '.join(export_errors)}"
+            )
 
         # Start training
         console.print("\n[bold green]Starting training...[/bold green]")

@@ -1038,11 +1038,53 @@ class YOLOConfigGenerator(BaseConfigGenerator):
                 "optimize": True,
                 "half": False,
                 "nms": True,
-                "int8": True,
+                "int8": False,
+                "dynamic": False,
+                "simplify": True,
+                "opset": None,
             },
         }
+        # Validate export parameters early to catch issues before training
+        config = self._validate_export_params(config)
+
         return self._apply_regular_yolo_profiles(
             config,
             profile_selection,
             profile_context,
         )
+
+    def _validate_export_params(self, config: dict) -> dict:
+        """Validate export parameters and fix common issues."""
+        export_config = config.get("export", {})
+        format_type = export_config.get("format", "onnx")
+        int8_enabled = export_config.get("int8", False)
+
+        # INT8 requires calibration data - disable if not provided
+        if int8_enabled and format_type == "onnx":
+            has_calib_data = (
+                export_config.get("data") is not None
+                or config.get("model", {}).get("data_dir") is not None
+            )
+            if not has_calib_data:
+                logger.warning(
+                    "INT8 quantization requires calibration data. "
+                    "Disabling int8 for ONNX export. "
+                    "To enable int8, provide 'data' parameter with calibration dataset path."
+                )
+                export_config["int8"] = False
+
+        # INT8 is not well-supported for ONNX without proper setup
+        # Only enable for TensorRT or when data is explicitly provided
+        if (
+            int8_enabled
+            and format_type in ("onnx", "torchscript")
+            and not export_config.get("data")
+        ):
+            logger.warning(
+                f"INT8 quantization is not recommended for {format_type} format without calibration data. "
+                "Consider using TensorRT for INT8 or provide calibration data."
+            )
+            export_config["int8"] = False
+
+        config["export"] = export_config
+        return config

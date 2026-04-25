@@ -9,6 +9,25 @@ from typing import TypeVar
 
 _T = TypeVar("_T")
 
+_IS_WINDOWS = platform.system() == "Windows"
+_NVIDIA_PACKAGE_NAMES = (
+    "cudnn",
+    "cublas",
+    "cuda_runtime",
+    "cuda_nvrtc",
+    "cuda_cupti",
+    "cufft",
+    "curand",
+    "cusolver",
+    "cusparse",
+    "nvjitlink",
+    "nvtx",
+    "cufile",
+)
+# Tracks DLL search paths already registered via os.add_dll_directory on Windows
+# so we don't leak handles or re-register on every call.
+_REGISTERED_DLL_DIRS: set[str] = set()
+
 
 class MLDependencyError(RuntimeError):
     pass
@@ -26,35 +45,25 @@ def _candidate_site_packages() -> list[Path]:
 
 
 def _runtime_library_environment_name() -> str:
-    system = platform.system()
-    if system == "Windows":
+    if _IS_WINDOWS:
         return "PATH"
-    if system == "Darwin":
+    if platform.system() == "Darwin":
         return "DYLD_LIBRARY_PATH"
     return "LD_LIBRARY_PATH"
 
 
 def _candidate_nvidia_lib_dirs() -> list[Path]:
-    relative_dirs = [
-        Path("nvidia/cudnn/lib"),
-        Path("nvidia/cublas/lib"),
-        Path("nvidia/cuda_runtime/lib"),
-        Path("nvidia/cuda_nvrtc/lib"),
-        Path("nvidia/cuda_cupti/lib"),
-        Path("nvidia/cufft/lib"),
-        Path("nvidia/curand/lib"),
-        Path("nvidia/cusolver/lib"),
-        Path("nvidia/cusparse/lib"),
-        Path("nvidia/nvjitlink/lib"),
-        Path("nvidia/nvtx/lib"),
-        Path("nvidia/cufile/lib"),
-    ]
+    # Windows wheels put DLLs under `nvidia/<pkg>/bin`; Linux/macOS wheels under
+    # `nvidia/<pkg>/lib`. Also include `lib/x64` because some older wheels and
+    # tooling stage Windows DLLs there. Scanning both keeps the helper portable.
+    subdirs = ("bin", "lib", "lib/x64") if _IS_WINDOWS else ("lib",)
     discovered: list[Path] = []
     for site_packages in _candidate_site_packages():
-        for relative_dir in relative_dirs:
-            lib_dir = site_packages / relative_dir
-            if lib_dir.exists() and lib_dir.is_dir():
-                discovered.append(lib_dir)
+        for package_name in _NVIDIA_PACKAGE_NAMES:
+            for subdir in subdirs:
+                lib_dir = site_packages / "nvidia" / package_name / subdir
+                if lib_dir.exists() and lib_dir.is_dir():
+                    discovered.append(lib_dir)
     unique_dirs: list[Path] = []
     seen: set[Path] = set()
     for path in discovered:
@@ -65,6 +74,44 @@ def _candidate_nvidia_lib_dirs() -> list[Path]:
     return unique_dirs
 
 
+def _torch_bundled_lib_dirs() -> list[Path]:
+    # Windows torch wheels bundle their CUDA DLLs in `torch/lib/`. Adding this
+    # directory as a DLL search path mirrors what `import torch` already does
+    # internally and helps subprocess inspectors that haven't imported torch yet.
+    discovered: list[Path] = []
+    for site_packages in _candidate_site_packages():
+        for relative in (Path("torch/lib"), Path("torch/bin")):
+            candidate = site_packages / relative
+            if candidate.exists() and candidate.is_dir():
+                discovered.append(candidate.resolve())
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for path in discovered:
+        if path not in seen:
+            seen.add(path)
+            unique.append(path)
+    return unique
+
+
+def _register_windows_dll_dir(directory: Path) -> None:
+    # Python >= 3.8 on Windows ignores PATH when resolving DLLs for imported
+    # extension modules. `os.add_dll_directory` is the only mechanism that
+    # actually works for torch's bundled CUDA libraries.
+    add_dll_directory = getattr(os, "add_dll_directory", None)
+    if add_dll_directory is None:
+        return
+    key = str(directory)
+    if key in _REGISTERED_DLL_DIRS:
+        return
+    if not directory.exists() or not directory.is_dir():
+        return
+    try:
+        add_dll_directory(key)
+    except (OSError, FileNotFoundError):
+        return
+    _REGISTERED_DLL_DIRS.add(key)
+
+
 def prepare_ml_runtime() -> list[Path]:
     env_var_name = _runtime_library_environment_name()
     path_separator = os.pathsep
@@ -73,11 +120,20 @@ def prepare_ml_runtime() -> list[Path]:
     ]
     updated = existing[:]
     added_paths: list[Path] = []
-    for lib_dir in _candidate_nvidia_lib_dirs():
+
+    candidate_dirs: list[Path] = []
+    candidate_dirs.extend(_candidate_nvidia_lib_dirs())
+    if _IS_WINDOWS:
+        candidate_dirs.extend(_torch_bundled_lib_dirs())
+
+    for lib_dir in candidate_dirs:
         lib_dir_str = str(lib_dir)
         if lib_dir_str not in updated:
             updated.append(lib_dir_str)
             added_paths.append(lib_dir)
+        if _IS_WINDOWS:
+            _register_windows_dll_dir(lib_dir)
+
     if updated != existing:
         os.environ[env_var_name] = path_separator.join(updated)
     return added_paths
