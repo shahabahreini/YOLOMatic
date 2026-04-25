@@ -16,6 +16,10 @@ from rich.text import Text
 TUI_CONSOLE = Console()
 TUI_TERM = Terminal()
 
+# Navigation signals
+NAV_BACK = "__BACK__"
+NAV_LIST = "__LIST__"
+
 
 def clear_screen() -> None:
     """Clear the terminal screen."""
@@ -550,100 +554,81 @@ class ParameterDefinition:
 
 
 class MultiSelectRenderer:
-    """Handles rendering of a multi-select checkbox menu for parameter selection."""
+    """Handles rendering of a unified selection and editing menu for parameters."""
 
     def __init__(
         self,
         parameters: list[ParameterDefinition],
         selected: set[str],
+        values: dict[str, Any],
         current_index: int,
         title: str,
         instruction: str,
-        category_filter: str | None = None,
+        focus: str = "list",  # "list" or "input"
+        input_buffer: str = "",
     ):
         self.parameters = parameters
         self.selected = selected
+        self.values = values
         self.current_index = current_index
         self.title = title
         self.instruction = instruction
-        self.category_filter = category_filter
-        self.filtered_params = self._filter_params()
-
-    def _filter_params(self) -> list[ParameterDefinition]:
-        if self.category_filter is None:
-            return self.parameters
-        return [p for p in self.parameters if p.category == self.category_filter]
+        self.focus = focus
+        self.input_buffer = input_buffer
+        self.filtered_params = parameters
 
     def _render_checkbox(self, param: ParameterDefinition, is_active: bool) -> Text:
         checked = "[x]" if param.name in self.selected else "[ ]"
-        if is_active:
-            return Text(f"{checked} {param.name}", style="bold white on blue")
-        return Text(
-            f"{checked} {param.name}",
-            style="dim" if param.name not in self.selected else "white",
-        )
+        
+        # Show the current value if it's selected or has a custom value
+        current_val = self.values.get(param.name, param.default)
+        val_str = f": [yellow]{current_val}[/yellow]" if param.name in self.selected else ""
+        
+        text = Text()
+        text.append(f"{checked} ", style="bold cyan" if param.name in self.selected else "dim")
+        text.append(param.name, style="bold" if is_active and self.focus == "list" else "")
+        text.append(Text.from_markup(val_str))
+
+        if is_active and self.focus == "list":
+            text.stylize("on blue")
+            return Text("➤ ", style="bold yellow") + text
+        
+        return Text("  ") + text
 
     def _render_sidebar(self) -> Panel:
-        # Window size - number of visible items
-        VISIBLE_ITEMS = 30
-
+        VISIBLE_ITEMS = 25
         total_items = len(self.filtered_params)
-        if total_items == 0:
-            return Panel(
-                Text("No parameters available", style="dim"),
-                title="[bold cyan]Parameters[/bold cyan]",
-                border_style="blue",
-                padding=(0, 1),
-            )
-
-        # Calculate visible window
+        
+        # Windowing logic
         half_window = VISIBLE_ITEMS // 2
-        if total_items <= VISIBLE_ITEMS:
-            start_idx = 0
-            end_idx = total_items
-        elif self.current_index < half_window:
-            start_idx = 0
-            end_idx = VISIBLE_ITEMS
-        elif self.current_index > total_items - half_window - 1:
-            start_idx = total_items - VISIBLE_ITEMS
-            end_idx = total_items
-        else:
-            start_idx = self.current_index - half_window
-            end_idx = self.current_index + half_window + (VISIBLE_ITEMS % 2)
+        start_idx = max(0, min(self.current_index - half_window, total_items - VISIBLE_ITEMS))
+        end_idx = min(start_idx + VISIBLE_ITEMS, total_items)
 
         items: list[Text] = []
-
-        # Show indicator if there are more items above
         if start_idx > 0:
             items.append(Text(f"↑ {start_idx} more above", style="dim cyan"))
 
-        # Render visible items with categories
         current_category: str | None = None
         for i in range(start_idx, end_idx):
             param = self.filtered_params[i]
-
-            # Show category header when it changes
             if param.category != current_category:
                 current_category = param.category
-                # Add spacing between categories (except at start)
                 if items and not (start_idx > 0 and len(items) == 1):
                     items.append(Text(""))
-                items.append(
-                    Text(f"[{current_category.upper()}]", style="bold cyan dim")
-                )
+                items.append(Text(f"[{current_category.upper()}]", style="bold cyan dim"))
 
-            is_active = i == self.current_index
-            items.append(self._render_checkbox(param, is_active))
+            items.append(self._render_checkbox(param, i == self.current_index))
 
-        # Show indicator if there are more items below
         if end_idx < total_items:
-            remaining = total_items - end_idx
-            items.append(Text(f"↓ {remaining} more below", style="dim cyan"))
+            items.append(Text(f"↓ {total_items - end_idx} more below", style="dim cyan"))
 
+        border_style = "blue" if self.focus == "list" else "dim"
+        title_prefix = "➤ " if self.focus == "list" else ""
+        
         return Panel(
             Group(*items),
-            title=f"[bold cyan]Parameters ({self.current_index + 1}/{total_items})[/bold cyan]",
-            border_style="blue",
+            title=f"[bold cyan]{title_prefix}Parameters ({self.current_index + 1}/{total_items})[/bold cyan]",
+            border_style=border_style,
             padding=(0, 1),
             expand=True,
         )
@@ -653,6 +638,7 @@ class MultiSelectRenderer:
             return Panel(Text("No parameters available"), border_style="dim")
 
         param = self.filtered_params[self.current_index]
+        current_val = self.values.get(param.name, param.default)
 
         info_lines = [
             Text.from_markup(f"[bold cyan]Parameter:[/bold cyan] {param.name}"),
@@ -670,35 +656,71 @@ class MultiSelectRenderer:
         if param.min_value is not None or param.max_value is not None:
             info_lines.append(Text(""))
             range_str = f"Range: {param.min_value if param.min_value is not None else '-∞'} to {param.max_value if param.max_value is not None else '+∞'}"
-            info_lines.append(
-                Text.from_markup(f"[bold magenta]{range_str}[/bold magenta]")
-            )
+            info_lines.append(Text.from_markup(f"[bold magenta]{range_str}[/bold magenta]"))
 
         if param.allowed_values:
             info_lines.append(Text(""))
-            info_lines.append(
-                Text.from_markup(
-                    f"[bold magenta]Allowed values:[/bold magenta] {', '.join(param.allowed_values)}"
-                )
+            info_lines.append(Text.from_markup(f"[bold magenta]Allowed values:[/bold magenta] {', '.join(param.allowed_values)}"))
+
+        # Input Area
+        info_lines.append(Text(""))
+        border_style = "blue" if self.focus == "input" else "dim"
+        title_prefix = "➤ " if self.focus == "input" else ""
+        
+        input_content = []
+        if param.value_type == "bool":
+            # Simple toggle display
+            input_content.append(Text("Value: ", style="bold"))
+            input_content.append(Text(str(current_val), style="bold yellow"))
+            input_content.append(Text(" (Press Space/Enter to toggle)", style="dim"))
+        elif param.allowed_values:
+            # Cycle display
+            input_content.append(Text("Value: ", style="bold"))
+            input_content.append(Text(str(current_val), style="bold yellow"))
+            input_content.append(Text(" (Press Up/Down to cycle)", style="dim"))
+        else:
+            # Text input display
+            display_val = self.input_buffer if self.focus == "input" else str(current_val)
+            input_content.append(Text("Value: ", style="bold"))
+            input_content.append(Text(display_val, style="bold yellow"))
+            if self.focus == "input":
+                input_content.append(Text("█", style="blink bold white"))
+            else:
+                input_content.append(Text(" (Press Enter to edit)", style="dim"))
+
+        info_lines.append(
+            Panel(
+                Text.assemble(*input_content),
+                title=f"{title_prefix}Edit Value",
+                border_style=border_style,
+                padding=(0, 1)
             )
+        )
 
         return Panel(
             Group(*info_lines),
-            title="[bold cyan]Parameter Details[/bold cyan]",
+            title="[bold cyan]Details & Configuration[/bold cyan]",
             border_style="blue",
             padding=(1, 2),
             expand=True,
         )
 
     def _render_status_bar(self) -> Panel:
-        hints = [
-            ("[bold yellow]↑↓[/bold yellow]", "Move"),
-            ("[bold yellow]Space[/bold yellow]", "Toggle"),
-            ("[bold yellow]Enter[/bold yellow]", "Confirm"),
-            ("[bold yellow]A[/bold yellow]", "Select All"),
-            ("[bold yellow]N[/bold yellow]", "None"),
-            ("[bold yellow]Q[/bold yellow]", "Cancel"),
-        ]
+        if self.focus == "list":
+            hints = [
+                ("[bold yellow]↑↓[/bold yellow]", "Move"),
+                ("[bold yellow]Space[/bold yellow]", "Toggle"),
+                ("[bold yellow]Enter/→[/bold yellow]", "Edit Value"),
+                ("[bold yellow]A/N[/bold yellow]", "All/None"),
+                ("[bold yellow]F[/bold yellow]", "Finish"),
+                ("[bold yellow]Q[/bold yellow]", "Back"),
+            ]
+        else:
+            hints = [
+                ("[bold yellow]Enter[/bold yellow]", "Save"),
+                ("[bold yellow]Esc/←/B[/bold yellow]", "Back to List"),
+                ("[bold yellow]Up/Down[/bold yellow]", "Cycle Options"),
+            ]
 
         parts = [f"{key} {action}" for key, action in hints]
         hints_text = Text.from_markup("  •  ".join(parts))
@@ -744,53 +766,122 @@ class MultiSelectRenderer:
 def get_user_multi_select(
     parameters: list[ParameterDefinition],
     title: str = "Select Parameters",
-    instruction: str = "Use Space to toggle parameters, Enter to confirm:",
+    instruction: str = "Use Space to toggle parameters, Enter to edit values:",
     pre_selected: set[str] | None = None,
-) -> set[str] | None:
+    pre_values: dict[str, Any] | None = None,
+) -> tuple[set[str], dict[str, Any]] | None:
     """
-    Interactive multi-select checkbox menu for parameter selection.
+    Interactive unified interface for parameter selection and value editing.
 
-    Returns a set of selected parameter names, or None if cancelled.
+    Returns (selected_names, values_dict) or None if cancelled.
     """
     selected = pre_selected.copy() if pre_selected else set()
+    values = pre_values.copy() if pre_values else {}
     current_index = 0
+    focus = "list"
+    input_buffer = ""
 
     with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
         renderer = MultiSelectRenderer(
             parameters=parameters,
             selected=selected,
+            values=values,
             current_index=current_index,
             title=title,
             instruction=instruction,
+            focus=focus,
+            input_buffer=input_buffer,
         )
 
-        with Live(
-            renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True
-        ) as live:
+        with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
             while True:
                 key = TUI_TERM.inkey(timeout=0.1)
+                param = parameters[current_index]
 
-                if key.name == "KEY_UP" or key.lower() == "k":
-                    current_index = (current_index - 1) % len(parameters)
-                elif key.name == "KEY_DOWN" or key.lower() == "j":
-                    current_index = (current_index + 1) % len(parameters)
-                elif key == " ":
-                    param = parameters[current_index]
-                    if param.name in selected:
-                        selected.remove(param.name)
-                    else:
-                        selected.add(param.name)
-                elif key.name == "KEY_ENTER":
-                    return selected
-                elif key.lower() == "a":
-                    selected = {p.name for p in parameters}
-                elif key.lower() == "n":
-                    selected = set()
-                elif key.lower() == "q" or key.name == "KEY_ESCAPE":
-                    return None
+                if focus == "list":
+                    if key.name == "KEY_UP" or key.lower() == "k":
+                        current_index = (current_index - 1) % len(parameters)
+                    elif key.name == "KEY_DOWN" or key.lower() == "j":
+                        current_index = (current_index + 1) % len(parameters)
+                    elif key == " ":
+                        if param.name in selected:
+                            selected.remove(param.name)
+                        else:
+                            selected.add(param.name)
+                    elif key.name == "KEY_RIGHT" or key.name == "KEY_ENTER":
+                        focus = "input"
+                        input_buffer = str(values.get(param.name, param.default))
+                        # For bool, just toggle immediately if desired, or let the input mode handle it
+                    elif key.lower() == "a":
+                        selected = {p.name for p in parameters}
+                    elif key.lower() == "n":
+                        selected = set()
+                    elif key.lower() == "f":  # Finish
+                        return selected, values
+                    elif key.lower() == "q" or key.name == "KEY_ESCAPE":
+                        return None
+                
+                elif focus == "input":
+                    if key.name == "KEY_LEFT" or key.name == "KEY_ESCAPE" or key.lower() == "b":
+                        focus = "list"
+                    elif key.name == "KEY_ENTER":
+                        # Validate and save
+                        try:
+                            if param.value_type == "int":
+                                val = int(input_buffer)
+                            elif param.value_type == "float":
+                                val = float(input_buffer)
+                            elif param.value_type == "bool":
+                                # Toggle logic for bool handled by space/enter too
+                                val = input_buffer.lower() == "true"
+                            else:
+                                val = input_buffer
+                            
+                            # Simple validation check
+                            valid = True
+                            if param.min_value is not None and isinstance(val, (int, float)) and val < param.min_value:
+                                valid = False
+                            if param.max_value is not None and isinstance(val, (int, float)) and val > param.max_value:
+                                valid = False
+                            if param.allowed_values and val not in param.allowed_values:
+                                valid = False
+                            
+                            if valid:
+                                values[param.name] = val
+                                selected.add(param.name)  # Auto-select if value is modified
+                                focus = "list"
+                        except ValueError:
+                            pass # Keep editing
+                    
+                    elif param.value_type == "bool":
+                        if key == " " or key.name == "KEY_ENTER":
+                            current_bool = input_buffer.lower() == "true"
+                            input_buffer = str(not current_bool)
+                    
+                    elif param.allowed_values:
+                        if key.name == "KEY_UP" or key.name == "KEY_DOWN":
+                            try:
+                                curr_idx = param.allowed_values.index(input_buffer)
+                            except ValueError:
+                                curr_idx = 0
+                            
+                            if key.name == "KEY_UP":
+                                next_idx = (curr_idx - 1) % len(param.allowed_values)
+                            else:
+                                next_idx = (curr_idx + 1) % len(param.allowed_values)
+                            input_buffer = param.allowed_values[next_idx]
+                    
+                    elif key.name == "KEY_BACKSPACE":
+                        input_buffer = input_buffer[:-1]
+                    elif key and not key.is_sequence:
+                        input_buffer += key
 
+                # Sync renderer
                 renderer.current_index = current_index
                 renderer.selected = selected
+                renderer.values = values
+                renderer.focus = focus
+                renderer.input_buffer = input_buffer
                 live.update(renderer)
 
 
@@ -801,8 +892,58 @@ def get_parameter_value_input(
     """
     Interactive input for a parameter value with validation.
 
-    Returns the entered value, or None to skip/keep default.
+    Returns:
+        - The entered/converted value
+        - NAV_BACK if the user wants to go back to the previous parameter
+        - NAV_LIST if the user wants to return to the selection list
     """
+    value_to_edit = current_value if current_value is not None else param.default
+
+    # 1. Specialized handling for Boolean values (Fast Path)
+    if param.value_type == "bool":
+        choice = get_user_choice(
+            ["True", "False", "Back to Previous", "Back to List"],
+            title=f"Set Value: {param.name}",
+            text=(
+                f"[bold cyan]Parameter:[/bold cyan] {param.name}\n"
+                f"[bold cyan]Description:[/bold cyan] {param.description}\n\n"
+                f"[dim]{param.help_text}[/dim]\n\n"
+                f"Current value: [bold yellow]{value_to_edit}[/bold yellow]"
+            ),
+            tip="Boolean parameters are toggled instantly for faster configuration.",
+        )
+        if choice == "True":
+            return True
+        if choice == "False":
+            return False
+        if choice == "Back to Previous":
+            return NAV_BACK
+        if choice == "Back to List":
+            return NAV_LIST
+        return value_to_edit
+
+    # 2. Specialized handling for Allowed Values (Fast Path)
+    if param.allowed_values:
+        options = list(param.allowed_values)
+        options.extend(["Back to Previous", "Back to List"])
+        choice = get_user_choice(
+            options,
+            title=f"Set Value: {param.name}",
+            text=(
+                f"[bold cyan]Parameter:[/bold cyan] {param.name}\n"
+                f"[bold cyan]Description:[/bold cyan] {param.description}\n\n"
+                f"[dim]{param.help_text}[/dim]\n\n"
+                f"Current value: [bold yellow]{value_to_edit}[/bold yellow]"
+            ),
+            tip=f"Pick from one of the {len(param.allowed_values)} valid options.",
+        )
+        if choice == "Back to Previous":
+            return NAV_BACK
+        if choice == "Back to List":
+            return NAV_LIST
+        return choice
+
+    # 3. Interactive Text Input for Numeric/String values
     clear_screen()
     print_header(f"Set Value: {param.name}")
 
@@ -823,48 +964,55 @@ def get_parameter_value_input(
         )
     )
 
-    value_to_edit = current_value if current_value is not None else param.default
+    if param.min_value is not None or param.max_value is not None:
+        range_str = f"Range: {param.min_value if param.min_value is not None else '-∞'} to {param.max_value if param.max_value is not None else '+∞'}"
+        console.print(f"[bold magenta]{range_str}[/bold magenta]")
+
     console.print(f"\nCurrent value: [bold yellow]{value_to_edit}[/bold yellow]")
-    console.print("[dim]Press Enter to keep current, or type a new value:[/dim]")
+    console.print(
+        "\n[dim]Commands: [bold yellow]Enter[/bold yellow] (keep current)  •  "
+        "[bold yellow]B[/bold yellow] (back)  •  "
+        "[bold yellow]L[/bold yellow] (list)  •  "
+        "[bold yellow]Esc[/bold yellow] (cancel/back)[/dim]"
+    )
 
-    try:
-        user_input = input("\nNew value: ").strip()
-    except (EOFError, KeyboardInterrupt):
-        return None
+    while True:
+        try:
+            user_input = input("\nNew value: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return NAV_BACK
 
-    if not user_input:
-        return value_to_edit
+        if not user_input:
+            return value_to_edit
 
-    try:
-        if param.value_type == "int":
-            value = int(user_input)
-            if param.min_value is not None and value < param.min_value:
-                console.print(f"[red]Value must be >= {param.min_value}[/red]")
-                return None
-            if param.max_value is not None and value > param.max_value:
-                console.print(f"[red]Value must be <= {param.max_value}[/red]")
-                return None
-            return value
-        elif param.value_type == "float":
-            value = float(user_input)
-            if param.min_value is not None and value < param.min_value:
-                console.print(f"[red]Value must be >= {param.min_value}[/red]")
-                return None
-            if param.max_value is not None and value > param.max_value:
-                console.print(f"[red]Value must be <= {param.max_value}[/red]")
-                return None
-            return value
-        elif param.value_type == "bool":
-            return user_input.lower() in ("true", "yes", "1", "on")
-        elif param.value_type == "str":
-            if param.allowed_values and user_input not in param.allowed_values:
-                console.print(
-                    f"[red]Allowed values: {', '.join(param.allowed_values)}[/red]"
-                )
-                return None
-            return user_input
-        else:
-            return user_input
-    except ValueError as e:
-        console.print(f"[red]Invalid value: {e}[/red]")
-        return None
+        if user_input.lower() == "b":
+            return NAV_BACK
+        if user_input.lower() == "l":
+            return NAV_LIST
+
+        try:
+            if param.value_type == "int":
+                value = int(user_input)
+                if param.min_value is not None and value < param.min_value:
+                    console.print(f"[red]Value must be >= {param.min_value}[/red]")
+                    continue
+                if param.max_value is not None and value > param.max_value:
+                    console.print(f"[red]Value must be <= {param.max_value}[/red]")
+                    continue
+                return value
+            elif param.value_type == "float":
+                value = float(user_input)
+                if param.min_value is not None and value < param.min_value:
+                    console.print(f"[red]Value must be >= {param.min_value}[/red]")
+                    continue
+                if param.max_value is not None and value > param.max_value:
+                    console.print(f"[red]Value must be <= {param.max_value}[/red]")
+                    continue
+                return value
+            elif param.value_type == "str":
+                return user_input
+            else:
+                return user_input
+        except ValueError as e:
+            console.print(f"[red]Invalid value: {e}[/red]")
+            continue

@@ -20,6 +20,8 @@ from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
 from src.models.data import model_data_dict
 from src.utils.cli import (
     ParameterDefinition,
+    NAV_BACK,
+    NAV_LIST,
     clear_screen,
     console,
     get_parameter_value_input,
@@ -1727,30 +1729,15 @@ def run_fully_customized_config_flow(
     Interactive flow for fully customized parameter selection.
 
     Allows users to check/uncheck individual parameters and set custom values
-    with detailed explanations for each parameter.
+    with detailed explanations for each parameter. Supports bi-directional
+    navigation and quick-select for boolean/enum types.
     """
     from rich import box
     from rich.panel import Panel
     from rich.table import Table
 
-    clear_screen()
-    print_stylized_header("Fully Customized Configuration")
-
-    console.print(
-        Panel(
-            "[bold yellow]Welcome to the Fully Customized Config Mode![/bold yellow]\n\n"
-            "In this mode, you can:\n"
-            "- [cyan]Check/uncheck[/cyan] each parameter you want to include in your config\n"
-            "- [cyan]Read detailed explanations[/cyan] of what each parameter does\n"
-            "- [cyan]Set custom values[/cyan] for each selected parameter\n\n"
-            "[dim]Press Space to toggle parameters, Enter to confirm selection.[/dim]",
-            border_style="cyan",
-            padding=(1, 2),
-        )
-    )
-
-    # Get default pre-selected parameters (core + hardware minimum)
-    pre_selected = {
+    # State
+    current_selected_names = {
         "epochs",
         "patience",
         "batch",
@@ -1759,87 +1746,74 @@ def run_fully_customized_config_flow(
         "workers",
         "optimizer",
     }
-
-    # Run multi-select to choose parameters
-    selected_params = get_user_multi_select(
-        parameters=YOLO_TRAINING_PARAMETERS,
-        title="Select Training Parameters",
-        instruction="Use Space to toggle, A for all, N for none, Enter to confirm:",
-        pre_selected=pre_selected,
-    )
-
-    if selected_params is None:
-        return None
-
-    if not selected_params:
-        console.print("[yellow]No parameters selected. Using defaults.[/yellow]")
-        return {"mode": "fully_customized", "params": {}}
-
-    # Now let user customize values for selected parameters
-    clear_screen()
-    print_stylized_header("Configure Parameter Values")
-
-    console.print(
-        f"[bold cyan]Selected {len(selected_params)} parameters.[/bold cyan]\n"
-        "Now let's set custom values for each. Press Enter to keep defaults.\n"
-    )
-
     custom_values: dict[str, Any] = {}
-
-    # Group parameters by category for better UX
-    category_order = [
-        "core",
-        "hardware",
-        "optimizer",
-        "augmentation",
-        "loss",
-        "advanced",
-        "segmentation",
-        "validation",
-    ]
-
     param_lookup = {p.name: p for p in YOLO_TRAINING_PARAMETERS}
 
-    for category in category_order:
-        category_params = [
-            p
-            for p in YOLO_TRAINING_PARAMETERS
-            if p.category == category and p.name in selected_params
-        ]
-        if not category_params:
-            continue
+    while True:
+        clear_screen()
+        print_stylized_header("Fully Customized Configuration")
+        console.print(
+            Panel(
+                "[bold yellow]Welcome to the Unified Configurator![/bold yellow]\n\n"
+                "• [cyan]Left Pane[/cyan]: Select parameters with [bold yellow]Space[/bold yellow].\n"
+                "• [cyan]Right Pane[/cyan]: Edit values with [bold yellow]Enter[/bold yellow] or [bold yellow]Right Arrow[/bold yellow].\n"
+                "• [cyan]Navigation[/cyan]: Use [bold yellow]B[/bold yellow] or [bold yellow]Left Arrow[/bold yellow] to return to the list.\n"
+                "• [cyan]Finish/Back[/cyan]: Press [bold yellow]F[/bold yellow] to finish or [bold yellow]Q[/bold yellow] to go back to the menu.",
+                border_style="cyan",
+                padding=(1, 2),
+            )
+        )
 
-        console.print(f"\n[bold cyan]━━━ {category.upper()} ━━━[/bold cyan]")
+        result = get_user_multi_select(
+            parameters=YOLO_TRAINING_PARAMETERS,
+            title="Fully Customized Configuration",
+            instruction="[Space] Toggle  [Enter/→] Edit Value  [F] Finish",
+            pre_selected=current_selected_names,
+            pre_values=custom_values,
+        )
 
-        for param in category_params:
-            value = get_parameter_value_input(param)
-            if value is not None:
-                custom_values[param.name] = value
+        if result is None:
+            return None
 
-    # Display summary
-    clear_screen()
-    print_stylized_header("Configuration Summary")
+        selected_names, updated_values = result
+        current_selected_names = selected_names
+        custom_values = updated_values
 
-    table = Table(
-        title=f"Selected Parameters ({len(custom_values)} configured)",
-        title_style="bold green",
-        border_style="dim",
-        box=box.ROUNDED,
-    )
-    table.add_column("Parameter", style="cyan")
-    table.add_column("Value", style="yellow")
-    table.add_column("Category", style="dim")
+        if not selected_names:
+            console.print(
+                "[yellow]No parameters selected. Using defaults.[/yellow]"
+            )
+            return {"mode": "fully_customized", "params": {}}
 
-    for name, value in sorted(custom_values.items()):
-        param = param_lookup.get(name)
-        if param:
-            table.add_row(name, str(value), param.category)
+        # Display summary
+        clear_screen()
+        print_stylized_header("Configuration Summary")
 
-    console.print(table)
+        table = Table(
+            title=f"Selected Parameters ({len(selected_names)} configured)",
+            title_style="bold green",
+            border_style="dim",
+            box=box.ROUNDED,
+        )
+        table.add_column("Parameter", style="cyan")
+        table.add_column("Value", style="yellow")
+        table.add_column("Category", style="dim")
 
-    if (
-        get_user_choice(
-            ["Confirm and Continue", "Go Back and Modify"],
+        # Only show parameters that are selected
+        for name in sorted(selected_names):
+            param = param_lookup.get(name)
+            if param:
+                val = custom_values.get(name, param.default)
+                table.add_row(name, str(val), param.category)
+
+        console.print(table)
+
+        choice = get_user_choice(
+            [
+                "Confirm and Continue",
+                "Go Back and Modify",
+                "Back to Mode Selection",
+            ],
             title="Confirm Configuration",
             text=(
                 "Review the custom parameter table above. "
@@ -1852,19 +1826,25 @@ def run_fully_customized_config_flow(
                     "• You can still edit the YAML by hand before launching training."
                 ),
                 "Go Back and Modify": (
-                    "[bold yellow]Return to the parameter editor.[/bold yellow]\n\n"
-                    "• Your current selections are preserved; only edit what you want to change.\n"
-                    "• Useful if you spotted a typo or want to tune a value before committing."
+                    "[bold yellow]Return to the unified configurator.[/bold yellow]\n\n"
+                    "• Your current selections and values are preserved."
+                ),
+                "Back to Mode Selection": (
+                    "[bold cyan]Return to the configuration mode selection screen.[/bold cyan]\n\n"
+                    "• All current custom configuration will be discarded."
                 ),
             },
-            tip=(
-                "Anything you change later in the YAML will override what you picked here — "
-                "no need to start over."
-            ),
+            tip="Anything you change later in the YAML will override what you picked here.",
         )
-        == "Go Back and Modify"
-    ):
-        return None
+
+        if choice == "Confirm and Continue":
+            # Filter custom_values to only include selected names
+            final_params = {name: custom_values.get(name, param_lookup[name].default) 
+                          for name in selected_names}
+            return {"mode": "fully_customized", "params": final_params}
+        elif choice == "Back to Mode Selection":
+            return None
+        # Else choice == "Go Back and Modify", loop back to the unified configurator
 
     return {"mode": "fully_customized", "params": custom_values}
 
