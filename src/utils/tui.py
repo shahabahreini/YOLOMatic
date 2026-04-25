@@ -650,7 +650,7 @@ class MultiSelectRenderer:
             Text(param.description),
             Text(""),
             Text.from_markup("[bold green]Help:[/bold green]"),
-            Text(param.help_text, style="dim"),
+            Text.from_markup(param.help_text, style="dim"),
         ]
 
         if param.min_value is not None or param.max_value is not None:
