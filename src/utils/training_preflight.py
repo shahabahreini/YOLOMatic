@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console
@@ -327,11 +329,94 @@ def _run_repair_command(
         )
 
 
+def _find_uv_project_root(start: Path | None = None) -> Path | None:
+    current = (start or Path.cwd()).resolve()
+    for candidate in (current, *current.parents):
+        if (candidate / "uv.lock").is_file():
+            return candidate
+    return None
+
+
+def _resolve_uv_executable() -> str | None:
+    return shutil.which("uv")
+
+
+def _format_inspection_failure(inspection: TorchInspectionResult) -> str:
+    return (
+        f"Post-repair check: torch={inspection.version}, "
+        f"cuda_build={inspection.cuda_build}, "
+        f"cuda_available={inspection.cuda_available}, "
+        f"device_count={inspection.device_count}, "
+        f"numpy={inspection.numpy_version}, "
+        f"error={inspection.error}, "
+        f"init_error={inspection.init_error}"
+    )
+
+
+def _repair_via_uv_sync(
+    executable: str,
+    uv_executable: str,
+    project_root: Path,
+) -> tuple[bool, str, TorchInspectionResult]:
+    # `uv sync --reinstall-package` re-fetches the package while keeping the
+    # venv tracked by uv.lock. This avoids the loop where `pip install
+    # --force-reinstall` leaves a missing-RECORD dist-info that the next
+    # `uv run`'s implicit sync tries (and on Windows often fails) to clean up.
+    command = [
+        uv_executable,
+        "sync",
+        "--reinstall-package",
+        "torch",
+        "--reinstall-package",
+        "torchvision",
+    ]
+    description = (
+        f"Reinstalling torch / torchvision via `uv sync` in {project_root.name} "
+        "(keeps the venv consistent with uv.lock so the next `uv run` won't re-trigger repair)..."
+    )
+    console.print(f"[bold cyan]{description}[/bold cyan]")
+    with console.status(f"[bold]{description}[/bold]", spinner="dots"):
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(project_root),
+        )
+    command_text = " ".join(command)
+    combined_output = "\n".join(
+        part.strip()
+        for part in (process.stdout, process.stderr)
+        if part and part.strip()
+    )
+    output = f"$ {command_text}\n{combined_output}".strip()
+
+    invalidate_torch_inspection_cache()
+    inspection = inspect_torch_runtime(executable, use_cache=False)
+
+    if process.returncode != 0 or not inspection.cuda_available:
+        output = "\n\n".join([output, _format_inspection_failure(inspection)])
+        return False, output, inspection
+
+    console.print(
+        "[bold cyan]Verifying the repaired PyTorch environment...[/bold cyan]"
+    )
+    return True, output, inspection
+
+
 def repair_cuda_enabled_torch(
     python_executable: str | None = None,
     index_url: str = DEFAULT_TORCH_CUDA_INDEX_URL,
 ) -> tuple[bool, str, TorchInspectionResult]:
     executable = python_executable or sys.executable
+    uv_project_root = _find_uv_project_root()
+    uv_executable = _resolve_uv_executable() if uv_project_root else None
+    if uv_project_root and uv_executable:
+        return _repair_via_uv_sync(
+            executable=executable,
+            uv_executable=uv_executable,
+            project_root=uv_project_root,
+        )
     # Three-phase install: uninstall, install torch from the CUDA index ONLY
     # (using --index-url so pip can't fall back to PyPI's CPU-only wheel — a
     # known footgun on Windows that silently reinstalls CPU torch even after a
