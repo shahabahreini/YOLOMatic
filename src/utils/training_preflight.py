@@ -391,6 +391,9 @@ def _repair_via_uv_sync(
     )
     output = f"$ {command_text}\n{combined_output}".strip()
 
+    console.print(
+        "[bold cyan]Verifying the repaired PyTorch environment...[/bold cyan]"
+    )
     invalidate_torch_inspection_cache()
     inspection = inspect_torch_runtime(executable, use_cache=False)
 
@@ -398,9 +401,6 @@ def _repair_via_uv_sync(
         output = "\n\n".join([output, _format_inspection_failure(inspection)])
         return False, output, inspection
 
-    console.print(
-        "[bold cyan]Verifying the repaired PyTorch environment...[/bold cyan]"
-    )
     return True, output, inspection
 
 
