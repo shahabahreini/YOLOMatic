@@ -31,7 +31,6 @@ from src.utils.project import (
     project_root,
 )
 
-
 COMMON_MODEL_TYPES = [
     "yolov12",
     "yolov11",
@@ -293,7 +292,11 @@ def fetch_workspace_projects(workspace: Any) -> list[dict[str, str]]:
         for entry in raw_projects:
             if not isinstance(entry, dict):
                 continue
-            project_id = str(entry.get("id") or entry.get("slug") or "").strip()
+            raw_id = str(entry.get("id") or entry.get("slug") or "").strip()
+            # Strip workspace/ prefix if present (API returns workspace/project-id)
+            if "/" in raw_id:
+                raw_id = raw_id.split("/")[-1]
+            project_id = raw_id
             project_name = str(entry.get("name") or project_id).strip()
             if project_id:
                 results.append({"id": project_id, "name": project_name})
