@@ -482,11 +482,9 @@ def get_user_choice(
                 elif key.lower() == "q" or key.name == "KEY_ESCAPE":
                     if "Exit" in selectable_options:
                         return "Exit"
-                    return (
-                        "Back"
-                        if "Back" in selectable_options
-                        else selectable_options[navigable_indices[0]]
-                    )
+                    if "Back" in selectable_options:
+                        return "Back"
+                    return NAV_BACK
 
                 # Update renderer state
                 current_selection = navigable_indices[current_nav_idx]

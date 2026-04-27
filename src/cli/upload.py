@@ -17,8 +17,11 @@ import yaml
 from rich.panel import Panel
 
 from src.utils.cli import (
+    NAV_BACK,
+    ParameterDefinition,
     clear_screen,
     console,
+    get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
     render_summary_panel,
@@ -241,9 +244,13 @@ def resolve_candidate(
         ]
         selected = get_user_choice(
             options,
+            allow_back=True,
             title="Select Trained Model",
             text="Use ↑↓ keys to navigate, Enter to select:",
+            breadcrumbs=["YOLOmatic", "Roboflow Upload", "Weight Selection"],
         )
+        if selected in (NAV_BACK, "Back"):
+            return NAV_BACK  # type: ignore
         return candidates[options.index(selected)]
 
     requested_path = Path(requested_weight).expanduser()
@@ -258,23 +265,41 @@ def resolve_candidate(
     )
 
 
-def prompt_text(prompt: str, default: str | None = None) -> str:
-    while True:
-        suffix = f" [{default}]" if default else ""
-        raw_value = input(f"{prompt}{suffix}: ").strip()
-        value = raw_value or (default or "")
-        if value:
-            return value
-        console.print("[bold red]A value is required.[/bold red]")
+def prompt_tui_text(
+    name: str,
+    description: str,
+    help_text: str,
+    default: str | None = None,
+    breadcrumbs: list[str] | None = None,
+) -> str | None:
+    param = ParameterDefinition(
+        name=name,
+        category="Roboflow",
+        default=default or "",
+        value_type="str",
+        description=description,
+        help_text=help_text,
+    )
+    result = get_parameter_value_input(param, current_value=default)
+    if result in (NAV_BACK, "Back"):
+        return NAV_BACK  # type: ignore
+    return str(result)
 
 
-def prompt_project_ids(defaults: Sequence[str]) -> list[str]:
-    default_text = ",".join(defaults) if defaults else None
+def prompt_project_ids(defaults: Sequence[str]) -> list[str] | None:
+    default_text = ",".join(defaults) if defaults else ""
     while True:
-        raw_value = prompt_text(
-            "Enter Roboflow project IDs (comma-separated)", default_text
+        raw_value = prompt_tui_text(
+            "Project IDs",
+            "Enter Roboflow project IDs (comma-separated)",
+            "One or more project IDs where the model will be deployed. "
+            "Example: 'my-project-1, my-project-2'",
+            default=default_text,
+            breadcrumbs=["YOLOmatic", "Roboflow Upload", "Project IDs"],
         )
-        project_ids = parse_project_ids(raw_value)
+        if raw_value in (NAV_BACK, "Back"):
+            return NAV_BACK  # type: ignore
+        project_ids = parse_project_ids(str(raw_value))
         if project_ids:
             return project_ids
         console.print("[bold red]At least one project ID is required.[/bold red]")
@@ -317,9 +342,6 @@ def select_project_ids_from_workspace(
     projects = fetch_workspace_projects(workspace)
 
     if not projects:
-        console.print(
-            "[dim]No projects found in workspace via API — falling back to manual entry.[/dim]"
-        )
         return prompt_project_ids(defaults)
 
     project_ids_in_workspace = {p["id"] for p in projects}
@@ -352,7 +374,7 @@ def select_project_ids_from_workspace(
 
     selection = get_user_choice(
         options,
-        allow_back=False,
+        allow_back=True,
         title="Select Roboflow Project",
         text=(
             f"{prefix}"
@@ -362,6 +384,9 @@ def select_project_ids_from_workspace(
         descriptions=descriptions,
         breadcrumbs=["YOLOmatic", "Roboflow Upload", "Project Selection"],
     )
+
+    if selection in (NAV_BACK, "Back"):
+        return NAV_BACK  # type: ignore
 
     if selection == "Enter manually":
         return prompt_project_ids(defaults)
@@ -380,7 +405,8 @@ def prompt_model_type(detected_model_type: str | None) -> str:
         return detected_model_type
 
     selection = get_user_choice(
-        COMMON_MODEL_TYPES + ["Enter manually", "Cancel"],
+        COMMON_MODEL_TYPES + ["Enter manually"],
+        allow_back=True,
         title="Select Roboflow Model Type",
         text="Auto-detection was inconclusive. Choose a model type or enter one manually:",
         descriptions={
@@ -392,19 +418,29 @@ def prompt_model_type(detected_model_type: str | None) -> str:
             "yolonas": "Deploy a YOLO-NAS model.",
             "yolox": "Deploy a YOLOX model.",
             "Enter manually": "Type the Roboflow model type slug manually.",
-            "Cancel": "Abort the upload process.",
         },
+        breadcrumbs=["YOLOmatic", "Roboflow Upload", "Model Type"],
     )
-    if selection == "Cancel":
-        raise SystemExit(0)
+    if selection in (NAV_BACK, "Back"):
+        return NAV_BACK  # type: ignore
+
     if selection == "Enter manually":
-        model_type = prompt_text("Enter Roboflow model type")
+        model_type = prompt_tui_text(
+            "Model Type",
+            "Enter Roboflow model type",
+            "The Roboflow model type slug (e.g., 'yolov8', 'yolov11').",
+            breadcrumbs=["YOLOmatic", "Roboflow Upload", "Model Type Entry"],
+        )
+        if model_type in (NAV_BACK, "Back"):
+            return NAV_BACK  # type: ignore
+        model_type = str(model_type)
     else:
         model_type = selection
 
     if model_type.lower() == "yolo26":
         refined_selection = get_user_choice(
-            ["yolo26n", "yolo26s", "yolo26m", "yolo26l", "yolo26x", "Cancel"],
+            ["yolo26n", "yolo26s", "yolo26m", "yolo26l", "yolo26x"],
+            allow_back=True,
             title="Select YOLO26 Variant",
             text="Roboflow requires a YOLO26 size variant. Choose the trained model family:",
             descriptions={
@@ -413,11 +449,11 @@ def prompt_model_type(detected_model_type: str | None) -> str:
                 "yolo26m": "Medium variant.",
                 "yolo26l": "Large variant.",
                 "yolo26x": "Extra-large variant (slowest, most accurate).",
-                "Cancel": "Abort the upload process.",
             },
+            breadcrumbs=["YOLOmatic", "Roboflow Upload", "YOLO26 Variant"],
         )
-        if refined_selection == "Cancel":
-            raise SystemExit(0)
+        if refined_selection in (NAV_BACK, "Back"):
+            return NAV_BACK  # type: ignore
         return refined_selection
 
     normalized_model_type = infer_model_type_from_text(model_type) or model_type.lower()
@@ -442,9 +478,19 @@ def suggest_model_name(weight_path: Path) -> str:
     return sanitized.lower()
 
 
-def prompt_model_name(default: str) -> str:
+def prompt_model_name(default: str) -> str | None:
     while True:
-        model_name = prompt_text("Enter Roboflow model name", default)
+        model_name = prompt_tui_text(
+            "Model Name",
+            "Enter Roboflow model name",
+            "A versionless name to identify this model in Roboflow. "
+            "Use letters, numbers, and dashes.",
+            default=default,
+            breadcrumbs=["YOLOmatic", "Roboflow Upload", "Model Name"],
+        )
+        if model_name in (NAV_BACK, "Back"):
+            return NAV_BACK  # type: ignore
+        model_name = str(model_name)
         if MODEL_NAME_PATTERN.fullmatch(model_name):
             return model_name
         console.print(
@@ -452,25 +498,23 @@ def prompt_model_name(default: str) -> str:
         )
 
 
-def render_upload_summary(
+def build_upload_summary(
     candidate: UploadCandidate,
     model_type: str,
     workspace: str,
     project_ids: Sequence[str],
     model_name: str,
-) -> None:
-    fields = {
-        "Weight": candidate.weight_path,
-        "Model Path": candidate.model_path,
-        "Filename": candidate.filename,
-        "Detected Source Model": candidate.source_model_name or "unknown",
-        "Task": candidate.task or "unknown",
-        "Roboflow Model Type": model_type,
-        "Workspace": workspace,
-        "Project IDs": ", ".join(project_ids),
-        "Model Name": model_name,
-    }
-    render_summary_panel("Roboflow Upload Summary", fields)
+) -> str:
+    summary = [
+        f"[bold cyan]Weight:[/bold cyan] {candidate.weight_path.name}",
+        f"[bold cyan]Model Type:[/bold cyan] {model_type}",
+        f"[bold cyan]Workspace:[/bold cyan] {workspace}",
+        f"[bold cyan]Project IDs:[/bold cyan] {', '.join(project_ids)}",
+        f"[bold cyan]Model Name:[/bold cyan] {model_name}",
+        "",
+        "[dim]Staging and uploading can take 1-2 minutes depending on model size.[/dim]",
+    ]
+    return "\n".join(summary)
 
 
 def stage_upload_candidate(
@@ -602,13 +646,18 @@ def resolve_workspace(
         and default_workspace_name != normalized_requested_workspace
     ):
         use_default_workspace = get_user_choice(
-            ["Use Default Workspace", "Enter Workspace Manually", "Cancel"],
+            ["Use Default Workspace", "Enter Workspace Manually"],
+            allow_back=True,
             title="Workspace Not Found",
             text=(
                 f"The configured workspace '{normalized_requested_workspace}' could not be loaded. "
                 f"Use the API key's default workspace '{default_workspace_name}' instead?"
             ),
+            breadcrumbs=["YOLOmatic", "Roboflow Upload", "Workspace Error"],
         )
+        if use_default_workspace in (NAV_BACK, "Back"):
+            return NAV_BACK  # type: ignore
+
         if use_default_workspace == "Use Default Workspace":
             workspace = try_get_workspace(rf, default_workspace_name)
             if workspace is None:
@@ -616,10 +665,19 @@ def resolve_workspace(
                     f"The configured workspace '{normalized_requested_workspace}' is invalid, and the default workspace '{default_workspace_name}' could not be loaded either."
                 )
             return rf, workspace, default_workspace_name
+
         if use_default_workspace == "Enter Workspace Manually":
-            manual_workspace_name = normalize_workspace_value(
-                prompt_text("Enter Roboflow workspace slug", default_workspace_name)
+            manual_workspace_name = prompt_tui_text(
+                "Workspace",
+                "Enter Roboflow workspace slug",
+                "Your Roboflow workspace slug.",
+                default=default_workspace_name,
+                breadcrumbs=["YOLOmatic", "Roboflow Upload", "Workspace Entry"],
             )
+            if manual_workspace_name in (NAV_BACK, "Back"):
+                return NAV_BACK  # type: ignore
+
+            manual_workspace_name = normalize_workspace_value(str(manual_workspace_name))
             if manual_workspace_name is None:
                 raise RuntimeError("A Roboflow workspace slug is required.")
             workspace = try_get_workspace(rf, manual_workspace_name)
@@ -628,7 +686,7 @@ def resolve_workspace(
                     f"Workspace '{manual_workspace_name}' could not be loaded. Use your workspace slug, not the project name."
                 )
             return rf, workspace, manual_workspace_name
-        raise SystemExit(0)
+        return NAV_BACK  # type: ignore
 
     raise RuntimeError(
         f"Workspace '{normalized_requested_workspace}' could not be loaded. Use your workspace slug, not the project name."
@@ -638,110 +696,192 @@ def resolve_workspace(
 def main() -> None:
     args = parse_args()
     root = project_root()
-    print_stylized_header("Roboflow Model Upload")
 
-    try:
-        env_config = load_env_config(root)
-        available_weights = find_available_weights(root)
-        if not available_weights:
-            console.print(
-                Panel(
-                    "[bold red]No .pt weights were found in the project root or runs directory.[/bold red]",
-                    border_style="red",
+    # Shared state for the wizard
+    context = {
+        "candidate": None,
+        "workspace_input": args.workspace,
+        "resolved_workspace": None,
+        "resolved_workspace_name": None,
+        "project_ids": parse_project_ids(args.project_ids) if args.project_ids else None,
+        "model_type": args.model_type,
+        "model_name": args.model_name,
+    }
+
+    steps = [
+        "SELECT_WEIGHT",
+        "ENTER_WORKSPACE",
+        "SELECT_PROJECT",
+        "SELECT_MODEL_TYPE",
+        "ENTER_MODEL_NAME",
+        "CONFIRM_UPLOAD",
+    ]
+    current_step_idx = 0
+
+    while current_step_idx < len(steps):
+        step = steps[current_step_idx]
+        clear_screen()
+        print_stylized_header("Roboflow Model Upload")
+
+        try:
+            env_config = load_env_config(root)
+
+            if step == "SELECT_WEIGHT":
+                if args.weight and context["candidate"] is None:
+                    # Resolve once if provided via CLI
+                    context["candidate"] = resolve_candidate(
+                        root, args.weight, [build_candidate(Path(args.weight))]
+                    )
+                    current_step_idx += 1
+                else:
+                    available_weights = find_available_weights(root)
+                    candidates = [
+                        build_candidate(wp)
+                        for wp in available_weights
+                        if is_uploadable_weight(wp)
+                    ]
+                    if not candidates:
+                        console.print(
+                            Panel(
+                                "[bold red]No uploadable model checkpoints found.[/bold red]",
+                                border_style="red",
+                            )
+                        )
+                        return
+                    render_candidate_table(root, candidates)
+                    res = resolve_candidate(root, None, candidates)
+                    if res in (NAV_BACK, "Back"):
+                        return  # Exit to main menu
+                    context["candidate"] = res
+                    current_step_idx += 1
+
+            elif step == "ENTER_WORKSPACE":
+                if context["workspace_input"] is None:
+                    res = prompt_tui_text(
+                        "Workspace",
+                        "Enter Roboflow workspace slug",
+                        "Your Roboflow workspace slug (e.g., 'my-workspace').",
+                        default=normalize_workspace_value(env_config.workspace),
+                        breadcrumbs=["YOLOmatic", "Roboflow Upload", "Workspace"],
+                    )
+                    if res in (NAV_BACK, "Back"):
+                        current_step_idx -= 1
+                        continue
+                    context["workspace_input"] = str(res)
+
+                # Resolve workspace object
+                try:
+                    _rf, resolved_ws, resolved_ws_name = resolve_workspace(
+                        env_config.api_key,
+                        str(context["workspace_input"]),
+                    )
+                    if resolved_ws in (NAV_BACK, "Back"):
+                        context["workspace_input"] = None
+                        continue
+                    context["resolved_workspace"] = resolved_ws
+                    context["resolved_workspace_name"] = resolved_ws_name
+                    current_step_idx += 1
+                except Exception as e:
+                    console.print(f"[bold red]Workspace Error: {e}[/bold red]")
+                    context["workspace_input"] = None
+                    input("Press Enter to try again...")
+
+            elif step == "SELECT_PROJECT":
+                if context["project_ids"] is None:
+                    res = select_project_ids_from_workspace(
+                        context["resolved_workspace"], env_config.project_ids
+                    )
+                    if res in (NAV_BACK, "Back"):
+                        # If workspace was from CLI, we might want to exit or clear it
+                        if args.workspace and context["workspace_input"] == args.workspace:
+                             current_step_idx = 0 # Go back to weight
+                        else:
+                             current_step_idx -= 1
+                        continue
+                    context["project_ids"] = res
+                current_step_idx += 1
+
+            elif step == "SELECT_MODEL_TYPE":
+                if context["model_type"] is None:
+                    res = prompt_model_type(
+                        context["candidate"].detected_model_type
+                    )
+                    if res in (NAV_BACK, "Back"):
+                        context["project_ids"] = None if not args.project_ids else context["project_ids"]
+                        current_step_idx -= 1
+                        continue
+                    context["model_type"] = res
+                current_step_idx += 1
+
+            elif step == "ENTER_MODEL_NAME":
+                if context["model_name"] is None:
+                    res = prompt_model_name(
+                        suggest_model_name(context["candidate"].weight_path)
+                    )
+                    if res in (NAV_BACK, "Back"):
+                        context["model_type"] = None if not args.model_type else context["model_type"]
+                        current_step_idx -= 1
+                        continue
+                    context["model_name"] = res
+                current_step_idx += 1
+
+            elif step == "CONFIRM_UPLOAD":
+                summary = build_upload_summary(
+                    context["candidate"],
+                    context["model_type"],
+                    context["resolved_workspace_name"],
+                    context["project_ids"],
+                    context["model_name"],
                 )
-            )
-            raise SystemExit(1)
-
-        candidates = [
-            build_candidate(weight_path)
-            for weight_path in available_weights
-            if is_uploadable_weight(weight_path)
-        ]
-        if not candidates:
-            console.print(
-                Panel(
-                    "[bold red]No uploadable model checkpoints were found. Select a full training checkpoint such as best.pt or last.pt.[/bold red]",
-                    border_style="red",
+                confirmation = get_user_choice(
+                    ["Upload", "Cancel"],
+                    allow_back=True,
+                    title="Confirm Upload",
+                    text="Review the summary on the right. Proceed?",
+                    descriptions={
+                        "Upload": summary,
+                        "Cancel": "Abort the upload and return to main menu.",
+                    },
+                    breadcrumbs=["YOLOmatic", "Roboflow Upload", "Confirmation"],
                 )
-            )
-            raise SystemExit(1)
-        render_candidate_table(root, candidates)
-        selected_candidate = resolve_candidate(root, args.weight, candidates)
+                if confirmation in (NAV_BACK, "Back"):
+                    context["model_name"] = None if not args.model_name else context["model_name"]
+                    current_step_idx -= 1
+                    continue
+                if confirmation == "Cancel":
+                    return
 
-        workspace_input = args.workspace or prompt_text(
-            "Enter Roboflow workspace slug",
-            normalize_workspace_value(env_config.workspace),
-        )
-        _rf, resolved_workspace, resolved_workspace_name = resolve_workspace(
-            env_config.api_key,
-            workspace_input,
-        )
-        project_ids = (
-            parse_project_ids(args.project_ids)
-            if args.project_ids
-            else select_project_ids_from_workspace(
-                resolved_workspace, env_config.project_ids
-            )
-        )
-        model_type = args.model_type or prompt_model_type(
-            selected_candidate.detected_model_type
-        )
-        model_name = args.model_name or prompt_model_name(
-            suggest_model_name(selected_candidate.weight_path)
-        )
+                # Perform the upload
+                with console.status("[bold]Uploading model to Roboflow...", spinner="dots"):
+                    response = upload_model(
+                        env_config.api_key,
+                        context["candidate"],
+                        context["resolved_workspace_name"],
+                        context["project_ids"],
+                        context["model_type"],
+                        context["model_name"],
+                    )
 
-        render_upload_summary(
-            selected_candidate,
-            model_type,
-            resolved_workspace_name,
-            project_ids,
-            model_name,
-        )
-        confirmation = get_user_choice(
-            ["Upload", "Cancel"],
-            title="Confirm Upload",
-            text="Review the summary above. Continue with the Roboflow upload?",
-            descriptions={
-                "Upload": "Proceed with uploading the model to Roboflow.",
-                "Cancel": "Abort the upload and return to terminal.",
-            },
-        )
-        if confirmation == "Cancel":
-            console.print("[bold yellow]Upload cancelled.[/bold yellow]")
-            raise SystemExit(0)
+                console.print(
+                    Panel(
+                        f"[bold green]Upload completed successfully.[/bold green]\n"
+                        f"Model: [bold]{context['model_name']}[/bold]\n"
+                        f"Workspace: [bold]{context['resolved_workspace_name']}[/bold]\n"
+                        f"Projects: [bold]{', '.join(context['project_ids'])}[/bold]"
+                        + (f"\nResponse: [bold]{response}[/bold]" if response else ""),
+                        border_style="green",
+                    )
+                )
+                input("\nPress Enter to return to main menu...")
+                return
 
-        with console.status("[bold]Uploading model to Roboflow...", spinner="dots"):
-            response = upload_model(
-                env_config.api_key,
-                selected_candidate,
-                resolved_workspace_name,
-                project_ids,
-                model_type,
-                model_name,
-            )
-
-        console.print(
-            Panel(
-                f"[bold green]Upload completed successfully.[/bold green]\nModel: [bold]{model_name}[/bold]\nWorkspace: [bold]{resolved_workspace_name}[/bold]\nProjects: [bold]{', '.join(project_ids)}[/bold]"
-                + (
-                    f"\nResponse: [bold]{response}[/bold]"
-                    if response is not None
-                    else ""
-                ),
-                border_style="green",
-            )
-        )
-    except FileNotFoundError as error:
-        console.print(f"[bold red]Error: {error}[/bold red]")
-        raise SystemExit(1) from error
-    except KeyboardInterrupt:
-        console.print("\n[bold yellow]Upload cancelled.[/bold yellow]")
-        raise SystemExit(0)
-    except SystemExit:
-        raise
-    except Exception as error:
-        console.print(f"[bold red]Upload failed: {error}[/bold red]")
-        raise SystemExit(1) from error
+        except KeyboardInterrupt:
+            console.print("\n[bold yellow]Upload cancelled.[/bold yellow]")
+            return
+        except Exception as error:
+            console.print(f"[bold red]Upload failed: {error}[/bold red]")
+            input("\nPress Enter to return...")
+            return
 
 
 if __name__ == "__main__":
