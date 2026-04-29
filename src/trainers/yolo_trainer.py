@@ -34,6 +34,44 @@ from src.utils.training_preflight import resolve_training_device, validate_expor
 console = Console()
 
 
+def configure_ultralytics_runtime():
+    os.environ.setdefault("MPLBACKEND", "Agg")
+
+    ultra_settings = import_ultralytics_settings()
+    ultra_settings.update(
+        {
+            "tensorboard": True,
+            # YOLOmatic owns the ClearML task lifecycle. Ultralytics' built-in
+            # ClearML callback logs plots through matplotlib/Tk at train end,
+            # and those optional plots must never abort checkpoint/export flow.
+            "clearml": False,
+        }
+    )
+
+
+def disable_ultralytics_clearml_callbacks(model):
+    callbacks = getattr(model, "callbacks", None)
+    if not isinstance(callbacks, dict):
+        return
+
+    removed_callbacks = 0
+    for event_name, event_callbacks in callbacks.items():
+        if not isinstance(event_callbacks, list):
+            continue
+        retained_callbacks = [
+            callback
+            for callback in event_callbacks
+            if not getattr(callback, "__module__", "").endswith(".clearml")
+        ]
+        removed_callbacks += len(event_callbacks) - len(retained_callbacks)
+        callbacks[event_name] = retained_callbacks
+
+    if removed_callbacks:
+        console.print(
+            f"[bold yellow]Disabled {removed_callbacks} optional Ultralytics ClearML plot callbacks so checkpoint/export steps remain non-fatal.[/bold yellow]"
+        )
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Train a YOLO or YOLO-NAS model from a YAML configuration file."
@@ -314,10 +352,13 @@ def main():
         if "name" not in training_params:
             training_params["name"] = task_name
 
+        configure_ultralytics_runtime()
+
         model = verify_model_file(model_name)
         if model is None:
             console.print("[bold red]Model verification failed. Exiting.[/bold red]")
             return
+        disable_ultralytics_clearml_callbacks(model)
 
         # Initialize ClearML Task
         task = initialize_clearml_task(
@@ -337,10 +378,6 @@ def main():
                     "export_params": export_params,
                 }
             )
-
-        # Enable TensorBoard explicitly
-        ultra_settings = import_ultralytics_settings()
-        ultra_settings.update({"tensorboard": True})
 
         # Validate export configuration early to catch issues before training
         is_valid, export_errors = validate_export_config(export_params, console)

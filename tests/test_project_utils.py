@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
@@ -15,6 +17,7 @@ from src.utils.project import (
     format_weight_label,
     list_dataset_directories,
     load_dataset_config,
+    project_root,
     verify_dataset_directories,
 )
 from src.utils.tensorboard import (
@@ -23,7 +26,36 @@ from src.utils.tensorboard import (
 )
 
 
+@contextmanager
+def chdir(path: Path) -> Iterator[None]:
+    previous_cwd = Path.cwd()
+    try:
+        import os
+
+        os.chdir(path)
+        yield
+    finally:
+        os.chdir(previous_cwd)
+
+
 class ProjectUtilsTests(unittest.TestCase):
+    def test_project_root_finds_pyproject_from_nested_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            nested = root / "runs" / "segment" / "runs"
+            nested.mkdir(parents=True)
+            (root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+
+            with chdir(nested):
+                self.assertEqual(project_root(), root.resolve())
+
+    def test_project_root_falls_back_to_cwd_without_project_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            with chdir(root):
+                self.assertEqual(project_root(), root.resolve())
+
     def test_format_weight_label_prefers_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

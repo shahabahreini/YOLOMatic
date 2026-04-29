@@ -7,7 +7,11 @@ import yaml
 
 
 def project_root() -> Path:
-    return Path.cwd()
+    current_path = Path.cwd().resolve()
+    for candidate_path in [current_path, *current_path.parents]:
+        if (candidate_path / "pyproject.toml").is_file():
+            return candidate_path
+    return current_path
 
 
 def format_weight_label(project_root: Path, weight_path: Path) -> str:
