@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
 import yaml
+
+
+@dataclass(frozen=True)
+class FineTuneCandidate:
+    source: str
+    display_name: str
+    kind: str
+    task: str
+    weight_path: Path | None = None
+    modified_time: float | None = None
 
 
 def project_root() -> Path:
@@ -36,6 +47,37 @@ def find_available_weights(project_root: Path) -> list[Path]:
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
+
+
+def infer_ultralytics_task_from_name(value: str | Path) -> str:
+    name = Path(value).name.lower()
+    if "-seg" in name or "/segment/" in str(value).replace("\\", "/").lower():
+        return "segmentation"
+    if any(tag in name for tag in ("-cls", "-pose", "-obb")):
+        return "unsupported"
+    return "detection"
+
+
+def is_yolo_nas_source(value: str | Path) -> bool:
+    return "nas" in Path(value).name.lower()
+
+
+def find_finetune_candidates(project_root: Path) -> list[FineTuneCandidate]:
+    candidates: list[FineTuneCandidate] = []
+    for weight_path in find_available_weights(project_root):
+        if is_yolo_nas_source(weight_path):
+            continue
+        candidates.append(
+            FineTuneCandidate(
+                source=format_weight_label(project_root, weight_path),
+                display_name=format_weight_label(project_root, weight_path),
+                kind="local",
+                task=infer_ultralytics_task_from_name(weight_path),
+                weight_path=weight_path,
+                modified_time=weight_path.stat().st_mtime,
+            )
+        )
+    return candidates
 
 
 def find_run_directories(base_dir: str | Path) -> list[Path]:

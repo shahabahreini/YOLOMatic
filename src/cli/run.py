@@ -32,7 +32,14 @@ from src.utils.cli import (
     render_table,
 )
 from src.utils.ml_dependencies import MLDependencyError, import_torch
-from src.utils.project import format_size, list_dataset_directories
+from src.utils.project import (
+    FineTuneCandidate,
+    find_finetune_candidates,
+    format_size,
+    infer_ultralytics_task_from_name,
+    list_dataset_directories,
+    project_root,
+)
 
 # Comprehensive YOLO training parameter definitions for fully customized config
 YOLO_TRAINING_PARAMETERS: list[ParameterDefinition] = [
@@ -550,6 +557,16 @@ YOLO_TRAINING_PARAMETERS: list[ParameterDefinition] = [
         value_type="bool",
         description="Pick up where I left off",
         help_text="Restarts training from the last saved 'best.pt' or 'last.pt' file.\n\n[bold yellow]Practice:[/bold yellow] Use this if your computer crashed or you had to stop training midway.",
+    ),
+    ParameterDefinition(
+        name="freeze",
+        category="advanced",
+        default=None,
+        value_type="int",
+        description="Freeze early layers",
+        help_text="Keeps the first N model layers fixed while the detection or segmentation head adapts to your new dataset.\n\n[bold yellow]Practice:[/bold yellow] Leave unset for most fine-tuning. Try 10 for small datasets that are visually similar to the source model's previous data.",
+        min_value=0,
+        max_value=100,
     ),
     ParameterDefinition(
         name="single_cls",
@@ -1077,6 +1094,109 @@ def list_datasets():
     return name_to_path.get(choice) if choice != "Back" else choice
 
 
+def select_finetune_candidate() -> FineTuneCandidate | None:
+    root = project_root()
+    candidates = find_finetune_candidates(root)
+    if not candidates:
+        console.print(
+            Panel(
+                "[bold yellow]No Ultralytics .pt weights were found in the "
+                "project root or runs/**/weights.[/bold yellow]\n\n"
+                "Train a model first, place a .pt checkpoint in the project root, "
+                "or use the regular Configure Model flow to start from an "
+                "official model.",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+        )
+        input("\nPress Enter to return to the main menu...")
+        return None
+
+    options = [candidate.display_name for candidate in candidates]
+    descriptions = {
+        candidate.display_name: (
+            f"[bold cyan]{candidate.display_name}[/bold cyan]\n\n"
+            f"Source: [yellow]{candidate.kind}[/yellow]\n"
+            f"Inferred task: [yellow]{candidate.task}[/yellow]\n"
+            "Fine-tuning starts a fresh run from these weights. It does not "
+            "resume optimizer state."
+        )
+        for candidate in candidates
+    }
+    selected = get_user_choice(
+        options,
+        allow_back=True,
+        title="Select Fine-Tune Starting Weights",
+        text="Pick the Ultralytics checkpoint to adapt to another dataset:",
+        descriptions=descriptions,
+        breadcrumbs=["YOLOmatic", "Fine-Tune", "Weights"],
+        status_fields={"Candidates": str(len(candidates))},
+        tip=(
+            "Use last.pt only when you intentionally want the latest checkpoint "
+            "weights. For deployment-quality transfer, best.pt is usually the "
+            "better start."
+        ),
+    )
+    if selected == "Back":
+        return None
+    return candidates[options.index(selected)]
+
+
+def select_finetune_strategy(candidate: FineTuneCandidate) -> str | None:
+    selected = get_user_choice(
+        ["Recommended", "Freeze Backbone", "Fully Customized"],
+        allow_back=True,
+        title="Fine-Tune Strategy",
+        text=(
+            f"Starting point: [cyan]{candidate.display_name}[/cyan]\n\n"
+            "Choose how YOLOmatic should configure the new fine-tuning run:"
+        ),
+        descriptions={
+            "Recommended": (
+                "[bold green]Fresh fine-tune run using YOLOmatic's dataset and "
+                "hardware profiles.[/bold green]\n\n"
+                "• `resume` is false, so optimizer state is not reused.\n"
+                "• No layers are frozen by default.\n"
+                "• Best default when the target dataset is meaningfully different."
+            ),
+            "Freeze Backbone": (
+                "[bold yellow]Freeze early layers and adapt the head.[/bold yellow]\n\n"
+                "• Writes `freeze: 10` into the training config.\n"
+                "• Useful for small datasets similar to the checkpoint's previous "
+                "domain.\n"
+                "• Can underfit if the new domain is very different."
+            ),
+            "Fully Customized": (
+                "[bold cyan]Open the expert parameter editor.[/bold cyan]\n\n"
+                "• Choose epochs, learning rate, freeze, augmentation, and other "
+                "Ultralytics args.\n"
+                "• Still starts from the selected checkpoint with `resume: false` "
+                "unless you change it."
+            ),
+        },
+        breadcrumbs=["YOLOmatic", "Fine-Tune", "Strategy"],
+    )
+    if selected == "Back":
+        return None
+    if selected == "Freeze Backbone":
+        return "freeze_backbone"
+    if selected == "Fully Customized":
+        return "fully_customized"
+    return "recommended"
+
+
+def infer_finetune_profile_model(candidate: FineTuneCandidate) -> str:
+    normalized = candidate.display_name.lower()
+    for family_rows in model_data_dict.values():
+        for row in family_rows:
+            model_name = str(row.get("Model", ""))
+            if model_name and model_name.lower() in normalized:
+                return model_name
+    if candidate.task == "segmentation":
+        return "YOLO11n-seg"
+    return "YOLO11n"
+
+
 # Removed print_model_info, now handled by src.utils.tui
 
 
@@ -1120,7 +1240,12 @@ def detect_device():
     return "cpu"
 
 
-def update_config(model_choice, dataset_choice):
+def update_config(
+    model_choice,
+    dataset_choice,
+    finetune_source: str | None = None,
+    finetune_strategy: str | None = None,
+):
     """Update the configuration file with the selected model and dataset."""
     yaml = YAML()
     yaml.indent(mapping=2, sequence=4, offset=2)
@@ -1135,21 +1260,24 @@ def update_config(model_choice, dataset_choice):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_dataset_name = dataset_name.replace(" ", "_").lower()
 
+    source_slug = Path(finetune_source).stem if finetune_source else model_choice
+    config_file = f"{source_slug}_{safe_dataset_name}_{timestamp}.yaml"
+
     # Initialize appropriate generator
     if "nas" in model_choice.lower():
         generator = YOLONASConfigGenerator(str(dataset_path))
-        config_file = f"{model_choice}_{safe_dataset_name}_{timestamp}.yaml"
         profile_context = None
         profile_selection = None
     else:
         generator = YOLOConfigGenerator(str(dataset_path))
-        config_file = f"{model_choice}_{safe_dataset_name}_{timestamp}.yaml"
         profile_context = generator.get_regular_yolo_profile_context(model_choice)
         profile_selection = None
 
     # Check dataset type compatibility
     dataset_type = generator.dataset_info.get("task_type", "unknown")
-    is_seg_model = "-seg" in model_choice.lower()
+    model_task_source = finetune_source or model_choice
+    inferred_model_task = infer_ultralytics_task_from_name(model_task_source)
+    is_seg_model = inferred_model_task == "segmentation" or "-seg" in model_choice.lower()
 
     # Determine if there's a mismatch
     mismatch_type = None
@@ -1345,9 +1473,7 @@ def update_config(model_choice, dataset_choice):
 
         # Handle fully customized mode
         if profile_selection.get("mode") == "fully_customized":
-            result = run_fully_customized_config_flow(
-                dataset_name, model_choice, profile_context
-            )
+            result = run_fully_customized_config_flow(dataset_name, model_choice, profile_context)
             if result is None:
                 return False
             custom_params = result.get("params", {})
@@ -1356,6 +1482,8 @@ def update_config(model_choice, dataset_choice):
                 model_choice,
                 dict(profile_context["recommended_profiles"]),
                 profile_context,
+                finetune_source=finetune_source,
+                finetune_strategy=finetune_strategy,
             )
             # Override with custom parameters
             config["training"].update(custom_params)
@@ -1369,6 +1497,8 @@ def update_config(model_choice, dataset_choice):
                 model_choice,
                 profile_selection,
                 profile_context,
+                finetune_source=finetune_source,
+                finetune_strategy=finetune_strategy,
             )
     else:
         config = generator.generate_config(model_choice)
@@ -1382,7 +1512,7 @@ def update_config(model_choice, dataset_choice):
 
     # Display summary
     display_configuration_summary(
-        model_choice,
+        finetune_source or model_choice,
         dataset_name,
         config_file,
         generator.dataset_info,
@@ -1916,6 +2046,7 @@ def _main_loop_iteration():
         main_menu_options = [
             "[Configure & Train]",
             "Configure Model",
+            "Configure Fine-Tune",
             "Train Model",
             "[Evaluate & Monitor]",
             "Run Prediction",
@@ -1938,6 +2069,11 @@ def _main_loop_iteration():
                     "Walk through the YOLOmatic wizard to pick a model family, choose a "
                     "variant that fits your hardware, and auto-generate a training YAML "
                     "tailored to your dataset and system resources."
+                ),
+                "Configure Fine-Tune": (
+                    "Find an existing Ultralytics .pt checkpoint, bind it to a dataset, "
+                    "and generate a fresh fine-tuning YAML using YOLOmatic's current "
+                    "hardware-aware recommendations."
                 ),
                 "Train Model": (
                     "Train (and validate + export) a YOLO or YOLO-NAS model using one of "
@@ -2012,6 +2148,61 @@ def _main_loop_iteration():
             from src.utils.combine_datasets import main as combine_main
 
             _safe_subcommand("Dataset Combiner", combine_main, prog="yolomatic-combine")
+            continue
+
+        elif main_choice == "Configure Fine-Tune":
+            candidate = select_finetune_candidate()
+            if candidate is None:
+                continue
+
+            strategy = select_finetune_strategy(candidate)
+            if strategy is None:
+                continue
+
+            try:
+                dataset_choice = list_datasets()
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Failed to list datasets:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to return to the main menu...")
+                continue
+            if dataset_choice in ("Back", None):
+                continue
+
+            model_choice = infer_finetune_profile_model(candidate)
+            print_summary(candidate.display_name, dataset_choice)
+            try:
+                if not update_config(
+                    model_choice,
+                    dataset_choice,
+                    finetune_source=candidate.source,
+                    finetune_strategy=strategy,
+                ):
+                    continue
+            except KeyboardInterrupt:
+                console.print(
+                    "\n[bold yellow]Fine-tune configuration cancelled by user.[/bold yellow]"
+                )
+                input("\nPress Enter to return to the main menu...")
+                continue
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Fine-tune configuration failed:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                console.print(traceback.format_exc(), style="dim")
+                input("\nPress Enter to return to the main menu...")
+                continue
+
+            input("\nPress Enter to continue...")
             continue
 
         elif main_choice == "About YOLOmatic":

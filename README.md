@@ -17,7 +17,7 @@
 
 ---
 
-**YOLOmatic** is a production-grade CLI toolkit for the full YOLO training lifecycle — model selection, configuration generation, training, prediction, TensorBoard monitoring, and Roboflow upload — all driven through a rich interactive terminal interface.
+**YOLOmatic** is a production-grade CLI toolkit for the full YOLO training lifecycle — model selection, configuration generation, checkpoint fine-tuning, training, prediction, TensorBoard monitoring, dataset combining, dependency health checks, and Roboflow upload — all driven through a rich interactive terminal interface.
 
 Supported model families: **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, **YOLOX**, and **YOLO-NAS**.
 
@@ -72,14 +72,17 @@ YOLOmatic automates the end-to-end workflow for training YOLO-based computer vis
 | Feature | Description |
 |---|---|
 | **Broad Model Support** | YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS — detection, segmentation, classification, pose, and OBB |
-| **Interactive TUI** | Rich terminal menus for model selection, dataset binding, and config generation — no manual YAML editing required |
+| **Interactive TUI** | Rich terminal menus for configuration, fine-tuning, training, prediction, monitoring, dataset combining, uploads, and dependency checks |
 | **Auto-Optimized Configs** | Augmentation, compute, and worker profiles are recommended based on your dataset and hardware automatically |
+| **Checkpoint Fine-Tuning** | Finds existing Ultralytics `.pt` weights, binds them to a dataset, and generates a fresh fine-tuning YAML with `resume: false` by default |
 | **Smart Training Router** | Standard YOLO and YOLO-NAS configs are routed to the correct trainer automatically |
 | **CUDA Auto-Repair** | Detects CPU-only PyTorch when a GPU is present and offers an in-app repair flow |
 | **Prediction TUI** | Discovers `.pt` weights across the project tree, then runs single-image or batch folder inference |
+| **Dataset Combiner** | Merges multiple YOLO datasets, deduplicates class names, remaps labels, and hard-links images where possible |
 | **Roboflow Upload** | Uploads trained checkpoints with workspace resolution, model-type prompting, and `.env` credential support |
 | **TensorBoard Launcher** | Scans all training runs and starts TensorBoard without manually locating log directories |
 | **ClearML Integration** | Tracks hyper-parameters, metrics, and artifacts through ClearML for remote experiment management |
+| **Dependency Health Checks** | Checks core ML packages from the TUI and offers guided upgrades for missing or outdated dependencies |
 | **Version Management** | Single-command version bumping via `uv run bump` — `pyproject.toml` is the sole source of truth |
 
 ---
@@ -195,7 +198,7 @@ All values can also be entered interactively when the uploader prompts for them.
 
 ## Usage Guide
 
-YOLOmatic exposes five `uv run` commands covering the full training workflow.
+YOLOmatic exposes a primary TUI plus focused helper commands for direct training, prediction, upload, TensorBoard, and versioning.
 
 ### 1. Configure Training
 
@@ -203,9 +206,48 @@ YOLOmatic exposes five `uv run` commands covering the full training workflow.
 uv run yolomatic
 ```
 
-Launches the interactive TUI. Navigate model families, select a dataset, and choose augmentation and compute profiles. A uniquely generated, hardware-optimized YAML config is written to `configs/`.
+Launches the interactive TUI. The main menu currently includes:
 
-### 2. Start Training
+| Menu Item | Purpose |
+|---|---|
+| **Configure Model** | Select a model family/variant, bind a dataset, and generate a hardware-aware training YAML |
+| **Configure Fine-Tune** | Select an existing Ultralytics `.pt` checkpoint, choose a target dataset, and generate a fresh fine-tuning YAML |
+| **Train Model** | Train, validate, export, and log from a saved config |
+| **Run Prediction** | Run single-image or folder inference from discovered `.pt` weights |
+| **Launch TensorBoard** | Open TensorBoard for a selected run or the full `runs/` tree |
+| **Combine Datasets** | Merge YOLO-format datasets with class remapping |
+| **Upload to Roboflow** | Publish trained checkpoints to Roboflow |
+| **Check for Updates** | Review package health for the local ML stack |
+
+Generated configs are written to `configs/` with unique timestamped filenames.
+
+### 2. Configure Fine-Tuning
+
+```sh
+uv run yolomatic
+```
+
+Choose **Configure Fine-Tune** from the TUI. YOLOmatic searches the project root and `runs/**/weights/*.pt` for Ultralytics checkpoints, excludes YOLO-NAS checkpoints, and lets you select a dataset for transfer learning.
+
+Fine-tune configs are generated as fresh training runs:
+
+| Setting | Behavior |
+|---|---|
+| `settings.model_type` | Points to the selected checkpoint path |
+| `settings.finetune_from` | Records the selected checkpoint for traceability |
+| `settings.base_model_type` | Records the inferred/profile model family used for config heuristics |
+| `training.resume` | Defaults to `False`; use resume only for interrupted training, not transfer learning |
+| `training.freeze` | Written only when **Freeze Backbone** is selected |
+
+Available strategies:
+
+| Strategy | Behavior |
+|---|---|
+| **Recommended** | Fresh fine-tune from checkpoint, no frozen layers, existing dataset/hardware profile logic |
+| **Freeze Backbone** | Adds `freeze: 10` for small or similar-domain datasets |
+| **Fully Customized** | Opens the expert parameter editor, including `freeze`, learning rate, epochs, augmentation, and other Ultralytics args |
+
+### 3. Start Training
 
 ```sh
 uv run yolomatic-train
@@ -220,7 +262,7 @@ uv run yolomatic-train
 
 Training writes a full TensorBoard event log covering losses, precision, recall, mAP, learning rate, and runtime metrics. A completeness report is printed at the end of each run.
 
-### 3. Run Predictions
+### 4. Run Predictions
 
 ```sh
 uv run yolomatic-predict
@@ -232,7 +274,15 @@ Discovers `.pt` weights across the project root and `runs/**/weights/`, then pro
 uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.pt --source /path/to/image.jpg
 ```
 
-### 4. Upload to Roboflow
+### 5. Combine Datasets
+
+```sh
+uv run yolomatic
+```
+
+Choose **Combine Datasets** from the TUI. YOLOmatic merges selected YOLO-format datasets into one output dataset, deduplicates class names, remaps labels to the merged class list, and hard-links images where the filesystem supports it.
+
+### 6. Upload to Roboflow
 
 ```sh
 uv run yolomatic-upload
@@ -255,7 +305,7 @@ uv run yolomatic-upload \
 - Do not upload generated artifacts such as `state_dict.pt`.
 - YOLO26 uploads require a size-specific model type: `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
 
-### 5. Monitor Training
+### 7. Monitor Training
 
 ```sh
 uv run yolomatic-tensorboard

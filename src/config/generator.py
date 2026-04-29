@@ -994,6 +994,8 @@ class YOLOConfigGenerator(BaseConfigGenerator):
         model_choice: str,
         profile_selection: dict[str, str] | None = None,
         profile_context: dict[str, Any] | None = None,
+        finetune_source: str | None = None,
+        finetune_strategy: str | None = None,
     ) -> Dict:
         """Generate YOLO specific configuration."""
         if profile_context is None:
@@ -1006,7 +1008,7 @@ class YOLOConfigGenerator(BaseConfigGenerator):
 
         config = {
             "settings": {
-                "model_type": model_choice.lower(),
+                "model_type": finetune_source or model_choice.lower(),
                 "dataset": self.dataset_path.name,
             },
             "clearml": {
@@ -1044,6 +1046,15 @@ class YOLOConfigGenerator(BaseConfigGenerator):
                 "opset": None,
             },
         }
+        if finetune_source:
+            config["settings"]["base_model_type"] = model_choice.lower()
+            config["settings"]["finetune_from"] = finetune_source
+            config["training"]["resume"] = False
+            if finetune_strategy == "freeze_backbone":
+                config["training"]["freeze"] = 10
+            elif finetune_strategy == "short_adaptation":
+                config["training"]["epochs"] = 100
+                config["training"]["patience"] = 30
         # Validate export parameters early to catch issues before training
         config = self._validate_export_params(config)
 

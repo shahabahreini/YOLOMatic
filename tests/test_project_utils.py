@@ -11,10 +11,12 @@ from torch.utils.tensorboard import SummaryWriter
 
 from src.config.generator import YOLOConfigGenerator
 from src.utils.project import (
+    find_finetune_candidates,
     find_available_weights,
     find_run_directories,
     format_size,
     format_weight_label,
+    infer_ultralytics_task_from_name,
     list_dataset_directories,
     load_dataset_config,
     project_root,
@@ -79,6 +81,34 @@ class ProjectUtilsTests(unittest.TestCase):
             results = find_available_weights(root)
 
             self.assertEqual({path.name for path in results}, {"root.pt", "best.pt"})
+
+    def test_find_finetune_candidates_excludes_yolo_nas_weights(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            weights_dir = root / "runs" / "detect" / "train" / "weights"
+            regular_weight = weights_dir / "best.pt"
+            nas_weight = weights_dir / "yolo-nas-s.pt"
+            regular_weight.parent.mkdir(parents=True)
+            regular_weight.touch()
+            nas_weight.touch()
+
+            results = find_finetune_candidates(root)
+
+            self.assertEqual(
+                [candidate.display_name for candidate in results],
+                ["runs/detect/train/weights/best.pt"],
+            )
+
+    def test_infer_ultralytics_task_from_name(self) -> None:
+        self.assertEqual(infer_ultralytics_task_from_name("yolo11n.pt"), "detection")
+        self.assertEqual(
+            infer_ultralytics_task_from_name("yolo11n-seg.pt"),
+            "segmentation",
+        )
+        self.assertEqual(
+            infer_ultralytics_task_from_name("yolo11n-pose.pt"),
+            "unsupported",
+        )
 
     def test_find_run_directories_uses_args_yaml_markers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -245,3 +275,85 @@ class ProjectUtilsTests(unittest.TestCase):
 
         self.assertEqual(profile, "heavy")
         self.assertIn("strong CPU core count", reason)
+
+    def test_yolo_config_generator_writes_finetune_source_without_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = Path(temp_dir) / "demo"
+            (dataset / "train" / "images").mkdir(parents=True)
+            (dataset / "train" / "labels").mkdir(parents=True)
+            (dataset / "valid" / "images").mkdir(parents=True)
+            (dataset / "test" / "images").mkdir(parents=True)
+            (dataset / "data.yaml").write_text(
+                "train: train/images\nval: valid/images\ntest: test/images\nnames: [item]\n",
+                encoding="utf-8",
+            )
+            (dataset / "train" / "labels" / "sample.txt").write_text(
+                "0 0.5 0.5 0.2 0.2\n",
+                encoding="utf-8",
+            )
+
+            generator = YOLOConfigGenerator(str(dataset))
+            profile_context = {
+                "recommended_profiles": {
+                    "augmentation": "minimum",
+                    "compute": "conservative",
+                    "worker": "light",
+                },
+                "dataset_metrics": {
+                    "total_size_bytes": 1,
+                    "image_count": 1,
+                    "label_count": 1,
+                    "total_file_count": 1,
+                },
+                "system_metrics": {
+                    "available_ram_bytes": 32 * 1024**3,
+                    "device": "cpu",
+                },
+                "model_metrics": {"heaviness": "light"},
+                "worker_profiles": {"light": {"workers": 2}},
+            }
+
+            config = generator.generate_config(
+                "YOLO11n",
+                profile_context=profile_context,
+                finetune_source="runs/detect/train/weights/best.pt",
+            )
+
+            self.assertEqual(
+                config["settings"]["model_type"],
+                "runs/detect/train/weights/best.pt",
+            )
+            self.assertEqual(config["settings"]["base_model_type"], "yolo11n")
+            self.assertFalse(config["training"]["resume"])
+
+    def test_yolo_config_generator_freeze_strategy_sets_freeze(self) -> None:
+        generator = YOLOConfigGenerator("/tmp/nonexistent-dataset")
+        generator.dataset_info["task_type"] = "detection"
+        profile_context = {
+            "recommended_profiles": {
+                "augmentation": "minimum",
+                "compute": "conservative",
+                "worker": "light",
+            },
+            "dataset_metrics": {
+                "total_size_bytes": 1,
+                "image_count": 1,
+                "label_count": 1,
+                "total_file_count": 1,
+            },
+            "system_metrics": {
+                "available_ram_bytes": 32 * 1024**3,
+                "device": "cpu",
+            },
+            "model_metrics": {"heaviness": "light"},
+            "worker_profiles": {"light": {"workers": 2}},
+        }
+
+        config = generator.generate_config(
+            "YOLO11n",
+            profile_context=profile_context,
+            finetune_source="best.pt",
+            finetune_strategy="freeze_backbone",
+        )
+
+        self.assertEqual(config["training"]["freeze"], 10)
