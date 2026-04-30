@@ -5,6 +5,7 @@ opencv-python
 torch
 torchvision
 onnx
+onnxslim>=0.1.71
 onnxruntime
 tabulate
 termcolor

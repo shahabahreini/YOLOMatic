@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -766,6 +767,8 @@ def validate_export_config(
             f"'dynamic' input shapes may not be fully supported for {format_type} format."
         )
 
+    errors.extend(_missing_export_runtime_requirements(format_type))
+
     # Print warnings
     for warning in warnings:
         console.print(f"[bold yellow]⚠️ Export Config Warning: {warning}[/bold yellow]")
@@ -775,3 +778,40 @@ def validate_export_config(
         console.print(f"[bold red]❌ Export Config Error: {error}[/bold red]")
 
     return len(errors) == 0, errors
+
+
+def _missing_export_runtime_requirements(format_type: str) -> list[str]:
+    if format_type != "onnx":
+        return []
+
+    missing: list[str] = []
+    for package_name, install_name in (
+        ("onnx", "onnx"),
+        ("onnxslim", "onnxslim>=0.1.71"),
+    ):
+        try:
+            metadata.version(package_name)
+        except metadata.PackageNotFoundError:
+            missing.append(install_name)
+
+    if not _has_any_distribution(("onnxruntime-gpu", "onnxruntime")):
+        missing.append("onnxruntime or onnxruntime-gpu")
+
+    if not missing:
+        return []
+
+    return [
+        "ONNX export dependencies are missing: "
+        + ", ".join(missing)
+        + ". Run `uv sync` before training so export does not try to install packages after training."
+    ]
+
+
+def _has_any_distribution(package_names: tuple[str, ...]) -> bool:
+    for package_name in package_names:
+        try:
+            metadata.version(package_name)
+            return True
+        except metadata.PackageNotFoundError:
+            continue
+    return False

@@ -3,6 +3,11 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+# Ultralytics snapshots this environment variable when its utils module is first
+# imported. Keep package installation under YOLOmatic's dependency manager
+# instead of letting post-training export mutate the active environment.
+os.environ["YOLO_AUTOINSTALL"] = "false"
+
 import yaml
 from rich.console import Console
 from rich.panel import Panel
