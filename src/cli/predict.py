@@ -1,10 +1,25 @@
 from __future__ import annotations
 
 import argparse
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from rich import box
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from rich.panel import Panel
+from rich.table import Table
 
 from src.utils.cli import (
     console,
@@ -27,9 +42,22 @@ MODE_LABELS: dict[str, str] = {
     "single": "Single Image",
     "folder": "Folder",
 }
+_WORKER_MODEL = None
+_WORKER_CONF: float = 0.25
 
 
-def parse_args() -> argparse.Namespace:
+@dataclass(frozen=True)
+class BatchPredictionResult:
+    image_path: Path
+    output_dir: Path | None
+    error: str | None = None
+
+    @property
+    def succeeded(self) -> bool:
+        return self.error is None
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="yolomatic-predict")
     parser.add_argument(
         "--mode",
@@ -45,12 +73,26 @@ def parse_args() -> argparse.Namespace:
         help="Image file or folder path. If omitted, you will be prompted in the TUI.",
     )
     parser.add_argument(
+        "--input-dir",
+        dest="source",
+        help="Folder path for batch prediction. Alias for --source in folder mode.",
+    )
+    parser.add_argument(
         "--conf",
         type=float,
         default=0.25,
         help="Confidence threshold for predictions.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help=(
+            "Number of worker processes for folder prediction. Default 1 keeps "
+            "GPU prediction stable; set >1 to opt in to multiprocessing."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def select_weight(project_root: Path, available_weights: Sequence[Path]) -> Path:
@@ -129,16 +171,30 @@ def validate_source(source_path: Path, mode: str) -> bool:
     if not source_path.is_dir():
         console.print(f"[bold red]Expected a folder: {source_path}[/bold red]")
         return False
-    has_supported_images = any(
-        child.is_file() and child.suffix.lower() in IMAGE_EXTENSIONS
-        for child in source_path.iterdir()
-    )
+    has_supported_images = bool(discover_images(source_path))
     if not has_supported_images:
         console.print(
             "[bold red]No supported image files found in the selected folder.[/bold red]"
         )
         return False
     return True
+
+
+def discover_images(source_dir: Path) -> list[Path]:
+    return sorted(
+        (
+            child.resolve()
+            for child in source_dir.iterdir()
+            if child.is_file() and child.suffix.lower() in IMAGE_EXTENSIONS
+        ),
+        key=lambda path: path.name.lower(),
+    )
+
+
+def validate_worker_count(workers: int) -> int:
+    if workers < 1:
+        raise ValueError("--workers must be 1 or greater.")
+    return workers
 
 
 def resolve_source(mode: str, requested_source: str | None) -> Path:
@@ -179,6 +235,186 @@ def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | 
     return Path(save_dir)
 
 
+def _predict_single_image(
+    model: object, image_path: Path, conf: float
+) -> BatchPredictionResult:
+    try:
+        results = model.predict(
+            source=str(image_path),
+            conf=conf,
+            save=True,
+            verbose=False,
+        )
+        output_dir = _output_dir_from_results(results)
+        return BatchPredictionResult(image_path=image_path, output_dir=output_dir)
+    except Exception as error:
+        return BatchPredictionResult(
+            image_path=image_path,
+            output_dir=None,
+            error=str(error),
+        )
+
+
+def _output_dir_from_results(results: object) -> Path | None:
+    if not results:
+        return None
+    save_dir = getattr(results[0], "save_dir", None)
+    if save_dir is None:
+        return None
+    return Path(save_dir)
+
+
+def _initialize_prediction_worker(weight_path: str, conf: float) -> None:
+    global _WORKER_MODEL, _WORKER_CONF
+
+    yolo_class = import_ultralytics_yolo()
+    _WORKER_MODEL = yolo_class(weight_path)
+    _WORKER_CONF = conf
+
+
+def _predict_image_in_worker(image_path: str) -> BatchPredictionResult:
+    if _WORKER_MODEL is None:
+        raise RuntimeError("Prediction worker was not initialized.")
+    return _predict_single_image(_WORKER_MODEL, Path(image_path), _WORKER_CONF)
+
+
+def build_batch_summary(
+    results: Sequence[BatchPredictionResult], elapsed_seconds: float, workers: int
+) -> dict[str, object]:
+    succeeded = [result for result in results if result.succeeded]
+    failed = [result for result in results if not result.succeeded]
+    output_dirs = sorted(
+        {
+            str(result.output_dir)
+            for result in succeeded
+            if result.output_dir is not None
+        }
+    )
+    return {
+        "total": len(results),
+        "succeeded": len(succeeded),
+        "failed": len(failed),
+        "elapsed_seconds": elapsed_seconds,
+        "workers": workers,
+        "output_dirs": output_dirs,
+    }
+
+
+def render_batch_summary(
+    results: Sequence[BatchPredictionResult], elapsed_seconds: float, workers: int
+) -> None:
+    summary = build_batch_summary(results, elapsed_seconds, workers)
+    output_dirs = summary["output_dirs"]
+    output_text = (
+        "\n".join(str(path) for path in output_dirs)
+        if output_dirs
+        else "Not reported"
+    )
+    panel_style = "green" if summary["failed"] == 0 else "yellow"
+    console.print(
+        Panel(
+            "\n".join(
+                [
+                    "[bold green]Folder prediction completed.[/bold green]",
+                    (
+                        f"Images: [bold]{summary['succeeded']}[/bold] succeeded / "
+                        f"[bold]{summary['total']}[/bold] total"
+                    ),
+                    f"Failed: [bold]{summary['failed']}[/bold]",
+                    f"Workers: [bold]{summary['workers']}[/bold]",
+                    f"Elapsed: [bold]{summary['elapsed_seconds']:.1f}s[/bold]",
+                    f"Saved results to:\n[bold]{output_text}[/bold]",
+                ]
+            ),
+            title="Prediction Summary",
+            border_style=panel_style,
+        )
+    )
+
+    failures = [result for result in results if not result.succeeded]
+    if not failures:
+        return
+
+    table = Table(title="Failed Images", box=box.SIMPLE_HEAVY)
+    table.add_column("Image", overflow="fold")
+    table.add_column("Error", overflow="fold")
+    for result in failures:
+        table.add_row(str(result.image_path), result.error or "Unknown error")
+    console.print(table)
+
+
+def make_prediction_progress() -> Progress:
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        TextColumn("[dim]{task.fields[current]}"),
+        console=console,
+    )
+
+
+def run_folder_prediction(
+    weight_path: Path, source_dir: Path, conf: float, workers: int
+) -> list[BatchPredictionResult]:
+    image_paths = discover_images(source_dir)
+    if not image_paths:
+        raise ValueError("No supported image files found in the selected folder.")
+
+    if workers == 1:
+        yolo_class = import_ultralytics_yolo()
+        model = yolo_class(str(weight_path))
+        results: list[BatchPredictionResult] = []
+        with make_prediction_progress() as progress:
+            task_id = progress.add_task(
+                "Predicting images",
+                total=len(image_paths),
+                current="Starting",
+            )
+            for image_path in image_paths:
+                progress.update(task_id, current=image_path.name)
+                results.append(_predict_single_image(model, image_path, conf))
+                progress.advance(task_id)
+            progress.update(task_id, current="Complete")
+        return results
+
+    results = []
+    with make_prediction_progress() as progress:
+        task_id = progress.add_task(
+            f"Predicting images ({workers} workers)",
+            total=len(image_paths),
+            current="Starting",
+        )
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=_initialize_prediction_worker,
+            initargs=(str(weight_path), conf),
+        ) as executor:
+            futures = {
+                executor.submit(_predict_image_in_worker, str(image_path)): image_path
+                for image_path in image_paths
+            }
+            for future in as_completed(futures):
+                image_path = futures[future]
+                progress.update(task_id, current=image_path.name)
+                try:
+                    results.append(future.result())
+                except Exception as error:
+                    results.append(
+                        BatchPredictionResult(
+                            image_path=image_path,
+                            output_dir=None,
+                            error=str(error),
+                        )
+                    )
+                progress.advance(task_id)
+        progress.update(task_id, current="Complete")
+    return sorted(results, key=lambda result: result.image_path.name.lower())
+
+
 def main() -> None:
     args = parse_args()
     root = project_root()
@@ -196,12 +432,25 @@ def main() -> None:
     render_weight_table(root, available_weights)
 
     try:
+        workers = validate_worker_count(args.workers)
         selected_weight = resolve_weight(root, args.weight, available_weights)
         mode = args.mode or select_mode()
         source_path = resolve_source(mode, args.source)
         render_prediction_summary(selected_weight, mode, source_path)
         console.print("\n[bold green]Running prediction...[/bold green]")
-        output_dir = run_prediction(selected_weight, source_path, args.conf)
+        if mode == "folder":
+            started_at = time.perf_counter()
+            results = run_folder_prediction(
+                selected_weight,
+                source_path,
+                args.conf,
+                workers,
+            )
+            elapsed_seconds = time.perf_counter() - started_at
+            render_batch_summary(results, elapsed_seconds, workers)
+            output_dir = None
+        else:
+            output_dir = run_prediction(selected_weight, source_path, args.conf)
     except FileNotFoundError as error:
         console.print(f"[bold red]Error: {error}[/bold red]")
         raise SystemExit(1) from error
@@ -219,6 +468,9 @@ def main() -> None:
     except Exception as error:
         console.print(f"[bold red]Prediction failed: {error}[/bold red]")
         raise SystemExit(1) from error
+
+    if mode == "folder":
+        return
 
     if output_dir is None:
         console.print(
