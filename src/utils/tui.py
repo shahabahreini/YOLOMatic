@@ -549,6 +549,114 @@ class ParameterDefinition:
     min_value: float | None = None
     max_value: float | None = None
     allowed_values: list[str] | None = None
+    affects: str | None = None
+    option_descriptions: dict[str, str] | None = None
+    config_section: str = "training"
+
+
+TRUE_VALUES = {"true", "1", "yes", "y", "on"}
+FALSE_VALUES = {"false", "0", "no", "n", "off"}
+
+
+def parse_parameter_value(param: ParameterDefinition, raw_value: Any) -> Any:
+    """Convert raw TUI input into the parameter's configured Python type."""
+    if raw_value is None:
+        return None
+
+    raw_text = str(raw_value).strip()
+    normalized_text = raw_text.lower()
+    if param.value_type.startswith("optional_") and normalized_text in {
+        "",
+        "none",
+        "null",
+    }:
+        return None
+
+    if param.value_type == "bool":
+        if isinstance(raw_value, bool):
+            return raw_value
+        if normalized_text in TRUE_VALUES:
+            return True
+        if normalized_text in FALSE_VALUES:
+            return False
+        raise ValueError("Use True or False.")
+
+    if param.value_type == "optional_bool":
+        if isinstance(raw_value, bool):
+            return raw_value
+        if normalized_text in TRUE_VALUES:
+            return True
+        if normalized_text in FALSE_VALUES:
+            return False
+        raise ValueError("Use True, False, or None.")
+
+    if param.value_type == "bool_or_str":
+        if isinstance(raw_value, bool):
+            return raw_value
+        if normalized_text in TRUE_VALUES:
+            return True
+        if normalized_text in FALSE_VALUES:
+            return False
+        return raw_text
+
+    if param.value_type in {"int", "optional_int"}:
+        return int(raw_text)
+
+    if param.value_type in {"float", "optional_float"}:
+        return float(raw_text)
+
+    if param.value_type in {"str", "optional_str"}:
+        return raw_text
+
+    if param.value_type == "int_list":
+        if normalized_text in {"", "none", "null"}:
+            return None
+        return [
+            int(part.strip())
+            for part in raw_text.split(",")
+            if part.strip()
+        ]
+
+    return raw_value
+
+
+def validate_parameter_value(param: ParameterDefinition, value: Any) -> str | None:
+    """Return a user-facing validation error, or None when the value is valid."""
+    if value is None:
+        return None
+
+    if param.min_value is not None and isinstance(value, (int, float)):
+        if value < param.min_value:
+            return f"Value must be >= {param.min_value}."
+
+    if param.max_value is not None and isinstance(value, (int, float)):
+        if value > param.max_value:
+            return f"Value must be <= {param.max_value}."
+
+    if param.allowed_values is not None and (
+        value not in param.allowed_values and str(value) not in param.allowed_values
+    ):
+        allowed = ", ".join(repr(option) for option in param.allowed_values)
+        return f"Choose one of: {allowed}."
+
+    return None
+
+
+def convert_and_validate_parameter_value(
+    param: ParameterDefinition,
+    raw_value: Any,
+) -> tuple[bool, Any, str | None]:
+    """Parse and validate a parameter value for interactive editors and tests."""
+    try:
+        value = parse_parameter_value(param, raw_value)
+    except (TypeError, ValueError) as error:
+        return False, None, f"Invalid {param.value_type}: {error}"
+
+    validation_error = validate_parameter_value(param, value)
+    if validation_error:
+        return False, value, validation_error
+
+    return True, value, None
 
 
 class MultiSelectRenderer:
@@ -564,6 +672,7 @@ class MultiSelectRenderer:
         instruction: str,
         focus: str = "list",  # "list" or "input"
         input_buffer: str = "",
+        validation_error: str | None = None,
     ):
         self.parameters = parameters
         self.selected = selected
@@ -573,6 +682,7 @@ class MultiSelectRenderer:
         self.instruction = instruction
         self.focus = focus
         self.input_buffer = input_buffer
+        self.validation_error = validation_error
         self.filtered_params = parameters
 
     def _render_checkbox(self, param: ParameterDefinition, is_active: bool) -> Text:
@@ -641,15 +751,31 @@ class MultiSelectRenderer:
         info_lines = [
             Text.from_markup(f"[bold cyan]Parameter:[/bold cyan] {param.name}"),
             Text.from_markup(f"[bold cyan]Category:[/bold cyan] {param.category}"),
+            Text.from_markup(f"[bold cyan]Saved To:[/bold cyan] config.{param.config_section}"),
             Text.from_markup(f"[bold cyan]Type:[/bold cyan] {param.value_type}"),
             Text.from_markup(f"[bold cyan]Default:[/bold cyan] {param.default}"),
+            Text.from_markup(f"[bold cyan]Current:[/bold cyan] {current_val}"),
             Text(""),
-            Text.from_markup("[bold yellow]Description:[/bold yellow]"),
+            Text.from_markup("[bold yellow]What It Controls:[/bold yellow]"),
             Text(param.description),
-            Text(""),
-            Text.from_markup("[bold green]Help:[/bold green]"),
-            Text.from_markup(param.help_text, style="dim"),
         ]
+
+        if param.affects:
+            info_lines.extend(
+                [
+                    Text(""),
+                    Text.from_markup("[bold yellow]Training Impact:[/bold yellow]"),
+                    Text.from_markup(param.affects),
+                ]
+            )
+
+        info_lines.extend(
+            [
+                Text(""),
+                Text.from_markup("[bold green]How To Choose:[/bold green]"),
+                Text.from_markup(param.help_text, style="dim"),
+            ]
+        )
 
         if param.min_value is not None or param.max_value is not None:
             info_lines.append(Text(""))
@@ -658,7 +784,43 @@ class MultiSelectRenderer:
 
         if param.allowed_values:
             info_lines.append(Text(""))
-            info_lines.append(Text.from_markup(f"[bold magenta]Allowed values:[/bold magenta] {', '.join(param.allowed_values)}"))
+            info_lines.append(Text.from_markup(f"[bold magenta]Allowed values:[/bold magenta] {', '.join(repr(value) for value in param.allowed_values)}"))
+
+        option_descriptions = param.option_descriptions
+        if option_descriptions is None and param.value_type == "bool":
+            option_descriptions = {
+                "True": "Enable this behavior. It changes the training area described in Training Impact.",
+                "False": "Disable this behavior. YOLO uses the standard/default path for this setting.",
+            }
+
+        if option_descriptions:
+            option_table = Table(
+                show_header=True,
+                header_style="bold cyan",
+                border_style="dim",
+                box=box.SIMPLE,
+                expand=True,
+            )
+            option_table.add_column("Value", style="yellow", no_wrap=True)
+            option_table.add_column("Effect")
+            for option, description in option_descriptions.items():
+                display_option = "<empty>" if option == "" else str(option)
+                option_table.add_row(display_option, Text.from_markup(description))
+            info_lines.extend(
+                [
+                    Text(""),
+                    Text.from_markup("[bold yellow]Value Meanings:[/bold yellow]"),
+                    option_table,
+                ]
+            )
+
+        if self.validation_error:
+            info_lines.extend(
+                [
+                    Text(""),
+                    Text.from_markup(f"[bold red]Validation:[/bold red] {self.validation_error}"),
+                ]
+            )
 
         # Input Area
         info_lines.append(Text(""))
@@ -669,13 +831,15 @@ class MultiSelectRenderer:
         if param.value_type == "bool":
             # Simple toggle display
             input_content.append(Text("Value: ", style="bold"))
-            input_content.append(Text(str(current_val), style="bold yellow"))
-            input_content.append(Text(" (Press Space/Enter to toggle)", style="dim"))
+            display_val = self.input_buffer if self.focus == "input" else str(current_val)
+            input_content.append(Text(str(display_val), style="bold yellow"))
+            input_content.append(Text(" (Enter/Space toggles and saves)", style="dim"))
         elif param.allowed_values:
             # Cycle display
+            display_val = self.input_buffer if self.focus == "input" else str(current_val)
             input_content.append(Text("Value: ", style="bold"))
-            input_content.append(Text(str(current_val), style="bold yellow"))
-            input_content.append(Text(" (Press Up/Down to cycle)", style="dim"))
+            input_content.append(Text(str(display_val), style="bold yellow"))
+            input_content.append(Text(" (Up/Down cycles, typing allowed, Enter saves)", style="dim"))
         else:
             # Text input display
             display_val = self.input_buffer if self.focus == "input" else str(current_val)
@@ -714,11 +878,25 @@ class MultiSelectRenderer:
                 ("[bold yellow]Q[/bold yellow]", "Back"),
             ]
         else:
-            hints = [
-                ("[bold yellow]Enter[/bold yellow]", "Save"),
-                ("[bold yellow]Esc/←/B[/bold yellow]", "Back to List"),
-                ("[bold yellow]Up/Down[/bold yellow]", "Cycle Options"),
-            ]
+            param = self.filtered_params[self.current_index]
+            if param.value_type == "bool":
+                hints = [
+                    ("[bold yellow]Enter/Space[/bold yellow]", "Toggle + Save"),
+                    ("[bold yellow]Esc/←/B[/bold yellow]", "Back"),
+                ]
+            elif param.allowed_values:
+                hints = [
+                    ("[bold yellow]↑↓[/bold yellow]", "Cycle"),
+                    ("[bold yellow]Type[/bold yellow]", "Adjust"),
+                    ("[bold yellow]Enter[/bold yellow]", "Validate + Save"),
+                    ("[bold yellow]Esc/←/B[/bold yellow]", "Back"),
+                ]
+            else:
+                hints = [
+                    ("[bold yellow]Type[/bold yellow]", "Edit"),
+                    ("[bold yellow]Enter[/bold yellow]", "Validate + Save"),
+                    ("[bold yellow]Esc/←/B[/bold yellow]", "Back"),
+                ]
 
         parts = [f"{key} {action}" for key, action in hints]
         hints_text = Text.from_markup("  •  ".join(parts))
@@ -778,6 +956,44 @@ def get_user_multi_select(
     current_index = 0
     focus = "list"
     input_buffer = ""
+    typed_input_started = False
+    validation_error: str | None = None
+
+    def current_buffer_value(param: ParameterDefinition) -> str:
+        current_value = values.get(param.name, param.default)
+        if param.value_type == "bool":
+            try:
+                return str(parse_parameter_value(param, current_value))
+            except ValueError:
+                return str(bool(current_value))
+        if param.allowed_values and current_value not in param.allowed_values:
+            return str(param.default if param.default in param.allowed_values else param.allowed_values[0])
+        return "" if current_value is None else str(current_value)
+
+    def cycle_allowed_value(param: ParameterDefinition, raw_value: str, step: int) -> str:
+        if not param.allowed_values:
+            return raw_value
+        try:
+            current_allowed_index = param.allowed_values.index(raw_value)
+        except ValueError:
+            current_allowed_index = 0
+        next_index = (current_allowed_index + step) % len(param.allowed_values)
+        return param.allowed_values[next_index]
+
+    def save_input_value(param: ParameterDefinition) -> bool:
+        nonlocal focus, validation_error
+        is_valid, value, error = convert_and_validate_parameter_value(
+            param,
+            input_buffer,
+        )
+        if is_valid:
+            values[param.name] = value
+            selected.add(param.name)
+            validation_error = None
+            focus = "list"
+            return True
+        validation_error = error
+        return False
 
     with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
         renderer = MultiSelectRenderer(
@@ -789,6 +1005,7 @@ def get_user_multi_select(
             instruction=instruction,
             focus=focus,
             input_buffer=input_buffer,
+            validation_error=validation_error,
         )
 
         with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
@@ -799,21 +1016,27 @@ def get_user_multi_select(
                 if focus == "list":
                     if key.name == "KEY_UP" or key.lower() == "k":
                         current_index = (current_index - 1) % len(parameters)
+                        validation_error = None
                     elif key.name == "KEY_DOWN" or key.lower() == "j":
                         current_index = (current_index + 1) % len(parameters)
+                        validation_error = None
                     elif key == " ":
                         if param.name in selected:
                             selected.remove(param.name)
                         else:
                             selected.add(param.name)
+                        validation_error = None
                     elif key.name == "KEY_RIGHT" or key.name == "KEY_ENTER":
                         focus = "input"
-                        input_buffer = str(values.get(param.name, param.default))
-                        # For bool, just toggle immediately if desired, or let the input mode handle it
+                        input_buffer = current_buffer_value(param)
+                        typed_input_started = False
+                        validation_error = None
                     elif key.lower() == "a":
                         selected = {p.name for p in parameters}
+                        validation_error = None
                     elif key.lower() == "n":
                         selected = set()
+                        validation_error = None
                     elif key.lower() == "f":  # Finish
                         return selected, values
                     elif key.lower() == "q" or key.name == "KEY_ESCAPE":
@@ -822,57 +1045,56 @@ def get_user_multi_select(
                 elif focus == "input":
                     if key.name == "KEY_LEFT" or key.name == "KEY_ESCAPE" or key.lower() == "b":
                         focus = "list"
-                    elif key.name == "KEY_ENTER":
-                        # Validate and save
-                        try:
-                            if param.value_type == "int":
-                                val = int(input_buffer)
-                            elif param.value_type == "float":
-                                val = float(input_buffer)
-                            elif param.value_type == "bool":
-                                # Toggle logic for bool handled by space/enter too
-                                val = input_buffer.lower() == "true"
-                            else:
-                                val = input_buffer
-                            
-                            # Simple validation check
-                            valid = True
-                            if param.min_value is not None and isinstance(val, (int, float)) and val < param.min_value:
-                                valid = False
-                            if param.max_value is not None and isinstance(val, (int, float)) and val > param.max_value:
-                                valid = False
-                            if param.allowed_values and val not in param.allowed_values:
-                                valid = False
-                            
-                            if valid:
-                                values[param.name] = val
-                                selected.add(param.name)  # Auto-select if value is modified
-                                focus = "list"
-                        except ValueError:
-                            pass # Keep editing
-                    
+                        validation_error = None
                     elif param.value_type == "bool":
-                        if key == " " or key.name == "KEY_ENTER":
-                            current_bool = input_buffer.lower() == "true"
-                            input_buffer = str(not current_bool)
-                    
-                    elif param.allowed_values:
-                        if key.name == "KEY_UP" or key.name == "KEY_DOWN":
+                        if key == " " or key.name in {
+                            "KEY_ENTER",
+                            "KEY_UP",
+                            "KEY_DOWN",
+                            "KEY_RIGHT",
+                        }:
                             try:
-                                curr_idx = param.allowed_values.index(input_buffer)
+                                current_bool = parse_parameter_value(
+                                    param,
+                                    input_buffer,
+                                )
                             except ValueError:
-                                curr_idx = 0
-                            
-                            if key.name == "KEY_UP":
-                                next_idx = (curr_idx - 1) % len(param.allowed_values)
+                                current_bool = bool(param.default)
+                            values[param.name] = not current_bool
+                            selected.add(param.name)
+                            input_buffer = str(values[param.name])
+                            validation_error = None
+                            focus = "list"
+                    elif param.allowed_values:
+                        if key.name in {"KEY_UP", "KEY_DOWN", "KEY_RIGHT"}:
+                            step = -1 if key.name == "KEY_UP" else 1
+                            input_buffer = cycle_allowed_value(
+                                param,
+                                input_buffer,
+                                step,
+                            )
+                            validation_error = None
+                        elif key.name == "KEY_ENTER":
+                            save_input_value(param)
+                        elif key.name == "KEY_BACKSPACE":
+                            input_buffer = input_buffer[:-1]
+                            typed_input_started = True
+                            validation_error = None
+                        elif key and not key.is_sequence:
+                            if typed_input_started:
+                                input_buffer += key
                             else:
-                                next_idx = (curr_idx + 1) % len(param.allowed_values)
-                            input_buffer = param.allowed_values[next_idx]
-                    
+                                input_buffer = str(key)
+                            typed_input_started = True
+                            validation_error = None
+                    elif key.name == "KEY_ENTER":
+                        save_input_value(param)
                     elif key.name == "KEY_BACKSPACE":
                         input_buffer = input_buffer[:-1]
+                        validation_error = None
                     elif key and not key.is_sequence:
                         input_buffer += key
+                        validation_error = None
 
                 # Sync renderer
                 renderer.current_index = current_index
@@ -880,6 +1102,7 @@ def get_user_multi_select(
                 renderer.values = values
                 renderer.focus = focus
                 renderer.input_buffer = input_buffer
+                renderer.validation_error = validation_error
                 live.update(renderer)
 
 
