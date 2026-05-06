@@ -4,6 +4,7 @@ from src.utils.tui import (
     ParameterDefinition,
     convert_and_validate_parameter_value,
     parse_parameter_value,
+    shorten_middle,
 )
 
 
@@ -69,6 +70,63 @@ class TUIParameterValidationTest(unittest.TestCase):
         self.assertFalse(is_valid)
         self.assertEqual(value, 16)
         self.assertEqual(error, "Value must be >= 32.")
+
+    def test_long_menu_labels_are_shortened_in_the_middle(self) -> None:
+        label = "very_long_config_name_with_dataset_and_timestamp_20260505_152200.yaml"
+
+        shortened = shorten_middle(label, max_chars=32)
+
+        self.assertLessEqual(len(shortened), 32)
+        self.assertTrue(shortened.startswith("very_long"))
+        self.assertTrue(shortened.endswith(".yaml"))
+        self.assertIn("...", shortened)
+
+    def test_clone_helpers_collect_only_known_tunable_sections(self) -> None:
+        from pathlib import Path
+
+        from src.cli.run import (
+            clone_config_filename,
+            collect_known_config_sections,
+            extract_regular_yolo_model_choice,
+        )
+
+        source_config = {
+            "settings": {
+                "model_type": "yolo11n-seg",
+                "dataset": "old-dataset",
+            },
+            "training": {
+                "epochs": 100,
+                "optimizer": "AdamW",
+                "data": "stale/path/data.yaml",
+            },
+            "export": {
+                "format": "onnx",
+                "simplify": True,
+            },
+            "prediction": {
+                "save_txt": True,
+            },
+        }
+
+        self.assertEqual(
+            extract_regular_yolo_model_choice(source_config),
+            "yolo11n-seg",
+        )
+        self.assertEqual(
+            collect_known_config_sections(source_config),
+            {
+                "training": {"epochs": 100, "optimizer": "AdamW"},
+                "export": {"format": "onnx", "simplify": True},
+                "prediction": {"save_txt": True},
+            },
+        )
+        self.assertTrue(
+            clone_config_filename(
+                Path("configs/source_with_a_very_long_name.yaml"),
+                "QGIS Vegetation.v10i.yolo26",
+            ).startswith("clone_source_with_a_very_long_name"),
+        )
 
     def test_fully_customized_catalog_covers_ultralytics_tunable_args(self) -> None:
         from src.cli.run import YOLO_TRAINING_PARAMETERS

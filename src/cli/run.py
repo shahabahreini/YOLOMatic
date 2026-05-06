@@ -30,6 +30,7 @@ from src.utils.cli import (
     print_stylized_header,
     render_summary_panel,
     render_table,
+    shorten_middle,
 )
 from src.utils.ml_dependencies import MLDependencyError, import_torch
 from src.utils.project import (
@@ -37,6 +38,7 @@ from src.utils.project import (
     find_finetune_candidates,
     format_size,
     infer_ultralytics_task_from_name,
+    list_config_files,
     list_dataset_directories,
     project_root,
 )
@@ -1788,6 +1790,251 @@ def list_datasets():
     return name_to_path.get(choice) if choice != "Back" else choice
 
 
+def select_saved_config_file(title: str = "Clone Saved Config") -> Path | None:
+    config_dir = Path("configs")
+    yaml_files = list_config_files(config_dir)
+    if not yaml_files:
+        console.print(
+            Panel(
+                "[bold yellow]No saved YAML configs were found in ./configs.[/bold yellow]\n\n"
+                "Create a config first, then return here to clone it.",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+        )
+        input("\nPress Enter to return to the main menu...")
+        return None
+
+    descriptions: dict[str, str] = {}
+    for filename in yaml_files:
+        path = config_dir / filename
+        try:
+            modified = datetime.fromtimestamp(path.stat().st_mtime).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            size = format_size(path.stat().st_size)
+        except OSError:
+            modified = "unknown"
+            size = "unknown"
+        descriptions[filename] = (
+            f"[bold cyan]{filename}[/bold cyan]\n\n"
+            f"Path: [yellow]{path}[/yellow]\n"
+            f"Modified: [yellow]{modified}[/yellow]\n"
+            f"Size: [yellow]{size}[/yellow]\n\n"
+            f"Menu label: [dim]{shorten_middle(filename)}[/dim]"
+        )
+    descriptions["Back"] = "Return to the main menu."
+
+    choice = get_user_choice(
+        yaml_files,
+        allow_back=True,
+        title=title,
+        text=(
+            "Choose the saved YAML to clone. Long filenames are shortened in the "
+            "left menu; the full filename is shown here in the details pane."
+        ),
+        descriptions=descriptions,
+        breadcrumbs=["YOLOmatic", "Clone Config"],
+    )
+    if choice == "Back":
+        return None
+    return config_dir / choice
+
+
+def extract_regular_yolo_model_choice(config: dict[str, Any]) -> str | None:
+    settings = config.get("settings")
+    if not isinstance(settings, dict):
+        return None
+    for key in ("base_model_type", "model_type"):
+        value = settings.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def collect_known_config_sections(
+    config: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    sections: dict[str, dict[str, Any]] = {}
+    for param in YOLO_TRAINING_PARAMETERS:
+        section = config.get(param.config_section)
+        if isinstance(section, dict) and param.name in section:
+            sections.setdefault(param.config_section, {})[param.name] = section[
+                param.name
+            ]
+    return sections
+
+
+def apply_config_sections(
+    config: dict[str, Any],
+    sections: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    for section_name, section_values in sections.items():
+        if not section_values:
+            continue
+        config.setdefault(section_name, {}).update(section_values)
+    return config
+
+
+def clone_config_filename(source_path: Path, dataset_name: str) -> str:
+    def slug(value: str, max_len: int) -> str:
+        safe = "".join(
+            char.lower() if char.isalnum() else "_"
+            for char in value
+        ).strip("_")
+        safe = "_".join(part for part in safe.split("_") if part)
+        return (safe or "config")[:max_len]
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    source_slug = slug(source_path.stem, 32)
+    dataset_slug = slug(dataset_name, 28)
+    return f"clone_{source_slug}_{dataset_slug}_{timestamp}.yaml"
+
+
+def clone_saved_config_flow() -> bool:
+    source_path = select_saved_config_file()
+    if source_path is None:
+        return False
+
+    try:
+        with open(source_path, "r") as file:
+            source_config = yaml.safe_load(file) or {}
+    except yaml.YAMLError as error:
+        console.print(
+            Panel(
+                f"[bold red]Invalid YAML in {source_path.name}:[/bold red] {error}",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+        input("\nPress Enter to return to the main menu...")
+        return False
+
+    if "experiment" in source_config:
+        console.print(
+            Panel(
+                "[bold yellow]YOLO-NAS config cloning is not supported yet.[/bold yellow]\n\n"
+                "Clone regular Ultralytics YOLO configs from this flow. YOLO-NAS "
+                "configs use a different nested training schema.",
+                border_style="yellow",
+                padding=(1, 2),
+            )
+        )
+        input("\nPress Enter to return to the main menu...")
+        return False
+
+    model_choice = extract_regular_yolo_model_choice(source_config)
+    if not model_choice:
+        console.print(
+            Panel(
+                "[bold red]Could not find settings.model_type in the source config.[/bold red]\n\n"
+                "The clone flow needs a regular YOLO config with a model recorded "
+                "under the settings section.",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+        input("\nPress Enter to return to the main menu...")
+        return False
+
+    try:
+        dataset_choice = list_datasets()
+    except Exception as error:
+        console.print(
+            Panel(
+                f"[bold red]Failed to list datasets:[/bold red] {error}",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+        input("\nPress Enter to return to the main menu...")
+        return False
+    if dataset_choice in ("Back", None):
+        return False
+
+    dataset_path = Path(dataset_choice)
+    dataset_name = dataset_path.name
+    generator = YOLOConfigGenerator(str(dataset_path))
+    profile_context = generator.get_regular_yolo_profile_context(model_choice)
+    base_config = generator.generate_config(
+        model_choice,
+        dict(profile_context["recommended_profiles"]),
+        profile_context,
+    )
+
+    source_settings = source_config.get("settings", {})
+    if isinstance(source_settings, dict):
+        for key in ("model_type", "base_model_type", "finetune_from"):
+            if source_settings.get(key):
+                base_config.setdefault("settings", {})[key] = source_settings[key]
+
+    source_clearml = source_config.get("clearml", {})
+    if isinstance(source_clearml, dict):
+        base_config.setdefault("clearml", {}).update(source_clearml)
+
+    source_sections = collect_known_config_sections(source_config)
+    copied_count = sum(len(values) for values in source_sections.values())
+
+    clear_screen()
+    print_stylized_header("Clone Config Preview")
+    render_summary_panel(
+        "Clone Source",
+        {
+            "Source Config": source_path.name,
+            "Target Model": base_config.get("settings", {}).get(
+                "model_type",
+                model_choice,
+            ),
+            "Target Dataset": dataset_name,
+            "Copied Tunable Values": copied_count,
+            "New Dataset Path": base_config.get("model", {}).get("data_dir", "N/A"),
+        },
+    )
+
+    result = run_fully_customized_config_flow(
+        dataset_name,
+        model_choice,
+        profile_context,
+        initial_sections=source_sections,
+        title="Review Cloned Configuration",
+        intro_text=(
+            f"[bold yellow]Cloning:[/bold yellow] {source_path.name}\n\n"
+            "YOLOmatic regenerated the dataset/model scaffolding for the new target, "
+            "then preselected the tunable values found in the source YAML.\n\n"
+            "• Deselect a value to fall back to the regenerated default.\n"
+            "• Edit any selected value before saving the cloned config.\n"
+            "• Dataset paths/classes are already updated from the selected dataset."
+        ),
+    )
+    if result is None:
+        return False
+
+    final_sections = result.get("sections", {"training": result.get("params", {})})
+    cloned_config = apply_config_sections(base_config, final_sections)
+
+    config_dir = Path("configs")
+    config_dir.mkdir(exist_ok=True)
+    config_file = clone_config_filename(source_path, dataset_name)
+    config_path = config_dir / config_file
+
+    output_yaml = YAML()
+    output_yaml.indent(mapping=2, sequence=4, offset=2)
+    with open(config_path, "w") as file:
+        output_yaml.dump(cloned_config, file)
+
+    console.print(f"✅ Cloned configuration saved to: {config_file}", style="bold green")
+    display_configuration_summary(
+        cloned_config.get("settings", {}).get("model_type", model_choice),
+        dataset_name,
+        config_file,
+        generator.dataset_info,
+        {"mode": "fully_customized"},
+        profile_context,
+    )
+    display_paths_info(generator.dataset_info)
+    return True
+
+
 def select_finetune_candidate() -> FineTuneCandidate | None:
     root = project_root()
     candidates = find_finetune_candidates(root)
@@ -2550,6 +2797,9 @@ def run_fully_customized_config_flow(
     dataset_name: str,
     model_choice: str,
     profile_context: dict[str, Any],
+    initial_sections: dict[str, dict[str, Any]] | None = None,
+    title: str = "Fully Customized Configuration",
+    intro_text: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Interactive flow for fully customized parameter selection.
@@ -2562,8 +2812,8 @@ def run_fully_customized_config_flow(
     from rich.panel import Panel
     from rich.table import Table
 
-    # State
-    current_selected_names = {
+    param_lookup = {p.name: p for p in YOLO_TRAINING_PARAMETERS}
+    default_selected_names = {
         "epochs",
         "patience",
         "batch",
@@ -2573,18 +2823,29 @@ def run_fully_customized_config_flow(
         "optimizer",
     }
     custom_values: dict[str, Any] = {}
-    param_lookup = {p.name: p for p in YOLO_TRAINING_PARAMETERS}
+    current_selected_names = set(default_selected_names)
+
+    if initial_sections:
+        current_selected_names = set()
+        for param in YOLO_TRAINING_PARAMETERS:
+            section_values = initial_sections.get(param.config_section, {})
+            if param.name in section_values:
+                current_selected_names.add(param.name)
+                custom_values[param.name] = section_values[param.name]
 
     while True:
         clear_screen()
-        print_stylized_header("Fully Customized Configuration")
+        print_stylized_header(title)
+        intro = intro_text or (
+            "[bold yellow]Welcome to the Unified Configurator![/bold yellow]\n\n"
+            "• [cyan]Left Pane[/cyan]: Select parameters with [bold yellow]Space[/bold yellow].\n"
+            "• [cyan]Right Pane[/cyan]: Edit values with [bold yellow]Enter[/bold yellow] or [bold yellow]Right Arrow[/bold yellow].\n"
+            "• [cyan]Navigation[/cyan]: Use [bold yellow]B[/bold yellow] or [bold yellow]Left Arrow[/bold yellow] to return to the list.\n"
+            "• [cyan]Finish/Back[/cyan]: Press [bold yellow]F[/bold yellow] to finish or [bold yellow]Q[/bold yellow] to go back to the menu."
+        )
         console.print(
             Panel(
-                "[bold yellow]Welcome to the Unified Configurator![/bold yellow]\n\n"
-                "• [cyan]Left Pane[/cyan]: Select parameters with [bold yellow]Space[/bold yellow].\n"
-                "• [cyan]Right Pane[/cyan]: Edit values with [bold yellow]Enter[/bold yellow] or [bold yellow]Right Arrow[/bold yellow].\n"
-                "• [cyan]Navigation[/cyan]: Use [bold yellow]B[/bold yellow] or [bold yellow]Left Arrow[/bold yellow] to return to the list.\n"
-                "• [cyan]Finish/Back[/cyan]: Press [bold yellow]F[/bold yellow] to finish or [bold yellow]Q[/bold yellow] to go back to the menu.",
+                intro,
                 border_style="cyan",
                 padding=(1, 2),
             )
@@ -2592,7 +2853,7 @@ def run_fully_customized_config_flow(
 
         result = get_user_multi_select(
             parameters=YOLO_TRAINING_PARAMETERS,
-            title="Fully Customized Configuration",
+            title=title,
             instruction="[Space] Toggle  [Enter/→] Edit Value  [F] Finish",
             pre_selected=current_selected_names,
             pre_values=custom_values,
@@ -2751,6 +3012,7 @@ def _main_loop_iteration():
         main_menu_options = [
             "[Configure & Train]",
             "Configure Model",
+            "Clone Config",
             "Configure Fine-Tune",
             "Train Model",
             "[Evaluate & Monitor]",
@@ -2779,6 +3041,11 @@ def _main_loop_iteration():
                     "Find an existing Ultralytics .pt checkpoint, bind it to a dataset, "
                     "and generate a fresh fine-tuning YAML using YOLOmatic's current "
                     "hardware-aware recommendations."
+                ),
+                "Clone Config": (
+                    "Start from a saved YAML in ./configs, automatically refresh the "
+                    "dataset/model paths for a new target dataset, review the copied "
+                    "training/export values, and save a new config."
                 ),
                 "Train Model": (
                     "Train (and validate + export) a YOLO or YOLO-NAS model using one of "
@@ -2853,6 +3120,31 @@ def _main_loop_iteration():
             from src.utils.combine_datasets import main as combine_main
 
             _safe_subcommand("Dataset Combiner", combine_main, prog="yolomatic-combine")
+            continue
+
+        elif main_choice == "Clone Config":
+            try:
+                if not clone_saved_config_flow():
+                    continue
+            except KeyboardInterrupt:
+                console.print(
+                    "\n[bold yellow]Config cloning cancelled by user.[/bold yellow]"
+                )
+                input("\nPress Enter to return to the main menu...")
+                continue
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Config cloning failed:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                console.print(traceback.format_exc(), style="dim")
+                input("\nPress Enter to return to the main menu...")
+                continue
+
+            input("\nPress Enter to continue...")
             continue
 
         elif main_choice == "Configure Fine-Tune":

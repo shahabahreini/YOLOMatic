@@ -21,6 +21,20 @@ NAV_BACK = "__BACK__"
 NAV_LIST = "__LIST__"
 
 
+def shorten_middle(value: str, max_chars: int = 44) -> str:
+    """Compact long menu labels while preserving the beginning and file suffix."""
+    if len(value) <= max_chars:
+        return value
+    if max_chars <= 8:
+        return value[:max_chars]
+
+    marker = "..."
+    remaining = max_chars - len(marker)
+    front = max(1, remaining // 2)
+    back = max(1, remaining - front)
+    return f"{value[:front]}{marker}{value[-back:]}"
+
+
 def clear_screen() -> None:
     """Clear the terminal screen."""
     print(TUI_TERM.clear)
@@ -74,10 +88,13 @@ class MenuRenderer:
             elif i == self.current_selection:
                 # Active selection
                 prefix = "➤ "
-                text = Text(f"{prefix}{option}", style="bold white on blue")
+                text = Text(
+                    f"{prefix}{shorten_middle(option)}",
+                    style="bold white on blue",
+                )
                 items.append(text)
             else:
-                items.append(Text(f"  {option}", style="dim"))
+                items.append(Text(f"  {shorten_middle(option)}", style="dim"))
 
         return Panel(
             Group(*items),

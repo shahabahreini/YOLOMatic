@@ -12,6 +12,7 @@ from src.utils.tui import (
     print_header,
     render_summary_panel,
     render_table,
+    shorten_middle,
 )
 
 console = TUI_CONSOLE
@@ -29,4 +30,5 @@ __all__ = [
     "render_table",
     "NAV_BACK",
     "NAV_LIST",
+    "shorten_middle",
 ]
