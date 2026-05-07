@@ -11,10 +11,11 @@ dependencies = [
   "clearml",
   "pyyaml",
   "opencv-python",
-  "numpy==1.23.0",
+  "numpy>=1.24.4",
   "torch",
   "torchvision",
   "tensorboard",
+  "tensorflow>=2.16,<2.21; sys_platform != 'win32'",
   "onnx",
   "onnxslim>=0.1.71",
   "onnxruntime",
@@ -26,13 +27,13 @@ dependencies = [
   "rich",
   "python-dotenv",
   "roboflow",
-  "rfdetr[plus]",
-  "super-gradients>=3.7.1",
+  "rfdetr[train,onnx,loggers,plus]>=1.6.5.post0",
   "packaging",
   "psutil",
   "pycocotools>=2.0.11",
+  "transformers>=5.1,<6",
 ]
-description = "Automated object-detection training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, YOLO-NAS, and RF-DETR models with an interactive terminal interface."
+description = "Automated object-detection training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and RF-DETR models with an interactive terminal interface."
 keywords = [
   "yolo",
   "yolo26",
@@ -42,7 +43,6 @@ keywords = [
   "yolov9",
   "yolov8",
   "yolox",
-  "yolo-nas",
   "rf-detr",
   "rfdetr",
   "object-detection",

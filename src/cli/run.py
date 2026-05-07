@@ -2232,6 +2232,7 @@ def update_config(
     # Initialize appropriate generator
     if is_rfdetr_model(model_choice):
         generator = RFDETRConfigGenerator(str(dataset_path))
+        generator.extract_dataset_info()
         profile_context = None
         profile_selection = None
     elif "nas" in model_choice.lower():
@@ -3004,8 +3005,6 @@ def get_model_menu():
         "yolov11-seg",
         "yolov9-seg",
         "yolov8-seg",
-        "[Specialized]",
-        "yolo_nas",
     ]
     return models
 
@@ -3090,7 +3089,7 @@ def _main_loop_iteration():
                     "training/export values, and save a new config."
                 ),
                 "Train Model": (
-                    "Train (and validate + export) a YOLO, YOLO-NAS, or RF-DETR model using one of "
+                    "Train (and validate + export) a YOLO or RF-DETR model using one of "
                     "the saved configs under ./configs. Routes each model family to its native trainer."
                 ),
                 "Run Prediction": (
@@ -3114,8 +3113,8 @@ def _main_loop_iteration():
                 ),
                 "Check for Updates": (
                     "Run a dependency health check across every critical package — "
-                    "ultralytics, torch, torchvision, super-gradients, tensorboard, "
-                    "roboflow, rfdetr, onnx, onnxruntime. Each is classified by severity "
+                    "ultralytics, torch, torchvision, rfdetr, tensorboard, "
+                    "roboflow, onnx, onnxruntime. Each is classified by severity "
                     "(patch / minor / major / missing), with one-click upgrades."
                 ),
                 "About YOLOmatic": "Technical details, creator info, and version history.",
@@ -3458,21 +3457,6 @@ def _main_loop_iteration():
                         "  When a clean anchor-free baseline and training stability "
                         "are the primary requirements"
                     ),
-                    "yolo_nas": (
-                        "[bold cyan]YOLO-NAS[/bold cyan]  [dim]● Specialized[/dim]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Designed via Neural Architecture Search (SuperGradients)\n"
-                        "  • QA-RepVGG blocks with hardware-aware quantization\n"
-                        "  • 3 variants: S / M / L\n"
-                        "  • Trained with SuperGradients, not Ultralytics\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:    47.5 (S)  →  53.2 (L)\n"
-                        "  • Params: 9.3M (S)  →  25.2M (L)\n"
-                        "  • Speed:  2.4 ms T4 TensorRT (S)  |  90 ms CPU ONNX (S)\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Hardware-targeted deployment on NVIDIA T4 or Jetson where "
-                        "NAS-optimized latency is the priority"
-                    ),
                 },
                 breadcrumbs=["YOLOmatic", "Model Selection"],
             )
@@ -3480,39 +3464,20 @@ def _main_loop_iteration():
             if model_choice == "Back":
                 continue
 
-            # Rest of your existing model selection code...
-            if model_choice == "yolo_nas":
-                # Get YOLO NAS specific models
-                nas_models = [model["Model"] for model in model_data_dict["yolo_nas"]]
-                model_variant = get_user_choice(
-                    nas_models,
-                    allow_back=True,
-                    title=f"Select {model_choice.upper()} Variant",
-                    text="Choose the model size that fits your hardware:",
-                    model_data=model_data_dict["yolo_nas"],
-                    breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
-                )
+            variants = [model["Model"] for model in model_data_dict[model_choice]]
+            model_variant = get_user_choice(
+                variants,
+                allow_back=True,
+                title=f"Select {model_choice.upper()} Variant",
+                text="Choose the model size that fits your hardware:",
+                model_data=model_data_dict[model_choice],
+                breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
+            )
 
-                if model_variant == "Back":
-                    continue
+            if model_variant == "Back":
+                continue
 
-                model_choice = model_variant
-            else:
-                # Show variants for other YOLO models
-                variants = [model["Model"] for model in model_data_dict[model_choice]]
-                model_variant = get_user_choice(
-                    variants,
-                    allow_back=True,
-                    title=f"Select {model_choice.upper()} Variant",
-                    text="Choose the model size that fits your hardware:",
-                    model_data=model_data_dict[model_choice],
-                    breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
-                )
-
-                if model_variant == "Back":
-                    continue
-
-                model_choice = model_variant
+            model_choice = model_variant
 
             # Continue with dataset selection...
             try:

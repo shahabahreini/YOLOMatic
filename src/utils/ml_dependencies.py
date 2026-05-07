@@ -191,7 +191,7 @@ def import_rfdetr_module() -> object:
     except MLDependencyError as error:
         raise MLDependencyError(
             f"{error}\nInstall RF-DETR support with `uv sync` after adding "
-            "`rfdetr[plus]` to the project dependencies."
+            "`rfdetr[train,onnx,loggers,plus]` to the project dependencies."
         ) from error
 
 

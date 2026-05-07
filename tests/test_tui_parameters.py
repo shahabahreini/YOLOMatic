@@ -128,6 +128,39 @@ class TUIParameterValidationTest(unittest.TestCase):
             ).startswith("clone_source_with_a_very_long_name"),
         )
 
+    def test_rfdetr_seg_update_config_extracts_dataset_before_mismatch_check(self) -> None:
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from src.cli import run
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            dataset = root / "datasets" / "roboflow-yolo-seg"
+            (dataset / "train" / "images").mkdir(parents=True)
+            (dataset / "train" / "labels").mkdir(parents=True)
+            (dataset / "valid" / "images").mkdir(parents=True)
+            (dataset / "test" / "images").mkdir(parents=True)
+            (dataset / "data.yaml").write_text(
+                "train: ../train/images\nval: ../valid/images\ntest: ../test/images\nnc: 1\nnames: [item]\n",
+                encoding="utf-8",
+            )
+            (dataset / "train" / "labels" / "polygon.txt").write_text(
+                "0 0.1 0.1 0.2 0.1 0.2 0.2 0.1 0.2\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(run, "display_configuration_summary"), patch.object(
+                run,
+                "display_paths_info",
+            ), patch.object(run.console, "print"):
+                self.assertTrue(run.update_config("RF-DETR-Seg-Small", str(dataset)))
+
+            config_files = sorted((Path("configs")).glob("RF-DETR-Seg-Small_roboflow-yolo-seg_*.yaml"))
+            for config_file in config_files:
+                config_file.unlink()
+
     def test_fully_customized_catalog_covers_ultralytics_tunable_args(self) -> None:
         from src.cli.run import YOLO_TRAINING_PARAMETERS
 

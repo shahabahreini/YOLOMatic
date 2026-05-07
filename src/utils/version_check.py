@@ -56,12 +56,6 @@ CRITICAL_PACKAGES: tuple[CriticalPackage, ...] = (
         "critical",
     ),
     CriticalPackage(
-        "super-gradients",
-        "SuperGradients",
-        "Required to train YOLO-NAS detection models.",
-        "important",
-    ),
-    CriticalPackage(
         "rfdetr",
         "RF-DETR",
         "Required to train, predict, export, and deploy RF-DETR models.",
@@ -72,6 +66,12 @@ CRITICAL_PACKAGES: tuple[CriticalPackage, ...] = (
         "TensorBoard",
         "Dashboards for inspecting training metrics and artifacts.",
         "important",
+    ),
+    CriticalPackage(
+        "tensorflow",
+        "TensorFlow",
+        "Optional TensorBoard/event tooling backend on Linux and macOS.",
+        "optional",
     ),
     CriticalPackage(
         "roboflow",

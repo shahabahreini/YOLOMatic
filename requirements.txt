@@ -2,8 +2,11 @@ ultralytics
 clearml
 pyyaml
 opencv-python
+numpy>=1.24.4
 torch
 torchvision
+tensorboard
+tensorflow>=2.16,<2.21; sys_platform != "win32"
 onnx
 onnxslim>=0.1.71
 onnxruntime
@@ -13,6 +16,11 @@ ruamel.yaml
 terminaltables
 blessed
 rich
-rfdetr[plus]
-super-gradients
+python-dotenv
+roboflow
+rfdetr[train,onnx,loggers,plus]>=1.6.5.post0
+packaging
+psutil
+pycocotools>=2.0.11
+transformers>=5.1,<6
 uv

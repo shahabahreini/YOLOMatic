@@ -18,7 +18,7 @@ from src.utils.ml_dependencies import prepare_ml_runtime
 
 console = Console()
 DEFAULT_TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
-DEFAULT_NUMPY_CONSTRAINT = "numpy==1.23.0"
+DEFAULT_NUMPY_CONSTRAINT = "numpy>=1.24.4"
 _IS_WINDOWS = platform.system() == "Windows"
 # Markers fence the JSON payload so any stray stdout from torch import (warnings
 # routed through `print`, deprecation notices, etc.) cannot break json.loads and
@@ -459,7 +459,7 @@ def repair_cuda_enabled_torch(
     descriptions = [
         "Removing existing PyTorch packages from the active environment...",
         f"Installing CUDA-enabled PyTorch packages from {index_url} (this can take several minutes while large wheels download)...",
-        f"Re-pinning {DEFAULT_NUMPY_CONSTRAINT} from PyPI for super-gradients compatibility...",
+        f"Re-pinning {DEFAULT_NUMPY_CONSTRAINT} from PyPI for project compatibility...",
     ]
 
     outputs: list[str] = []
@@ -592,7 +592,7 @@ def resolve_training_device(
             "Repair CUDA PyTorch": (
                 "[bold green]Reinstall torch / torchvision / torchaudio with CUDA 12.8 wheels.[/bold green]\n\n"
                 f"• Index: [cyan]{index_url}[/cyan]\n"
-                f"• Keeps [cyan]{DEFAULT_NUMPY_CONSTRAINT}[/cyan] for super-gradients compatibility.\n"
+                f"• Keeps [cyan]{DEFAULT_NUMPY_CONSTRAINT}[/cyan] for project compatibility.\n"
                 "• Takes a few minutes (large wheels download).\n"
                 "• Needs network access and write access to the current Python env."
             ),

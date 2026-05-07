@@ -19,13 +19,13 @@
 
 **YOLOmatic** is a production-grade CLI toolkit for the full YOLO and RF-DETR training lifecycle — model selection, configuration generation, checkpoint fine-tuning, training, prediction, TensorBoard monitoring, dataset combining, dependency health checks, and Roboflow upload — all driven through a rich interactive terminal interface.
 
-Supported model families: **RF-DETR**, **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, **YOLOX**, and **YOLO-NAS**.
+Supported model families: **RF-DETR**, **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, and **YOLOX**.
 
 ---
 
 ## About
 
-YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR computer vision models using [Ultralytics](https://github.com/ultralytics/ultralytics), [SuperGradients](https://github.com/Deci-AI/super-gradients), and [RF-DETR](https://github.com/roboflow/rf-detr). It targets practitioners who need a reproducible, hardware-aware training pipeline without writing boilerplate configuration or shell scripts.
+YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR computer vision models using [Ultralytics](https://github.com/ultralytics/ultralytics) and [RF-DETR](https://github.com/roboflow/rf-detr). It targets practitioners who need a reproducible, hardware-aware training pipeline without writing boilerplate configuration or shell scripts.
 
 **Supported tasks:** object detection, instance segmentation, image classification, pose estimation, oriented object detection (OBB).
 
@@ -41,9 +41,8 @@ YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR comput
 | YOLOv9 | t / s / m / c / e + seg | Detect, Segment |
 | YOLOv8 | n / s / m / l / x + seg / cls / pose / obb | All |
 | YOLOX | S / M / L / X | Detect |
-| YOLO-NAS | S / M / L | Detect |
 
-**Toolchain integrations:** PyTorch, ONNX, TensorBoard, ClearML, Roboflow, `uv`.
+**Toolchain integrations:** PyTorch, TensorFlow-backed TensorBoard tooling where supported, ONNX, ClearML, Roboflow, `uv`.
 
 **Deployment targets:** CUDA GPU (NVIDIA), Apple Silicon MPS, CPU (all platforms), ONNX Runtime, TensorRT.
 
@@ -72,12 +71,12 @@ YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR comput
 
 | Feature | Description |
 |---|---|
-| **Broad Model Support** | RF-DETR, YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS — detection, segmentation, classification, pose, and OBB |
+| **Broad Model Support** | RF-DETR, YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, and YOLOX — detection, segmentation, classification, pose, and OBB |
 | **Interactive TUI** | Rich terminal menus for configuration, fine-tuning, training, prediction, monitoring, dataset combining, uploads, and dependency checks |
 | **Auto-Optimized Configs** | Augmentation, compute, and worker profiles are recommended based on your dataset and hardware automatically |
 | **Checkpoint Fine-Tuning** | Finds existing Ultralytics `.pt` and RF-DETR `.pth` weights, binds them to a dataset, and generates a fresh fine-tuning YAML |
 | **Automatic Pretrained Downloads** | Fresh YOLO and RF-DETR configs load official pretrained weights automatically; local checkpoints are used only for fine-tuning or resume |
-| **Smart Training Router** | YOLO, YOLO-NAS, and RF-DETR configs are routed to the correct trainer automatically |
+| **Smart Training Router** | YOLO and RF-DETR configs are routed to the correct trainer automatically |
 | **CUDA Auto-Repair** | Detects CPU-only PyTorch when a GPU is present and offers an in-app repair flow |
 | **Prediction TUI** | Discovers `.pt` and `.pth` weights across the project tree, then runs single-image or batch folder inference with rich progress display |
 | **Dataset Combiner** | Merges multiple YOLO datasets, deduplicates class names, remaps labels, and hard-links images where possible |
@@ -230,7 +229,7 @@ Generated configs are written to `configs/` with unique timestamped filenames.
 uv run yolomatic
 ```
 
-Choose **Configure Fine-Tune** from the TUI. YOLOmatic searches the project root and `runs/**/weights/*.pt` for Ultralytics checkpoints, excludes YOLO-NAS checkpoints, and lets you select a dataset for transfer learning.
+Choose **Configure Fine-Tune** from the TUI. YOLOmatic searches the project root and `runs/**/weights/*.pt` for Ultralytics checkpoints plus RF-DETR `.pth` checkpoints, then lets you select a dataset for transfer learning.
 
 Fine-tune configs are generated as fresh training runs:
 
@@ -324,7 +323,7 @@ Ensure your dataset contains Roboflow workspace/project metadata or your `.env` 
 uv run yolomatic-tensorboard
 ```
 
-Scans all runs for TensorBoard event files and Ultralytics `args.yaml` markers (including YOLO-NAS runs), then presents a selection menu before launching TensorBoard.
+Scans all runs for TensorBoard event files and Ultralytics `args.yaml` markers, then presents a selection menu before launching TensorBoard.
 
 On Windows, if `uv run` fails with an access-denied error on a locked `torch` file, use the venv directly:
 
@@ -376,7 +375,7 @@ If `nvidia-smi` works but `torch.cuda.is_available()` returns `False`, use the i
 1. Start training with `uv run yolomatic-train`.
 2. Choose **Fix CUDA-enabled PyTorch now** when prompted.
 
-The repair targets the active `.venv` interpreter directly and preserves `numpy==1.23.0` for YOLO-NAS compatibility.
+The repair targets the active `.venv` interpreter directly and preserves the project dependency pins.
 
 Manual verification:
 
@@ -388,16 +387,12 @@ Manual repair on Windows:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip uninstall -y torch torchvision torchaudio
-.\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio numpy==1.23.0 --index-url https://download.pytorch.org/whl/cu128
+.\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio "numpy>=1.24.4" --index-url https://download.pytorch.org/whl/cu128
 ```
 
-### YOLO-NAS fails after a CUDA repair
+### YOLO-NAS configs no longer train
 
-`super-gradients 3.7.1` requires exactly `numpy==1.23.0`. Restore it with:
-
-```sh
-uv run python -m pip install --force-reinstall numpy==1.23.0
-```
+YOLO-NAS is deprecated in this build because SuperGradients conflicts with RF-DETR's modern training dependency stack. Use a YOLO or RF-DETR config instead.
 
 ### ClearML is not configured
 

@@ -394,6 +394,36 @@ class ProjectUtilsTests(unittest.TestCase):
             self.assertNotIn("pretrain_weights", config["training"])
             self.assertEqual(config["training"]["resolution"], 512)
 
+    def test_rfdetr_generator_resolves_roboflow_parent_paths_inside_dataset(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = Path(temp_dir) / "roboflow-yolo-seg"
+            (dataset / "train" / "images").mkdir(parents=True)
+            (dataset / "train" / "labels").mkdir(parents=True)
+            (dataset / "valid" / "images").mkdir(parents=True)
+            (dataset / "test" / "images").mkdir(parents=True)
+            (dataset / "data.yaml").write_text(
+                "train: ../train/images\nval: ../valid/images\ntest: ../test/images\nnc: 1\nnames: [item]\n",
+                encoding="utf-8",
+            )
+            for index in range(5):
+                (dataset / "train" / "labels" / f"empty-{index}.txt").write_text(
+                    "",
+                    encoding="utf-8",
+                )
+            (dataset / "train" / "labels" / "polygon.txt").write_text(
+                "0 0.1 0.1 0.2 0.1 0.2 0.2 0.1 0.2\n",
+                encoding="utf-8",
+            )
+
+            generator = RFDETRConfigGenerator(str(dataset))
+            self.assertTrue(generator.extract_dataset_info())
+
+            self.assertEqual(
+                generator.dataset_info["train_path"],
+                str((dataset / "train" / "images").resolve()),
+            )
+            self.assertEqual(generator.dataset_info["task_type"], "segmentation")
+
     def test_rfdetr_config_generator_sets_finetune_checkpoint(self) -> None:
         generator = RFDETRConfigGenerator("/tmp/nonexistent-dataset")
         generator.dataset_info["classes"] = ["item"]

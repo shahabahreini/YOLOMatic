@@ -46,7 +46,6 @@ COMMON_MODEL_TYPES = [
     "yolo26m",
     "yolo26l",
     "yolo26x",
-    "yolonas",
     "yolox",
     "rfdetr",
     "rfdetr-seg",
@@ -166,8 +165,6 @@ def infer_model_type_from_text(raw_text: str) -> str | None:
     if yolo26_match is not None:
         return f"yolo26{yolo26_match.group(1)}"
 
-    if "yolo-nas" in normalized_text or "yolonas" in normalized_text:
-        return "yolonas"
     if "yolo12" in normalized_text or "yolov12" in normalized_text:
         return "yolov12"
     if "yolo11" in normalized_text or "yolov11" in normalized_text:
@@ -447,7 +444,6 @@ def prompt_model_type(detected_model_type: str | None) -> str:
             "yolov10": "Deploy a YOLOv10 model.",
             "yolov9": "Deploy a YOLOv9 model.",
             "yolov8": "Deploy a YOLOv8 model.",
-            "yolonas": "Deploy a YOLO-NAS model.",
             "yolox": "Deploy a YOLOX model.",
             "rfdetr": "Deploy an RF-DETR detection checkpoint.",
             "rfdetr-seg": "Deploy an RF-DETR segmentation checkpoint.",
@@ -576,7 +572,7 @@ def stage_upload_candidate(
     candidate: UploadCandidate, model_type: str
 ) -> UploadCandidate:
     normalized_model_type = model_type.lower()
-    if not normalized_model_type.startswith(("yolov", "yolo26", "yolonas", "yolox")):
+    if not normalized_model_type.startswith(("yolov", "yolo26", "yolox")):
         return candidate
 
     try:

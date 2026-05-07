@@ -216,8 +216,11 @@ class BaseConfigGenerator:
         if path.is_absolute():
             return path
 
-        # If it starts with ../, resolve it relative to the base path
-        resolved_path = (base_path / path).resolve()
+        normalized_path = str(path).replace("\\", "/")
+        if normalized_path.startswith("../"):
+            resolved_path = (self.dataset_path / normalized_path[3:]).resolve()
+        else:
+            resolved_path = (base_path / path).resolve()
         logger.info(
             f"Resolving {relative_path} relative to {base_path} -> {resolved_path}"
         )
@@ -262,7 +265,7 @@ class BaseConfigGenerator:
         """
         detection_hits = 0
         segmentation_hits = 0
-        files_scanned = 0
+        files_with_labels_scanned = 0
         MAX_FILES = 20
         MAX_LINES_PER_FILE = 50
 
@@ -274,8 +277,9 @@ class BaseConfigGenerator:
                 continue
 
             for label_file in label_files:
-                if files_scanned >= MAX_FILES:
+                if files_with_labels_scanned >= MAX_FILES:
                     break
+                file_had_label = False
                 try:
                     with open(label_file, "r", encoding="utf-8") as handle:
                         for line_index, line in enumerate(handle):
@@ -284,6 +288,7 @@ class BaseConfigGenerator:
                             parts = line.strip().split()
                             if not parts:
                                 continue
+                            file_had_label = True
                             count = len(parts)
                             if count == 5:
                                 detection_hits += 1
@@ -294,7 +299,8 @@ class BaseConfigGenerator:
                         f"Skipping unreadable label file {label_file}: {error}"
                     )
                     continue
-                files_scanned += 1
+                if file_had_label:
+                    files_with_labels_scanned += 1
 
             if detection_hits or segmentation_hits:
                 break

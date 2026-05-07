@@ -82,7 +82,7 @@ def disable_ultralytics_clearml_callbacks(model):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Train a YOLO or YOLO-NAS model from a YAML configuration file."
+        description="Train a YOLO or RF-DETR model from a YAML configuration file."
     )
     parser.add_argument(
         "--config",
@@ -143,10 +143,10 @@ def verify_model_file(model_name):
         yolo_class = import_ultralytics_yolo()
 
         if "nas" in model_name.lower():
-            console.print(
-                f"\n[bold]Detected YOLO-NAS model {model_name}; using SuperGradients trainer[/bold]"
+            raise MLDependencyError(
+                "YOLO-NAS support is deprecated in this build because SuperGradients "
+                "conflicts with RF-DETR training dependencies."
             )
-            return model_name
 
         if model_name.lower().startswith("yolo"):
             # Extract version and size from model name (e.g., YOLO26n -> version="26", size="n")
@@ -346,6 +346,15 @@ def main():
         with open(config_file, "r") as file:
             config = yaml.safe_load(file)
 
+        if "experiment" in config:
+            console.print(
+                "[bold yellow]YOLO-NAS support is deprecated in this build.[/bold yellow]\n\n"
+                "SuperGradients conflicts with RF-DETR's training dependency stack, "
+                "so YOLOmatic no longer installs or routes YOLO-NAS training. "
+                "Create a YOLO or RF-DETR config instead."
+            )
+            return
+
         # Extract parameters from config based on type
         if config.get("settings", {}).get("model_family") == "rfdetr":
             console.print(
@@ -355,21 +364,10 @@ def main():
 
             rfdetr_main(config_file)
             return
-        if "experiment" in config:
-            # YOLO NAS config
-            settings = {
-                "model": config["model"]["name"],
-                "dataset": config["dataset"]["name"],
-            }
-            clearml_settings = config["clearml"]
-            training_params = config["training"]
-            export_params = config["export"]
-        else:
-            # Regular YOLO config
-            settings = config["settings"]
-            clearml_settings = config["clearml"]
-            training_params = config["training"]
-            export_params = config["export"]
+        settings = config["settings"]
+        clearml_settings = config["clearml"]
+        training_params = config["training"]
+        export_params = config["export"]
 
         # Load dataset configuration
         dataset_config, data_yaml_path, dataset_path = load_dataset_config(
@@ -387,20 +385,7 @@ def main():
 
             rfdetr_main(config_file)
             return
-        if "experiment" in config:
-            model_name = settings["model"]
-        else:
-            # For regular YOLO config, use model_type
-            model_name = settings["model_type"]
-
-        if "experiment" in config:
-            console.print(
-                "\n[bold green]Routing YOLO-NAS configuration to NAS trainer...[/bold green]"
-            )
-            from src.trainers.nas_trainer import main as nas_main
-
-            nas_main(config_file)
-            return
+        model_name = settings["model_type"]
 
         current_time = datetime.now().strftime(clearml_settings["task_name_format"])
         task_name = f"{model_name}-{current_time}"

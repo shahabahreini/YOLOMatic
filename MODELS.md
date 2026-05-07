@@ -169,12 +169,6 @@ All tasks support: Inference, Validation, Training, Export
 - Decoupled head architecture
 - mAP range: 40.5 - 51.1
 
-### YOLO-NAS
-
-- 3 variants (S, M, L)
-- Neural Architecture Search-based
-- mAP range: 47.5 - 53.2
-
 ### RF-DETR
 
 - 6 detection variants and 6 segmentation variants
@@ -189,7 +183,7 @@ All tasks support: Inference, Validation, Training, Export
 - RF-DETR `.pth` checkpoints deploy through RF-DETR's `deploy_to_roboflow(...)` flow and require a workspace, project ID, and project version.
 - YOLO26 uploads require a **size-specific** Roboflow model type such as `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
 - Workspace defaults can be supplied with `.env` using `ROBOFLOW_API_KEY`, `ROBOFLOW_WORKSPACE`, and `ROBOFLOW_PROJECT_IDS`.
-- YOLO-NAS training is supported in YOLOmatic, but upload compatibility still depends on the Roboflow SDK's support for the selected checkpoint family.
+- YOLO-NAS is deprecated in this build because SuperGradients conflicts with RF-DETR training dependencies.
 
 ---
 
