@@ -451,6 +451,8 @@ def main():
         console.print("\n[bold green]Exporting model...[/bold green]")
         model.export(**export_params)
 
+        upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_name, console)
+
         if run_dir is not None:
             metadata = build_tensorboard_metadata(
                 model_name=model_name,
