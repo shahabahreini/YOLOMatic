@@ -13,6 +13,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from src.cli.upload import build_candidate, stage_upload_candidate, upload_model
+
 from src.utils.cli import get_user_choice
 from src.utils.ml_dependencies import (
     MLDependencyError,
@@ -285,6 +287,47 @@ def print_config_summary(config, dataset_config):
         table.add_row("Version", str(dataset_config["roboflow"]["version"]))
 
     console.print(table)
+
+
+def upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_type, console):
+    """Automatically upload trained weights to Roboflow if configured."""
+    roboflow_config = config.get("roboflow", {})
+    if not roboflow_config.get("upload", False):
+        return
+
+    weight_name = roboflow_config.get("weight", "best.pt")
+    console.print(f"\n[bold green]Preparing to upload {weight_name} to Roboflow...[/bold green]")
+    
+    if run_dir is None:
+        console.print("[bold red]Cannot upload: run directory is unknown.[/bold red]")
+        return
+        
+    weight_path = run_dir / "weights" / weight_name
+    if not weight_path.exists():
+        console.print(f"[bold red]Cannot upload: Weight file {weight_path} does not exist.[/bold red]")
+        return
+
+    dataset_rf = dataset_config.get("roboflow", {})
+    workspace = dataset_rf.get("workspace")
+    project = dataset_rf.get("project")
+    
+    if not workspace or not project:
+        console.print("[bold red]Cannot upload: Dataset configuration lacks Roboflow workspace or project.[/bold red]")
+        return
+
+    try:
+        candidate = build_candidate(weight_path)
+        candidate.workspace = workspace
+        candidate.project_ids = project
+        
+        upload_type = model_type
+        
+        staged = stage_upload_candidate(candidate, upload_type)
+        console.print(f"[bold]Uploading to workspace '{workspace}', project '{project}'...[/bold]")
+        upload_model(staged, upload_type)
+        console.print("[bold green]Roboflow upload completed successfully![/bold green]")
+    except Exception as error:
+        console.print(f"[bold red]Roboflow upload failed: {error}[/bold red]")
 
 
 def main():
