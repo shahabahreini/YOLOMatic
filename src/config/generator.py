@@ -8,15 +8,20 @@ import psutil
 import yaml
 
 try:
+    from src.models.rfdetr import get_rfdetr_variant
     from src.models.data import model_data_dict
     from src.utils.ml_dependencies import MLDependencyError, import_torch
 except ImportError:
     try:
+        from models.rfdetr import get_rfdetr_variant
         from models.data import model_data_dict
         from utils.ml_dependencies import MLDependencyError, import_torch
     except ImportError:
         model_data_dict = {}
         MLDependencyError = RuntimeError
+
+        def get_rfdetr_variant(model_choice: str) -> object:
+            raise RuntimeError(f"RF-DETR metadata is not available for {model_choice}.")
 
         def import_torch() -> object:
             raise RuntimeError("torch is not available.")
@@ -986,6 +991,102 @@ class YOLONASConfigGenerator(BaseConfigGenerator):
             },
         }
         return config
+
+
+class RFDETRConfigGenerator(BaseConfigGenerator):
+    def _recommend_batch_settings(
+        self,
+        variant_resolution: int,
+        system_metrics: dict[str, Any],
+    ) -> dict[str, int]:
+        available_gpu_gib = self._to_gib(system_metrics.get("available_gpu_memory_bytes"))
+        device = str(system_metrics.get("device", "cpu"))
+
+        if device != "cuda":
+            return {"batch_size": 2, "grad_accum_steps": 4}
+        if available_gpu_gib >= 24:
+            return {"batch_size": 8 if variant_resolution <= 704 else 4, "grad_accum_steps": 1}
+        if available_gpu_gib >= 12:
+            return {"batch_size": 4 if variant_resolution <= 704 else 2, "grad_accum_steps": 2}
+        return {"batch_size": 2, "grad_accum_steps": 4}
+
+    def generate_config(
+        self,
+        model_choice: str,
+        finetune_source: str | None = None,
+        finetune_strategy: str | None = None,
+    ) -> Dict:
+        self.extract_dataset_info()
+        variant = get_rfdetr_variant(model_choice)
+        system_metrics = self._collect_system_metrics()
+        batch_settings = self._recommend_batch_settings(
+            variant.resolution,
+            system_metrics,
+        )
+        task_name = "RF-DETR Segmentation" if variant.task == "segmentation" else "RF-DETR Detection"
+
+        training: dict[str, Any] = {
+            "epochs": 100,
+            "resolution": variant.resolution,
+            "batch_size": batch_settings["batch_size"],
+            "grad_accum_steps": batch_settings["grad_accum_steps"],
+            "lr": 1.0e-4,
+            "lr_encoder": 1.5e-4,
+            "weight_decay": 1.0e-4,
+            "num_workers": self._get_optimal_workers(),
+            "device": system_metrics["device"],
+            "tensorboard": True,
+            "early_stopping": True,
+            "checkpoint_interval": 10,
+            "output_dir": f"runs/rfdetr/{model_choice.lower().replace(' ', '-').replace('_', '-')}",
+        }
+        if finetune_source:
+            if finetune_strategy == "resume":
+                training["resume"] = finetune_source
+            else:
+                training["pretrain_weights"] = finetune_source
+                if finetune_strategy == "short_adaptation":
+                    training["epochs"] = 50
+
+        return {
+            "settings": {
+                "model_family": "rfdetr",
+                "model_type": model_choice,
+                "dataset": self.dataset_path.name,
+                "task": variant.task,
+                "class_name": variant.class_name,
+                "auto_download_pretrained": finetune_source is None,
+                "plus_model": variant.plus,
+                "license": variant.license,
+            },
+            "clearml": {
+                "project_name": f"{task_name} - {model_choice}",
+                "task_name_format": "%Y-%m-%d-%H-%M",
+            },
+            "dataset": {
+                "name": self.dataset_path.name,
+                "base_dir": str(self.dataset_path),
+                "classes": self.dataset_info["classes"],
+                "format": "auto",
+            },
+            "training": training,
+            "export": {
+                "enabled": True,
+                "format": "onnx",
+                "output_dir": "exports",
+                "shape": variant.resolution,
+                "batch_size": 1,
+                "opset_version": 17,
+                "quantization": None,
+                "calibration_data": None,
+            },
+            "roboflow": {
+                "upload": False,
+                "workspace": None,
+                "project_id": None,
+                "version": None,
+            },
+        }
 
 
 class YOLOConfigGenerator(BaseConfigGenerator):

@@ -16,8 +16,9 @@ from rich.panel import Panel
 from rich.table import Table
 from ruamel.yaml import YAML
 
-from src.config.generator import YOLOConfigGenerator, YOLONASConfigGenerator
+from src.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator, YOLONASConfigGenerator
 from src.models.data import model_data_dict
+from src.models.rfdetr import is_rfdetr_model
 from src.utils.cli import (
     ParameterDefinition,
     NAV_BACK,
@@ -38,6 +39,7 @@ from src.utils.project import (
     find_finetune_candidates,
     format_size,
     infer_ultralytics_task_from_name,
+    is_rfdetr_source,
     list_config_files,
     list_dataset_directories,
     project_root,
@@ -1659,7 +1661,18 @@ def display_configuration_summary(
         "Config File": config_file,
     }
 
-    if "nas" in model_choice.lower():
+    if is_rfdetr_model(str(model_choice)):
+        training = config.get("training", {})
+        fields.update(
+            {
+                "Batch Size": training.get("batch_size", "N/A"),
+                "Grad Accum": training.get("grad_accum_steps", "N/A"),
+                "Epochs": training.get("epochs", "N/A"),
+                "Resolution": training.get("resolution", "N/A"),
+                "Auto Download": config.get("settings", {}).get("auto_download_pretrained", "N/A"),
+            }
+        )
+    elif "nas" in model_choice.lower():
         training = config.get("training", {})
         fields.update(
             {
@@ -1687,7 +1700,15 @@ def display_configuration_summary(
 
     # Simplified dataset paths display
     path_rows = []
-    if "nas" in model_choice.lower():
+    if is_rfdetr_model(str(model_choice)):
+        dataset_config = config.get("dataset", {})
+        base_dir = dataset_config.get("base_dir", "")
+        path_rows = [
+            ["Train", os.path.join(base_dir, "train/images")],
+            ["Validation", os.path.join(base_dir, "valid/images")],
+            ["Test", os.path.join(base_dir, "test/images")],
+        ]
+    elif "nas" in model_choice.lower():
         structure = config.get("dataset", {}).get("structure", {})
         base_dir = config.get("dataset", {}).get("base_dir", "")
         path_rows = [
@@ -2128,6 +2149,10 @@ def select_finetune_strategy(candidate: FineTuneCandidate) -> str | None:
 
 def infer_finetune_profile_model(candidate: FineTuneCandidate) -> str:
     normalized = candidate.display_name.lower()
+    if is_rfdetr_source(candidate.source):
+        if "seg" in normalized:
+            return "RF-DETR-Seg-Medium"
+        return "RF-DETR-Medium"
     for family_rows in model_data_dict.values():
         for row in family_rows:
             model_name = str(row.get("Model", ""))
@@ -2205,7 +2230,11 @@ def update_config(
     config_file = f"{source_slug}_{safe_dataset_name}_{timestamp}.yaml"
 
     # Initialize appropriate generator
-    if "nas" in model_choice.lower():
+    if is_rfdetr_model(model_choice):
+        generator = RFDETRConfigGenerator(str(dataset_path))
+        profile_context = None
+        profile_selection = None
+    elif "nas" in model_choice.lower():
         generator = YOLONASConfigGenerator(str(dataset_path))
         profile_context = None
         profile_selection = None
@@ -2217,7 +2246,11 @@ def update_config(
     # Check dataset type compatibility
     dataset_type = generator.dataset_info.get("task_type", "unknown")
     model_task_source = finetune_source or model_choice
-    inferred_model_task = infer_ultralytics_task_from_name(model_task_source)
+    inferred_model_task = (
+        "segmentation"
+        if is_rfdetr_model(model_choice) and "-seg-" in model_choice.lower()
+        else infer_ultralytics_task_from_name(model_task_source)
+    )
     is_seg_model = inferred_model_task == "segmentation" or "-seg" in model_choice.lower()
 
     # Determine if there's a mismatch
@@ -2226,6 +2259,7 @@ def update_config(
         dataset_type == "segmentation"
         and not is_seg_model
         and "nas" not in model_choice.lower()
+        and not is_rfdetr_model(model_choice)
     ):
         mismatch_type = "seg_model_needed"
     elif dataset_type == "detection" and is_seg_model:
@@ -2403,7 +2437,13 @@ def update_config(
         # Continue with "Continue Anyway"
 
     custom_params = None
-    if "nas" not in model_choice.lower():
+    if is_rfdetr_model(model_choice):
+        config = generator.generate_config(
+            model_choice,
+            finetune_source=finetune_source,
+            finetune_strategy=finetune_strategy,
+        )
+    elif "nas" not in model_choice.lower():
         profile_selection = choose_regular_yolo_profiles(
             dataset_name,
             profile_context,
@@ -2946,9 +2986,10 @@ def run_fully_customized_config_flow(
 
 
 def get_model_menu():
-    """Get the list of available YOLO models grouped by category."""
+    """Get the list of available model families grouped by category."""
     models = [
         "[Detection]",
+        "rfdetr",
         "yolo26",
         "yolov12",
         "yolov11",
@@ -2957,6 +2998,7 @@ def get_model_menu():
         "yolov8",
         "yolox",
         "[Segmentation]",
+        "rfdetr-seg",
         "yolo26-seg",
         "yolov12-seg",
         "yolov11-seg",
@@ -3005,7 +3047,7 @@ class _ExitTUI(Exception):
 def _main_loop_iteration():
     while True:
         clear_screen()
-        print_stylized_header("YOLO Model Selector")
+        print_stylized_header("YOLOmatic Model Selector")
 
         # Full workflow surface: configure, train, predict, monitor, publish,
         # and curate datasets — all routed through the same TUI.
@@ -3033,12 +3075,12 @@ def _main_loop_iteration():
             text="Pick a task to begin:",
             descriptions={
                 "Configure Model": (
-                    "Walk through the YOLOmatic wizard to pick a model family, choose a "
+                    "Walk through the YOLOmatic wizard to pick a YOLO or RF-DETR family, choose a "
                     "variant that fits your hardware, and auto-generate a training YAML "
                     "tailored to your dataset and system resources."
                 ),
                 "Configure Fine-Tune": (
-                    "Find an existing Ultralytics .pt checkpoint, bind it to a dataset, "
+                    "Find an existing Ultralytics .pt or RF-DETR .pth checkpoint, bind it to a dataset, "
                     "and generate a fresh fine-tuning YAML using YOLOmatic's current "
                     "hardware-aware recommendations."
                 ),
@@ -3048,9 +3090,8 @@ def _main_loop_iteration():
                     "training/export values, and save a new config."
                 ),
                 "Train Model": (
-                    "Train (and validate + export) a YOLO or YOLO-NAS model using one of "
-                    "the saved configs under ./configs. Routes YOLO-NAS to SuperGradients "
-                    "and everything else to Ultralytics automatically."
+                    "Train (and validate + export) a YOLO, YOLO-NAS, or RF-DETR model using one of "
+                    "the saved configs under ./configs. Routes each model family to its native trainer."
                 ),
                 "Run Prediction": (
                     "Run inference on a single image or a folder of images using trained "
@@ -3074,7 +3115,7 @@ def _main_loop_iteration():
                 "Check for Updates": (
                     "Run a dependency health check across every critical package — "
                     "ultralytics, torch, torchvision, super-gradients, tensorboard, "
-                    "roboflow, onnx, onnxruntime. Each is classified by severity "
+                    "roboflow, rfdetr, onnx, onnxruntime. Each is classified by severity "
                     "(patch / minor / major / missing), with one-click upgrades."
                 ),
                 "About YOLOmatic": "Technical details, creator info, and version history.",
@@ -3217,9 +3258,9 @@ def _main_loop_iteration():
             about_table.add_row("Contact:", "shahabahreini@hotmail.com")
             about_table.add_row("", "")
             about_table.add_row(
-                "Description:", "A powerful CLI tool for automated YOLO training,"
+                "Description:", "A powerful CLI tool for automated YOLO and RF-DETR"
             )
-            about_table.add_row("", "configuration, and dataset management.")
+            about_table.add_row("", "training, configuration, and dataset management.")
 
             console.print("\n" * 2)
             console.print(
@@ -3240,10 +3281,21 @@ def _main_loop_iteration():
             model_types = get_model_menu()
             model_choice = get_user_choice(
                 model_types,
-                title="YOLO Model Selector",
+                title="Model Selector",
                 text="Choose a model family for your project:",
                 allow_back=True,
                 descriptions={
+                    "rfdetr": (
+                        "[bold cyan]RF-DETR[/bold cyan]  [green]● Transformer detection[/green]\n\n"
+                        "Real-time DETR-style object detection with automatic pretrained "
+                        "weight download. Core models are Apache-2.0; XL and 2XL require "
+                        "RF-DETR Plus licensing."
+                    ),
+                    "rfdetr-seg": (
+                        "[bold cyan]RF-DETR-Seg[/bold cyan]  [green]● Transformer segmentation[/green]\n\n"
+                        "Instance segmentation variants using RF-DETR's segmentation model "
+                        "classes. Pretrained weights are downloaded automatically on first use."
+                    ),
                     "yolo26": (
                         "[bold cyan]YOLO26[/bold cyan]  [green]● Latest — 2026[/green]\n\n"
                         "[bold]Architecture[/bold]\n"

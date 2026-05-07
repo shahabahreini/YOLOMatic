@@ -1,4 +1,9 @@
+from src.models.rfdetr import rfdetr_table_rows
+
+
 model_data_dict = {
+    "rfdetr": rfdetr_table_rows("detection"),
+    "rfdetr-seg": rfdetr_table_rows("segmentation"),
     "yolov11": [
         {
             "Model": "YOLO11n",

@@ -13,5 +13,6 @@ ruamel.yaml
 terminaltables
 blessed
 rich
+rfdetr[plus]
 super-gradients
 uv

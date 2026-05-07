@@ -26,12 +26,13 @@ dependencies = [
   "rich",
   "python-dotenv",
   "roboflow",
+  "rfdetr[plus]",
   "super-gradients>=3.7.1",
   "packaging",
   "psutil",
   "pycocotools>=2.0.11",
 ]
-description = "Automated YOLO training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS models with an interactive terminal interface."
+description = "Automated object-detection training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, YOLO-NAS, and RF-DETR models with an interactive terminal interface."
 keywords = [
   "yolo",
   "yolo26",
@@ -42,6 +43,8 @@ keywords = [
   "yolov8",
   "yolox",
   "yolo-nas",
+  "rf-detr",
+  "rfdetr",
   "object-detection",
   "instance-segmentation",
   "pose-estimation",

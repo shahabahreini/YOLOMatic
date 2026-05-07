@@ -36,6 +36,7 @@ from src.utils.tensorboard import (
     validate_tensorboard_run,
 )
 from src.utils.training_preflight import resolve_training_device, validate_export_config
+from src.models.rfdetr import is_rfdetr_model
 
 # Initialize Rich console
 console = Console()
@@ -346,6 +347,14 @@ def main():
             config = yaml.safe_load(file)
 
         # Extract parameters from config based on type
+        if config.get("settings", {}).get("model_family") == "rfdetr":
+            console.print(
+                "\n[bold green]Routing RF-DETR configuration to RF-DETR trainer...[/bold green]"
+            )
+            from src.trainers.rfdetr_trainer import main as rfdetr_main
+
+            rfdetr_main(config_file)
+            return
         if "experiment" in config:
             # YOLO NAS config
             settings = {
@@ -370,6 +379,14 @@ def main():
         print_config_summary(config, dataset_config)
 
         # Get the correct model name based on config type
+        if is_rfdetr_model(model_name):
+            console.print(
+                "\n[bold green]Routing RF-DETR configuration to RF-DETR trainer...[/bold green]"
+            )
+            from src.trainers.rfdetr_trainer import main as rfdetr_main
+
+            rfdetr_main(config_file)
+            return
         if "experiment" in config:
             model_name = settings["model"]
         else:

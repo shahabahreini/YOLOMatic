@@ -1,6 +1,30 @@
-# YOLO Model Support Documentation
+# Model Support Documentation
 
-This document outlines the YOLO models supported in YOLOMatic and their key features based on the official Ultralytics documentation.
+This document outlines the YOLO and RF-DETR models supported in YOLOMatic and their key features.
+
+## RF-DETR
+
+**Status**: Supported
+**Focus**: Real-time transformer detection and segmentation
+
+RF-DETR configs use the native `rfdetr` trainer instead of Ultralytics. Fresh RF-DETR training instantiates the selected model class without a local checkpoint so RF-DETR can automatically download and cache the official pretrained weights. Fine-tuning passes the selected `.pth` checkpoint as `pretrain_weights`; resume flows pass it as `resume`.
+
+### Detection Variants
+
+| Model | Class | mAP 50-95 | Latency T4 TensorRT (ms) | Params (M) | Resolution | License |
+|---|---|---:|---:|---:|---:|---|
+| RF-DETR-Nano | `RFDETRNano` | 48.4 | 2.3 | 30.5 | 384 | Apache-2.0 |
+| RF-DETR-Small | `RFDETRSmall` | 53.0 | 3.5 | 32.1 | 512 | Apache-2.0 |
+| RF-DETR-Medium | `RFDETRMedium` | 54.7 | 4.4 | 33.7 | 576 | Apache-2.0 |
+| RF-DETR-Large | `RFDETRLarge` | 56.5 | 6.8 | 33.9 | 704 | Apache-2.0 |
+| RF-DETR-XLarge | `RFDETRXLarge` | 58.6 | 11.5 | 126.4 | 700 | PML-1.0 |
+| RF-DETR-2XLarge | `RFDETR2XLarge` | 60.1 | 17.2 | 126.9 | 880 | PML-1.0 |
+
+### Segmentation Variants
+
+YOLOmatic also exposes RF-DETR segmentation classes from Nano through 2XLarge. These use task-specific default resolutions from the RF-DETR package and output `.pth` checkpoints discoverable by the prediction and Roboflow deployment flows.
+
+---
 
 ## Latest Release: YOLO26 🚀
 
@@ -151,10 +175,18 @@ All tasks support: Inference, Validation, Training, Export
 - Neural Architecture Search-based
 - mAP range: 47.5 - 53.2
 
+### RF-DETR
+
+- 6 detection variants and 6 segmentation variants
+- Native RF-DETR `.pth` checkpoints
+- Automatic pretrained weight download for fresh training
+- RF-DETR Plus detection models require the `rfdetr[plus]` dependency extra and use PML-1.0 model licensing
+
 ### Roboflow Upload Notes
 
 - YOLOmatic exposes a dedicated `yolomatic-upload` CLI for Roboflow uploads.
 - Upload a **full checkpoint** such as `best.pt` or `last.pt`, not generated artifacts like `state_dict.pt`.
+- RF-DETR `.pth` checkpoints deploy through RF-DETR's `deploy_to_roboflow(...)` flow and require a workspace, project ID, and project version.
 - YOLO26 uploads require a **size-specific** Roboflow model type such as `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
 - Workspace defaults can be supplied with `.env` using `ROBOFLOW_API_KEY`, `ROBOFLOW_WORKSPACE`, and `ROBOFLOW_PROJECT_IDS`.
 - YOLO-NAS training is supported in YOLOmatic, but upload compatibility still depends on the Roboflow SDK's support for the selected checkpoint family.

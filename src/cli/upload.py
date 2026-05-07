@@ -28,6 +28,7 @@ from src.utils.cli import (
     render_table,
 )
 from src.utils.ml_dependencies import MLDependencyError, import_torch
+from src.utils.ml_dependencies import import_rfdetr_model_class
 from src.utils.project import (
     find_available_weights,
     format_weight_label,
@@ -47,6 +48,8 @@ COMMON_MODEL_TYPES = [
     "yolo26x",
     "yolonas",
     "yolox",
+    "rfdetr",
+    "rfdetr-seg",
 ]
 MODEL_NAME_PATTERN = re.compile(r"^(?=.*[A-Za-z])[A-Za-z0-9-]+$")
 EXCLUDED_WEIGHT_FILENAMES = {"state_dict.pt"}
@@ -90,6 +93,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-type",
         help="Override the auto-detected Roboflow model type.",
+    )
+    parser.add_argument(
+        "--version",
+        type=int,
+        help="Roboflow project version for RF-DETR deployment.",
     )
     return parser.parse_args()
 
@@ -151,6 +159,9 @@ def read_args_metadata(weight_path: Path) -> dict[str, Any]:
 def infer_model_type_from_text(raw_text: str) -> str | None:
     normalized_text = raw_text.lower()
 
+    if "rf-detr" in normalized_text or "rfdetr" in normalized_text or ".pth" in normalized_text:
+        return "rfdetr-seg" if "seg" in normalized_text else "rfdetr"
+
     yolo26_match = re.search(r"yolo26([nslmx])(?:-seg)?\b", normalized_text)
     if yolo26_match is not None:
         return f"yolo26{yolo26_match.group(1)}"
@@ -207,6 +218,27 @@ def is_uploadable_weight(weight_path: Path) -> bool:
     if weight_path.name.startswith("roboflow_"):
         return False
     return True
+
+
+def is_rfdetr_upload(candidate: UploadCandidate, model_type: str) -> bool:
+    return candidate.weight_path.suffix.lower() == ".pth" or model_type.lower().startswith("rfdetr")
+
+
+def infer_rfdetr_class_from_weight(weight_path: Path, model_type: str) -> str:
+    text = f"{weight_path} {model_type}".lower()
+    is_seg = "seg" in text
+    prefix = "RFDETRSeg" if is_seg else "RFDETR"
+    if "2xlarge" in text or "2xl" in text:
+        return f"{prefix}2XLarge"
+    if "xlarge" in text or "xl" in text:
+        return f"{prefix}XLarge"
+    if "large" in text:
+        return f"{prefix}Large"
+    if "small" in text:
+        return f"{prefix}Small"
+    if "nano" in text:
+        return f"{prefix}Nano"
+    return f"{prefix}Medium"
 
 
 def format_timestamp(timestamp: float) -> str:
@@ -417,6 +449,8 @@ def prompt_model_type(detected_model_type: str | None) -> str:
             "yolov8": "Deploy a YOLOv8 model.",
             "yolonas": "Deploy a YOLO-NAS model.",
             "yolox": "Deploy a YOLOX model.",
+            "rfdetr": "Deploy an RF-DETR detection checkpoint.",
+            "rfdetr-seg": "Deploy an RF-DETR segmentation checkpoint.",
             "Enter manually": "Type the Roboflow model type slug manually.",
         },
         breadcrumbs=["YOLOmatic", "Roboflow Upload", "Model Type"],
@@ -464,6 +498,27 @@ def prompt_model_type(detected_model_type: str | None) -> str:
     return normalized_model_type
 
 
+def prompt_project_version(default: int | None = None) -> int | None:
+    while True:
+        raw_value = prompt_tui_text(
+            "Project Version",
+            "Enter the Roboflow project version number",
+            "RF-DETR deployment attaches the checkpoint to a specific Roboflow project version.",
+            default=str(default or 1),
+            breadcrumbs=["YOLOmatic", "Roboflow Upload", "Project Version"],
+        )
+        if raw_value in (NAV_BACK, "Back"):
+            return NAV_BACK  # type: ignore
+        try:
+            version = int(str(raw_value))
+        except ValueError:
+            console.print("[bold red]Version must be an integer.[/bold red]")
+            continue
+        if version >= 1:
+            return version
+        console.print("[bold red]Version must be >= 1.[/bold red]")
+
+
 def suggest_model_name(weight_path: Path) -> str:
     preferred_parts: list[str] = []
     if weight_path.parent.name == "weights":
@@ -503,14 +558,14 @@ def build_upload_summary(
     model_type: str,
     workspace: str,
     project_ids: Sequence[str],
-    model_name: str,
+    model_name: str | None,
 ) -> str:
     summary = [
         f"[bold cyan]Weight:[/bold cyan] {candidate.weight_path.name}",
         f"[bold cyan]Model Type:[/bold cyan] {model_type}",
         f"[bold cyan]Workspace:[/bold cyan] {workspace}",
         f"[bold cyan]Project IDs:[/bold cyan] {', '.join(project_ids)}",
-        f"[bold cyan]Model Name:[/bold cyan] {model_name}",
+        f"[bold cyan]Model Name:[/bold cyan] {model_name or '(RF-DETR version deploy)'}",
         "",
         "[dim]Staging and uploading can take 1-2 minutes depending on model size.[/dim]",
     ]
@@ -590,6 +645,26 @@ def upload_model(
         raise RuntimeError(captured_output)
 
     return deployment_response or captured_output or None
+
+
+def deploy_rfdetr_model(
+    api_key: str,
+    candidate: UploadCandidate,
+    workspace_name: str,
+    project_id: str,
+    version: int,
+    model_type: str,
+) -> Any:
+    model_class = import_rfdetr_model_class(
+        infer_rfdetr_class_from_weight(candidate.weight_path, model_type)
+    )
+    model = model_class(pretrain_weights=str(candidate.weight_path))
+    return model.deploy_to_roboflow(
+        workspace=workspace_name,
+        project_id=project_id,
+        version=version,
+        api_key=api_key,
+    )
 
 
 def create_roboflow_client(api_key: str) -> Any:
@@ -706,6 +781,7 @@ def main() -> None:
         "project_ids": parse_project_ids(args.project_ids) if args.project_ids else None,
         "model_type": args.model_type,
         "model_name": args.model_name,
+        "version": args.version,
     }
 
     steps = [
@@ -814,7 +890,17 @@ def main() -> None:
                 current_step_idx += 1
 
             elif step == "ENTER_MODEL_NAME":
-                if context["model_name"] is None:
+                if (
+                    context["version"] is None
+                    and is_rfdetr_upload(context["candidate"], context["model_type"])
+                ):
+                    res = prompt_project_version()
+                    if res in (NAV_BACK, "Back"):
+                        context["model_type"] = None if not args.model_type else context["model_type"]
+                        current_step_idx -= 1
+                        continue
+                    context["version"] = res
+                if context["model_name"] is None and not is_rfdetr_upload(context["candidate"], context["model_type"]):
                     res = prompt_model_name(
                         suggest_model_name(context["candidate"].weight_path)
                     )
@@ -853,19 +939,29 @@ def main() -> None:
 
                 # Perform the upload
                 with console.status("[bold]Uploading model to Roboflow...", spinner="dots"):
-                    response = upload_model(
-                        env_config.api_key,
-                        context["candidate"],
-                        context["resolved_workspace_name"],
-                        context["project_ids"],
-                        context["model_type"],
-                        context["model_name"],
-                    )
+                    if is_rfdetr_upload(context["candidate"], context["model_type"]):
+                        response = deploy_rfdetr_model(
+                            env_config.api_key,
+                            context["candidate"],
+                            context["resolved_workspace_name"],
+                            context["project_ids"][0],
+                            int(context["version"] or 1),
+                            context["model_type"],
+                        )
+                    else:
+                        response = upload_model(
+                            env_config.api_key,
+                            context["candidate"],
+                            context["resolved_workspace_name"],
+                            context["project_ids"],
+                            context["model_type"],
+                            context["model_name"],
+                        )
 
                 console.print(
                     Panel(
                         f"[bold green]Upload completed successfully.[/bold green]\n"
-                        f"Model: [bold]{context['model_name']}[/bold]\n"
+                        f"Model: [bold]{context['model_name'] or context['model_type']}[/bold]\n"
                         f"Workspace: [bold]{context['resolved_workspace_name']}[/bold]\n"
                         f"Projects: [bold]{', '.join(context['project_ids'])}[/bold]"
                         + (f"\nResponse: [bold]{response}[/bold]" if response else ""),

@@ -29,6 +29,7 @@ from src.utils.cli import (
     render_table,
 )
 from src.utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
+from src.utils.ml_dependencies import import_rfdetr_model_class
 from src.utils.project import (
     find_available_weights,
     format_weight_label,
@@ -116,9 +117,35 @@ def resolve_weight(
     requested_path = Path(requested_weight).expanduser()
     if not requested_path.is_absolute():
         requested_path = project_root / requested_path
-    if not requested_path.exists() or requested_path.suffix.lower() != ".pt":
+    if not requested_path.exists() or requested_path.suffix.lower() not in {".pt", ".pth"}:
         raise FileNotFoundError(f"Weight file not found: {requested_path}")
     return requested_path.resolve()
+
+
+def is_rfdetr_weight(weight_path: Path) -> bool:
+    return weight_path.suffix.lower() == ".pth"
+
+
+def infer_rfdetr_class_from_weight(weight_path: Path) -> str:
+    text = str(weight_path).lower()
+    is_seg = "seg" in text
+    prefix = "RFDETRSeg" if is_seg else "RFDETR"
+    if "2xlarge" in text or "2xl" in text:
+        return f"{prefix}2XLarge"
+    if "xlarge" in text or "xl" in text:
+        return f"{prefix}XLarge"
+    if "large" in text:
+        return f"{prefix}Large"
+    if "small" in text:
+        return f"{prefix}Small"
+    if "nano" in text:
+        return f"{prefix}Nano"
+    return f"{prefix}Medium"
+
+
+def load_rfdetr_model(weight_path: Path) -> object:
+    model_class = import_rfdetr_model_class(infer_rfdetr_class_from_weight(weight_path))
+    return model_class(pretrain_weights=str(weight_path))
 
 
 def select_mode() -> str:
@@ -217,6 +244,7 @@ def render_weight_table(project_root: Path, available_weights: Sequence[Path]) -
 def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -> None:
     fields = {
         "Weight": weight_path,
+        "Model Family": "RF-DETR" if is_rfdetr_weight(weight_path) else "Ultralytics YOLO",
         "Mode": MODE_LABELS[mode],
         "Source": source_path,
     }
@@ -224,6 +252,8 @@ def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -
 
 
 def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | None:
+    if is_rfdetr_weight(weight_path):
+        return run_rfdetr_prediction(weight_path, source_path, conf)
     yolo_class = import_ultralytics_yolo()
     model = yolo_class(str(weight_path))
     results = model.predict(source=str(source_path), conf=conf, save=True)
@@ -235,10 +265,32 @@ def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | 
     return Path(save_dir)
 
 
+def run_rfdetr_prediction(weight_path: Path, source_path: Path, conf: float) -> Path:
+    from PIL import Image
+    import supervision as sv
+
+    model = load_rfdetr_model(weight_path)
+    image = Image.open(source_path).convert("RGB")
+    detections = model.predict(image, threshold=conf)
+    annotated = image.copy()
+    if hasattr(detections, "mask") and getattr(detections, "mask", None) is not None:
+        annotated = sv.MaskAnnotator().annotate(annotated, detections)
+    annotated = sv.BoxAnnotator().annotate(annotated, detections)
+
+    output_dir = Path("runs") / "predict" / "rfdetr"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / source_path.name
+    annotated.save(output_path)
+    return output_dir
+
+
 def _predict_single_image(
     model: object, image_path: Path, conf: float
 ) -> BatchPredictionResult:
     try:
+        if getattr(model, "_yolomatic_rfdetr", False):
+            output_dir = _predict_single_rfdetr_image(model, image_path, conf)
+            return BatchPredictionResult(image_path=image_path, output_dir=output_dir)
         results = model.predict(
             source=str(image_path),
             conf=conf,
@@ -255,6 +307,22 @@ def _predict_single_image(
         )
 
 
+def _predict_single_rfdetr_image(model: object, image_path: Path, conf: float) -> Path:
+    from PIL import Image
+    import supervision as sv
+
+    image = Image.open(image_path).convert("RGB")
+    detections = model.predict(image, threshold=conf)
+    annotated = image.copy()
+    if hasattr(detections, "mask") and getattr(detections, "mask", None) is not None:
+        annotated = sv.MaskAnnotator().annotate(annotated, detections)
+    annotated = sv.BoxAnnotator().annotate(annotated, detections)
+    output_dir = Path("runs") / "predict" / "rfdetr"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    annotated.save(output_dir / image_path.name)
+    return output_dir
+
+
 def _output_dir_from_results(results: object) -> Path | None:
     if not results:
         return None
@@ -267,8 +335,12 @@ def _output_dir_from_results(results: object) -> Path | None:
 def _initialize_prediction_worker(weight_path: str, conf: float) -> None:
     global _WORKER_MODEL, _WORKER_CONF
 
-    yolo_class = import_ultralytics_yolo()
-    _WORKER_MODEL = yolo_class(weight_path)
+    if Path(weight_path).suffix.lower() == ".pth":
+        _WORKER_MODEL = load_rfdetr_model(Path(weight_path))
+        setattr(_WORKER_MODEL, "_yolomatic_rfdetr", True)
+    else:
+        yolo_class = import_ultralytics_yolo()
+        _WORKER_MODEL = yolo_class(weight_path)
     _WORKER_CONF = conf
 
 
@@ -365,8 +437,12 @@ def run_folder_prediction(
         raise ValueError("No supported image files found in the selected folder.")
 
     if workers == 1:
-        yolo_class = import_ultralytics_yolo()
-        model = yolo_class(str(weight_path))
+        if is_rfdetr_weight(weight_path):
+            model = load_rfdetr_model(weight_path)
+            setattr(model, "_yolomatic_rfdetr", True)
+        else:
+            yolo_class = import_ultralytics_yolo()
+            model = yolo_class(str(weight_path))
         results: list[BatchPredictionResult] = []
         with make_prediction_progress() as progress:
             task_id = progress.add_task(

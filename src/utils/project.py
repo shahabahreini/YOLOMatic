@@ -36,10 +36,14 @@ def find_available_weights(project_root: Path) -> list[Path]:
     discovered: dict[Path, Path] = {}
     for weight_path in project_root.glob("*.pt"):
         discovered[weight_path.resolve()] = weight_path
+    for weight_path in project_root.glob("*.pth"):
+        discovered[weight_path.resolve()] = weight_path
 
     runs_dir = project_root / "runs"
     if runs_dir.exists():
         for weight_path in runs_dir.glob("**/weights/*.pt"):
+            discovered[weight_path.resolve()] = weight_path
+        for weight_path in runs_dir.glob("**/*.pth"):
             discovered[weight_path.resolve()] = weight_path
 
     return sorted(
@@ -58,6 +62,11 @@ def infer_ultralytics_task_from_name(value: str | Path) -> str:
     return "detection"
 
 
+def is_rfdetr_source(value: str | Path) -> bool:
+    text = str(value).replace("\\", "/").lower()
+    return Path(value).suffix.lower() == ".pth" or "rf-detr" in text or "rfdetr" in text
+
+
 def is_yolo_nas_source(value: str | Path) -> bool:
     return "nas" in Path(value).name.lower()
 
@@ -72,7 +81,11 @@ def find_finetune_candidates(project_root: Path) -> list[FineTuneCandidate]:
                 source=format_weight_label(project_root, weight_path),
                 display_name=format_weight_label(project_root, weight_path),
                 kind="local",
-                task=infer_ultralytics_task_from_name(weight_path),
+                task=(
+                    "segmentation"
+                    if is_rfdetr_source(weight_path) and "seg" in str(weight_path).lower()
+                    else infer_ultralytics_task_from_name(weight_path)
+                ),
                 weight_path=weight_path,
                 modified_time=weight_path.stat().st_mtime,
             )

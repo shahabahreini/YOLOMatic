@@ -9,7 +9,7 @@ from typing import Iterator
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
-from src.config.generator import YOLOConfigGenerator
+from src.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator
 from src.utils.project import (
     find_finetune_candidates,
     find_available_weights,
@@ -81,6 +81,17 @@ class ProjectUtilsTests(unittest.TestCase):
             results = find_available_weights(root)
 
             self.assertEqual({path.name for path in results}, {"root.pt", "best.pt"})
+
+    def test_find_available_weights_includes_rfdetr_pth_checkpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            checkpoint = root / "runs" / "rfdetr" / "checkpoint_best_total.pth"
+            checkpoint.parent.mkdir(parents=True)
+            checkpoint.touch()
+
+            results = find_available_weights(root)
+
+            self.assertEqual([path.name for path in results], ["checkpoint_best_total.pth"])
 
     def test_find_finetune_candidates_excludes_yolo_nas_weights(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -357,3 +368,43 @@ class ProjectUtilsTests(unittest.TestCase):
         )
 
         self.assertEqual(config["training"]["freeze"], 10)
+
+    def test_rfdetr_config_generator_uses_auto_download_for_fresh_training(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = Path(temp_dir) / "demo"
+            (dataset / "train" / "images").mkdir(parents=True)
+            (dataset / "train" / "labels").mkdir(parents=True)
+            (dataset / "valid" / "images").mkdir(parents=True)
+            (dataset / "test" / "images").mkdir(parents=True)
+            (dataset / "data.yaml").write_text(
+                "train: train/images\nval: valid/images\ntest: test/images\nnames: [item]\n",
+                encoding="utf-8",
+            )
+            (dataset / "train" / "labels" / "sample.txt").write_text(
+                "0 0.5 0.5 0.2 0.2\n",
+                encoding="utf-8",
+            )
+
+            generator = RFDETRConfigGenerator(str(dataset))
+            config = generator.generate_config("RF-DETR-Small")
+
+            self.assertEqual(config["settings"]["model_family"], "rfdetr")
+            self.assertEqual(config["settings"]["class_name"], "RFDETRSmall")
+            self.assertTrue(config["settings"]["auto_download_pretrained"])
+            self.assertNotIn("pretrain_weights", config["training"])
+            self.assertEqual(config["training"]["resolution"], 512)
+
+    def test_rfdetr_config_generator_sets_finetune_checkpoint(self) -> None:
+        generator = RFDETRConfigGenerator("/tmp/nonexistent-dataset")
+        generator.dataset_info["classes"] = ["item"]
+
+        config = generator.generate_config(
+            "RF-DETR-Medium",
+            finetune_source="runs/rfdetr/checkpoint_best_total.pth",
+        )
+
+        self.assertFalse(config["settings"]["auto_download_pretrained"])
+        self.assertEqual(
+            config["training"]["pretrain_weights"],
+            "runs/rfdetr/checkpoint_best_total.pth",
+        )

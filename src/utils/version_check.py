@@ -62,6 +62,12 @@ CRITICAL_PACKAGES: tuple[CriticalPackage, ...] = (
         "important",
     ),
     CriticalPackage(
+        "rfdetr",
+        "RF-DETR",
+        "Required to train, predict, export, and deploy RF-DETR models.",
+        "critical",
+    ),
+    CriticalPackage(
         "tensorboard",
         "TensorBoard",
         "Dashboards for inspecting training metrics and artifacts.",

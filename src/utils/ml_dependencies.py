@@ -183,3 +183,27 @@ def import_ultralytics_settings() -> object:
         raise MLDependencyError(
             "ultralytics.settings is not available in the installed package."
         ) from error
+
+
+def import_rfdetr_module() -> object:
+    try:
+        return import_module_or_raise("rfdetr")
+    except MLDependencyError as error:
+        raise MLDependencyError(
+            f"{error}\nInstall RF-DETR support with `uv sync` after adding "
+            "`rfdetr[plus]` to the project dependencies."
+        ) from error
+
+
+def import_rfdetr_model_class(class_name: str) -> object:
+    rfdetr_module = import_rfdetr_module()
+    try:
+        return getattr(rfdetr_module, class_name)
+    except AttributeError as error:
+        extra_hint = ""
+        if class_name in {"RFDETRXLarge", "RFDETR2XLarge"}:
+            extra_hint = " Plus detection models require the `rfdetr[plus]` extra."
+        raise MLDependencyError(
+            f"RF-DETR model class '{class_name}' is not available in the installed package."
+            f"{extra_hint}"
+        ) from error

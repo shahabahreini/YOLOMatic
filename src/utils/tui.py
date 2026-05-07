@@ -122,6 +122,8 @@ class MenuRenderer:
         """Map a menu option string to its model_data_dict family key."""
         o = option.lower()
         mapping = {
+            "rfdetr-seg": "rfdetr-seg",
+            "rfdetr": "rfdetr",
             "yolo26-seg": "yolo26-seg",
             "yolo26": "yolo26",
             "yolov12-seg": "yolov12-seg",

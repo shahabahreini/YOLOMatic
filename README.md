@@ -2,7 +2,7 @@
 
 # YOLOmatic
 
-**Automated YOLO Training — Configure, Train, Predict, Upload**
+**Automated YOLO and RF-DETR Training — Configure, Train, Predict, Upload**
 
 [![macOS](https://img.shields.io/badge/macOS-supported-black?logo=apple&logoColor=white&style=for-the-badge)](https://www.apple.com/macos/)
 [![Linux](https://img.shields.io/badge/Linux-supported-black?logo=linux&logoColor=white&style=for-the-badge)](https://kernel.org/)
@@ -17,15 +17,15 @@
 
 ---
 
-**YOLOmatic** is a production-grade CLI toolkit for the full YOLO training lifecycle — model selection, configuration generation, checkpoint fine-tuning, training, prediction, TensorBoard monitoring, dataset combining, dependency health checks, and Roboflow upload — all driven through a rich interactive terminal interface.
+**YOLOmatic** is a production-grade CLI toolkit for the full YOLO and RF-DETR training lifecycle — model selection, configuration generation, checkpoint fine-tuning, training, prediction, TensorBoard monitoring, dataset combining, dependency health checks, and Roboflow upload — all driven through a rich interactive terminal interface.
 
-Supported model families: **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, **YOLOX**, and **YOLO-NAS**.
+Supported model families: **RF-DETR**, **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, **YOLOX**, and **YOLO-NAS**.
 
 ---
 
 ## About
 
-YOLOmatic automates the end-to-end workflow for training YOLO-based computer vision models using [Ultralytics](https://github.com/ultralytics/ultralytics) and [SuperGradients](https://github.com/Deci-AI/super-gradients). It targets practitioners who need a reproducible, hardware-aware training pipeline without writing boilerplate configuration or shell scripts.
+YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR computer vision models using [Ultralytics](https://github.com/ultralytics/ultralytics), [SuperGradients](https://github.com/Deci-AI/super-gradients), and [RF-DETR](https://github.com/roboflow/rf-detr). It targets practitioners who need a reproducible, hardware-aware training pipeline without writing boilerplate configuration or shell scripts.
 
 **Supported tasks:** object detection, instance segmentation, image classification, pose estimation, oriented object detection (OBB).
 
@@ -33,6 +33,7 @@ YOLOmatic automates the end-to-end workflow for training YOLO-based computer vis
 
 | Family | Variants | Tasks |
 |---|---|---|
+| RF-DETR | Nano / Small / Medium / Large / XLarge / 2XLarge + Seg variants | Detect, Segment |
 | YOLO26 | n / s / m / l / x + seg / cls / pose / obb | All |
 | YOLOv12 | n / s / m / l / x + seg | Detect, Segment |
 | YOLOv11 | n / s / m / l / x + seg / cls / pose / obb | All |
@@ -71,15 +72,16 @@ YOLOmatic automates the end-to-end workflow for training YOLO-based computer vis
 
 | Feature | Description |
 |---|---|
-| **Broad Model Support** | YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS — detection, segmentation, classification, pose, and OBB |
+| **Broad Model Support** | RF-DETR, YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and YOLO-NAS — detection, segmentation, classification, pose, and OBB |
 | **Interactive TUI** | Rich terminal menus for configuration, fine-tuning, training, prediction, monitoring, dataset combining, uploads, and dependency checks |
 | **Auto-Optimized Configs** | Augmentation, compute, and worker profiles are recommended based on your dataset and hardware automatically |
-| **Checkpoint Fine-Tuning** | Finds existing Ultralytics `.pt` weights, binds them to a dataset, and generates a fresh fine-tuning YAML with `resume: false` by default |
-| **Smart Training Router** | Standard YOLO and YOLO-NAS configs are routed to the correct trainer automatically |
+| **Checkpoint Fine-Tuning** | Finds existing Ultralytics `.pt` and RF-DETR `.pth` weights, binds them to a dataset, and generates a fresh fine-tuning YAML |
+| **Automatic Pretrained Downloads** | Fresh YOLO and RF-DETR configs load official pretrained weights automatically; local checkpoints are used only for fine-tuning or resume |
+| **Smart Training Router** | YOLO, YOLO-NAS, and RF-DETR configs are routed to the correct trainer automatically |
 | **CUDA Auto-Repair** | Detects CPU-only PyTorch when a GPU is present and offers an in-app repair flow |
-| **Prediction TUI** | Discovers `.pt` weights across the project tree, then runs single-image or batch folder inference with multiprocessing and rich progress display |
+| **Prediction TUI** | Discovers `.pt` and `.pth` weights across the project tree, then runs single-image or batch folder inference with rich progress display |
 | **Dataset Combiner** | Merges multiple YOLO datasets, deduplicates class names, remaps labels, and hard-links images where possible |
-| **Roboflow Upload** | Uploads trained checkpoints with workspace resolution, model-type prompting, `.env` credential support, and automatic post-training upload |
+| **Roboflow Upload** | Uploads trained YOLO checkpoints and deploys RF-DETR checkpoints with workspace/project prompts and `.env` credential support |
 | **TensorBoard Launcher** | Scans all training runs and starts TensorBoard without manually locating log directories |
 | **ClearML Integration** | Tracks hyper-parameters, metrics, and artifacts through ClearML for remote experiment management |
 | **Dependency Health Checks** | Checks core ML packages from the TUI and offers guided upgrades for missing or outdated dependencies |
@@ -211,9 +213,9 @@ Launches the interactive TUI. The main menu currently includes:
 | Menu Item | Purpose |
 |---|---|
 | **Configure Model** | Select a model family/variant, bind a dataset, and generate a hardware-aware training YAML |
-| **Configure Fine-Tune** | Select an existing Ultralytics `.pt` checkpoint, choose a target dataset, and generate a fresh fine-tuning YAML |
+| **Configure Fine-Tune** | Select an existing Ultralytics `.pt` or RF-DETR `.pth` checkpoint, choose a target dataset, and generate a fresh fine-tuning YAML |
 | **Train Model** | Train, validate, export, and log from a saved config |
-| **Run Prediction** | Run single-image or folder inference from discovered `.pt` weights |
+| **Run Prediction** | Run single-image or folder inference from discovered `.pt` or `.pth` weights |
 | **Launch TensorBoard** | Open TensorBoard for a selected run or the full `runs/` tree |
 | **Combine Datasets** | Merge YOLO-format datasets with class remapping |
 | **Upload to Roboflow** | Publish trained checkpoints to Roboflow |
