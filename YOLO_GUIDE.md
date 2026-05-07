@@ -76,11 +76,19 @@ uv run yolomatic-train
 # Run predictions with the TUI
 uv run yolomatic-predict
 
-# Or run prediction directly with explicit arguments
+# Or run single-image prediction directly with explicit arguments
 uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.pt --source /path/to/image.jpg
+
+# Or run batch folder prediction using multiprocessing
+uv run yolomatic-predict --mode folder --weight runs/segment/train/weights/best.pt --source datasets/my_dataset/test/images --workers 4
 
 # Upload a trained checkpoint to Roboflow
 uv run yolomatic-upload
+
+# (Note: You can also enable automatic upload by adding this block to your training YAML)
+# roboflow:
+#   upload: true
+#   weight: "best.pt"
 
 # Or upload directly with explicit arguments
 uv run yolomatic-upload --weight runs/segment/train2/weights/best.pt --workspace your-workspace-slug --project-ids vegmask --model-type yolo26l --model-name train2-best

@@ -77,9 +77,9 @@ YOLOmatic automates the end-to-end workflow for training YOLO-based computer vis
 | **Checkpoint Fine-Tuning** | Finds existing Ultralytics `.pt` weights, binds them to a dataset, and generates a fresh fine-tuning YAML with `resume: false` by default |
 | **Smart Training Router** | Standard YOLO and YOLO-NAS configs are routed to the correct trainer automatically |
 | **CUDA Auto-Repair** | Detects CPU-only PyTorch when a GPU is present and offers an in-app repair flow |
-| **Prediction TUI** | Discovers `.pt` weights across the project tree, then runs single-image or batch folder inference |
+| **Prediction TUI** | Discovers `.pt` weights across the project tree, then runs single-image or batch folder inference with multiprocessing and rich progress display |
 | **Dataset Combiner** | Merges multiple YOLO datasets, deduplicates class names, remaps labels, and hard-links images where possible |
-| **Roboflow Upload** | Uploads trained checkpoints with workspace resolution, model-type prompting, and `.env` credential support |
+| **Roboflow Upload** | Uploads trained checkpoints with workspace resolution, model-type prompting, `.env` credential support, and automatic post-training upload |
 | **TensorBoard Launcher** | Scans all training runs and starts TensorBoard without manually locating log directories |
 | **ClearML Integration** | Tracks hyper-parameters, metrics, and artifacts through ClearML for remote experiment management |
 | **Dependency Health Checks** | Checks core ML packages from the TUI and offers guided upgrades for missing or outdated dependencies |
@@ -218,6 +218,7 @@ Launches the interactive TUI. The main menu currently includes:
 | **Combine Datasets** | Merge YOLO-format datasets with class remapping |
 | **Upload to Roboflow** | Publish trained checkpoints to Roboflow |
 | **Check for Updates** | Review package health for the local ML stack |
+| **About YOLOmatic** | View technical details, creator info, and version history |
 
 Generated configs are written to `configs/` with unique timestamped filenames.
 
@@ -284,6 +285,7 @@ Choose **Combine Datasets** from the TUI. YOLOmatic merges selected YOLO-format 
 
 ### 6. Upload to Roboflow
 
+**Manual Upload CLI:**
 ```sh
 uv run yolomatic-upload
 ```
@@ -298,6 +300,15 @@ uv run yolomatic-upload \
   --model-type yolo26l \
   --model-name train2-best
 ```
+
+**Automatic Post-Training Upload:**
+You can configure training runs to automatically upload weights upon completion by adding a `roboflow` block to your training YAML:
+```yaml
+roboflow:
+  upload: true
+  weight: "best.pt"
+```
+Ensure your dataset contains Roboflow workspace/project metadata or your `.env` has default fallback credentials.
 
 **Upload requirements:**
 
@@ -420,5 +431,8 @@ Licensed under the [Apache License 2.0](LICENSE.md).
 <div align="center">
 
 Built on top of [Ultralytics](https://github.com/ultralytics/ultralytics) and [ClearML](https://github.com/allegroai/clearml).
+
+</div>
+arml).
 
 </div>
