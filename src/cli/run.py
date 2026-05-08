@@ -3132,14 +3132,6 @@ class _ExitTUI(Exception):
     """Raised internally when the user chooses Exit from the main menu."""
 
 
-def _edit_settings_value(settings: dict[str, Any], section: str, key: str, definition: ParameterDefinition) -> None:
-    value = get_parameter_value_input(definition, settings.get(section, {}).get(key))
-    if value in (NAV_BACK, NAV_LIST):
-        return
-    settings.setdefault(section, {})[key] = value
-    save_settings(settings)
-
-
 def _settings_table(title: str, values: dict[str, Any]) -> None:
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Setting", style="dim")
@@ -3152,62 +3144,81 @@ def _settings_table(title: str, values: dict[str, Any]) -> None:
     console.print(table)
 
 
-def settings_clearml_page() -> None:
+def _settings_definitions() -> list[ParameterDefinition]:
+    return [
+        ParameterDefinition("enabled", "ClearML", True, "bool", "Enable ClearML", "Controls whether training initializes a ClearML task.", config_section="clearml"),
+        ParameterDefinition("require_configured", "ClearML", False, "bool", "Require ClearML", "When true, training cancels if ClearML cannot initialize.", config_section="clearml"),
+        ParameterDefinition("project_name_template", "ClearML", "{family} Training - {model}", "str", "Project template", "Supports {family} and {model}.", config_section="clearml"),
+        ParameterDefinition("task_name_format", "ClearML", "%Y-%m-%d-%H-%M", "str", "Task timestamp format", "Python datetime format used in task names.", config_section="clearml"),
+        ParameterDefinition("upload_final_model", "ClearML", True, "bool", "Upload final model", "Uploads best/last checkpoint as a ClearML artifact.", config_section="clearml"),
+        ParameterDefinition("upload_artifacts", "ClearML", True, "bool", "Upload artifacts", "Reserved for generated artifacts beyond the final model.", config_section="clearml"),
+        ParameterDefinition("log_hyperparameters", "ClearML", True, "bool", "Log hyperparameters", "Connects training, dataset, and export parameters to the task.", config_section="clearml"),
+        ParameterDefinition("log_dataset_summary", "ClearML", True, "bool", "Log dataset summary", "Reserved for dataset summary logging.", config_section="clearml"),
+        ParameterDefinition("upload_wizard_enabled", "Roboflow", True, "bool", "Enable manual upload wizard", "Controls whether Upload to Roboflow is available from the main TUI.", config_section="roboflow"),
+        ParameterDefinition("auto_upload_after_training", "Roboflow", False, "bool", "Auto-upload after training", "New configs snapshot this as roboflow.upload.", config_section="roboflow"),
+        ParameterDefinition("auto_upload_weight", "Roboflow", "best.pt", "str", "Auto-upload weight", "Usually best.pt or last.pt.", config_section="roboflow"),
+        ParameterDefinition("default_model_name_template", "Roboflow", "{run_name}-best", "str", "Model name template", "Supports {run_name}.", config_section="roboflow"),
+        ParameterDefinition("require_dataset_metadata", "Roboflow", True, "bool", "Require dataset metadata", "Skip auto upload when workspace/project metadata is unavailable.", config_section="roboflow"),
+        ParameterDefinition("rfdetr_project_version", "Roboflow", 1, "int", "RF-DETR version", "Default project version used for RF-DETR deploy.", min_value=1, config_section="roboflow"),
+        ParameterDefinition("mode", "Narratives", "guided", "str", "Narrative mode", "guided shows full panels, concise uses shorter messages, quiet only reports blockers and final results.", allowed_values=["guided", "concise", "quiet"], config_section="narratives"),
+        ParameterDefinition("show_setup_guidance", "Narratives", True, "bool", "Show setup guidance", "Controls setup guidance text.", config_section="narratives"),
+        ParameterDefinition("show_success_panels", "Narratives", True, "bool", "Show success panels", "Controls success panels.", config_section="narratives"),
+        ParameterDefinition("show_skip_reasons", "Narratives", True, "bool", "Show skip reasons", "Controls expected skip messages.", config_section="narratives"),
+    ]
+
+
+def _settings_values(settings: dict[str, Any], definitions: list[ParameterDefinition]) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for definition in definitions:
+        values[definition.name] = settings.get(definition.config_section, {}).get(
+            definition.name,
+            definition.default,
+        )
+    return values
+
+
+def run_settings_customizer(
+    title: str = "Global Integration Settings",
+    section_filter: set[str] | None = None,
+) -> bool:
+    definitions = [
+        definition
+        for definition in _settings_definitions()
+        if section_filter is None or definition.config_section in section_filter
+    ]
     settings = load_settings()
-    definitions = {
-        "enabled": ParameterDefinition("enabled", "ClearML", True, "bool", "Enable ClearML", "Controls whether training initializes a ClearML task.", config_section="clearml"),
-        "require_configured": ParameterDefinition("require_configured", "ClearML", False, "bool", "Require ClearML", "When true, training cancels if ClearML cannot initialize.", config_section="clearml"),
-        "project_name_template": ParameterDefinition("project_name_template", "ClearML", "{family} Training - {model}", "str", "Project template", "Supports {family} and {model}.", config_section="clearml"),
-        "task_name_format": ParameterDefinition("task_name_format", "ClearML", "%Y-%m-%d-%H-%M", "str", "Task timestamp format", "Python datetime format used in task names.", config_section="clearml"),
-        "upload_final_model": ParameterDefinition("upload_final_model", "ClearML", True, "bool", "Upload final model", "Uploads best/last checkpoint as a ClearML artifact.", config_section="clearml"),
-        "upload_artifacts": ParameterDefinition("upload_artifacts", "ClearML", True, "bool", "Upload artifacts", "Reserved for generated artifacts beyond the final model.", config_section="clearml"),
-        "log_hyperparameters": ParameterDefinition("log_hyperparameters", "ClearML", True, "bool", "Log hyperparameters", "Connects training, dataset, and export parameters to the task.", config_section="clearml"),
-        "log_dataset_summary": ParameterDefinition("log_dataset_summary", "ClearML", True, "bool", "Log dataset summary", "Reserved for dataset summary logging.", config_section="clearml"),
-    }
-    while True:
-        _settings_table("ClearML Integration", settings["clearml"])
-        console.print("[cyan]Setup command:[/cyan] uv run clearml-init  [dim]or[/dim]  clearml-init")
-        choice = get_user_choice(list(definitions) + ["Back"], title="ClearML Integration", text="Choose a setting to edit:")
-        if choice == "Back":
-            return
-        _edit_settings_value(settings, "clearml", choice, definitions[choice])
-        settings = load_settings()
+    result = get_user_multi_select(
+        parameters=definitions,
+        title=title,
+        instruction="[Enter/→] Edit  [F] Save Settings  [Q] Back",
+        pre_selected={definition.name for definition in definitions},
+        pre_values=_settings_values(settings, definitions),
+    )
+    if result is None:
+        return False
+
+    _selected, values = result
+    for definition in definitions:
+        settings.setdefault(definition.config_section, {})[definition.name] = values.get(
+            definition.name,
+            definition.default,
+        )
+    save_settings(settings)
+    console.print("[bold green]Settings saved.[/bold green]")
+    input("\nPress Enter to return...")
+    return True
+
+
+def settings_clearml_page() -> None:
+    run_settings_customizer("ClearML Integration", {"clearml"})
 
 
 def settings_roboflow_page() -> None:
-    settings = load_settings()
-    definitions = {
-        "upload_wizard_enabled": ParameterDefinition("upload_wizard_enabled", "Roboflow", True, "bool", "Enable manual upload wizard", "Controls whether Upload to Roboflow is available from the main TUI.", config_section="roboflow"),
-        "auto_upload_after_training": ParameterDefinition("auto_upload_after_training", "Roboflow", False, "bool", "Auto-upload after training", "New configs snapshot this as roboflow.upload.", config_section="roboflow"),
-        "auto_upload_weight": ParameterDefinition("auto_upload_weight", "Roboflow", "best.pt", "str", "Auto-upload weight", "Usually best.pt or last.pt.", config_section="roboflow"),
-        "default_model_name_template": ParameterDefinition("default_model_name_template", "Roboflow", "{run_name}-best", "str", "Model name template", "Supports {run_name}.", config_section="roboflow"),
-        "require_dataset_metadata": ParameterDefinition("require_dataset_metadata", "Roboflow", True, "bool", "Require dataset metadata", "Skip auto upload when workspace/project metadata is unavailable.", config_section="roboflow"),
-        "rfdetr_project_version": ParameterDefinition("rfdetr_project_version", "Roboflow", 1, "int", "RF-DETR version", "Default project version used for RF-DETR deploy.", min_value=1, config_section="roboflow"),
-    }
-    while True:
-        _settings_table("Roboflow Integration", settings["roboflow"])
-        choice = get_user_choice(list(definitions) + ["Back"], title="Roboflow Integration", text="Choose a setting to edit:")
-        if choice == "Back":
-            return
-        _edit_settings_value(settings, "roboflow", choice, definitions[choice])
-        settings = load_settings()
+    run_settings_customizer("Roboflow Integration", {"roboflow"})
 
 
 def settings_narratives_page() -> None:
-    settings = load_settings()
-    definitions = {
-        "mode": ParameterDefinition("mode", "Narratives", "guided", "str", "Narrative mode", "guided shows full panels, concise uses shorter messages, quiet only reports blockers and final results.", allowed_values=["guided", "concise", "quiet"], config_section="narratives"),
-        "show_setup_guidance": ParameterDefinition("show_setup_guidance", "Narratives", True, "bool", "Show setup guidance", "Controls setup guidance text.", config_section="narratives"),
-        "show_success_panels": ParameterDefinition("show_success_panels", "Narratives", True, "bool", "Show success panels", "Controls success panels.", config_section="narratives"),
-        "show_skip_reasons": ParameterDefinition("show_skip_reasons", "Narratives", True, "bool", "Show skip reasons", "Controls expected skip messages.", config_section="narratives"),
-    }
-    while True:
-        _settings_table("Integration Narratives", settings["narratives"])
-        choice = get_user_choice(list(definitions) + ["Back"], title="Integration Narratives", text="Choose a setting to edit:")
-        if choice == "Back":
-            return
-        _edit_settings_value(settings, "narratives", choice, definitions[choice])
-        settings = load_settings()
+    run_settings_customizer("Integration Narratives", {"narratives"})
 
 
 def settings_credentials_page() -> None:
@@ -3234,6 +3245,7 @@ def settings_menu() -> None:
     while True:
         choice = get_user_choice(
             [
+                "Customize All Settings",
                 "ClearML Integration",
                 "Roboflow Integration",
                 "Integration Narratives",
@@ -3246,7 +3258,9 @@ def settings_menu() -> None:
         )
         if choice == "Back":
             return
-        if choice == "ClearML Integration":
+        if choice == "Customize All Settings":
+            run_settings_customizer()
+        elif choice == "ClearML Integration":
             settings_clearml_page()
         elif choice == "Roboflow Integration":
             settings_roboflow_page()
