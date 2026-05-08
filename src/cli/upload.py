@@ -21,6 +21,7 @@ from src.utils.cli import (
     ParameterDefinition,
     clear_screen,
     console,
+    expected_error_panel,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
@@ -971,7 +972,13 @@ def main() -> None:
             console.print("\n[bold yellow]Upload cancelled.[/bold yellow]")
             return
         except Exception as error:
-            console.print(f"[bold red]Upload failed: {error}[/bold red]")
+            console.print(
+                expected_error_panel(
+                    str(error),
+                    title="Upload Failed",
+                    next_step="Review the workspace, project ID, version, and selected weights before retrying.",
+                )
+            )
             input("\nPress Enter to return...")
             return
 

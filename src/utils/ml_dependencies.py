@@ -207,3 +207,14 @@ def import_rfdetr_model_class(class_name: str) -> object:
             f"RF-DETR model class '{class_name}' is not available in the installed package."
             f"{extra_hint}"
         ) from error
+
+
+def import_detectron2() -> object:
+    try:
+        return import_module_or_raise("detectron2")
+    except MLDependencyError as error:
+        raise MLDependencyError(
+            f"{error}\nDetectron2 support is optional. Install a Detectron2 build "
+            "compatible with your Python, PyTorch, and CUDA versions to train "
+            "Detectron2 models."
+        ) from error

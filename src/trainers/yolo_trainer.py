@@ -14,6 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.cli.upload import build_candidate, stage_upload_candidate, upload_model
+from src.config.settings import DEFAULT_SETTINGS, deep_merge, load_settings
 
 from src.utils.cli import get_user_choice
 from src.utils.ml_dependencies import (
@@ -199,7 +200,15 @@ def verify_model_file(model_name):
         return None
 
 
-def initialize_clearml_task(project_name, task_name, tags):
+def effective_clearml_settings(config_clearml: dict | None) -> dict:
+    global_clearml = load_settings().get("clearml", {})
+    return deep_merge(global_clearml, config_clearml or {})
+
+
+def initialize_clearml_task(project_name, task_name, tags, clearml_settings=None):
+    clearml_settings = clearml_settings or DEFAULT_SETTINGS["clearml"]
+    if not clearml_settings.get("enabled", True):
+        return None
     try:
         from clearml import Task
 
@@ -209,6 +218,9 @@ def initialize_clearml_task(project_name, task_name, tags):
             tags=tags,
         )
     except Exception as error:
+        if clearml_settings.get("require_configured", False):
+            console.print(f"[bold red]ClearML is required but not configured: {error}[/bold red]")
+            return False
         console.print(f"[bold yellow]ClearML is not configured: {error}[/bold yellow]")
         selection = get_user_choice(
             ["Continue Without ClearML", "Cancel Training"],
@@ -240,6 +252,18 @@ def initialize_clearml_task(project_name, task_name, tags):
         if selection == "Cancel Training":
             return False
         return None
+
+
+def upload_clearml_final_model(task, run_dir, clearml_settings):
+    if task is None or not clearml_settings.get("upload_final_model", True) or run_dir is None:
+        return
+    for candidate in (run_dir / "weights" / "best.pt", run_dir / "weights" / "last.pt"):
+        if candidate.exists():
+            try:
+                task.upload_artifact(name="final_model", artifact_object=str(candidate))
+            except Exception as error:
+                console.print(f"[bold yellow]ClearML final model upload skipped: {error}[/bold yellow]")
+            return
 
 
 def print_config_summary(config, dataset_config):
@@ -296,7 +320,7 @@ def upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_type
     if not roboflow_config.get("upload", False):
         return
 
-    weight_name = roboflow_config.get("weight", "best.pt")
+    weight_name = roboflow_config.get("weight") or roboflow_config.get("auto_upload_weight", "best.pt")
     console.print(f"\n[bold green]Preparing to upload {weight_name} to Roboflow...[/bold green]")
     
     if run_dir is None:
@@ -313,7 +337,10 @@ def upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_type
     project = dataset_rf.get("project")
     
     if not workspace or not project:
-        console.print("[bold red]Cannot upload: Dataset configuration lacks Roboflow workspace or project.[/bold red]")
+        if roboflow_config.get("require_dataset_metadata", True):
+            console.print("[bold red]Cannot upload: Dataset configuration lacks Roboflow workspace or project.[/bold red]")
+        else:
+            console.print("[bold yellow]Skipping Roboflow upload: dataset Roboflow metadata is missing.[/bold yellow]")
         return
 
     try:
@@ -364,15 +391,26 @@ def main():
 
             rfdetr_main(config_file)
             return
+        if config.get("settings", {}).get("model_family") == "detectron2":
+            console.print(
+                "\n[bold green]Routing Detectron2 configuration to Detectron2 trainer...[/bold green]"
+            )
+            from src.trainers.detectron2_trainer import main as detectron2_main
+
+            detectron2_main(config_file)
+            return
         settings = config["settings"]
-        clearml_settings = config["clearml"]
+        clearml_settings = effective_clearml_settings(config.get("clearml", {}))
         training_params = config["training"]
         export_params = config["export"]
 
         # Load dataset configuration
-        dataset_config, data_yaml_path, dataset_path = load_dataset_config(
+        model_name = settings["model_type"]
+        dataset_section = config.get("dataset", {})
+        dataset_name_or_path = dataset_section.get("prepared_dir") or (
             settings["dataset"] if "dataset" in settings else settings["model_type"]
         )
+        dataset_config, data_yaml_path, dataset_path = load_dataset_config(dataset_name_or_path)
         verify_directories(dataset_config)
         print_config_summary(config, dataset_config)
 
@@ -385,8 +423,6 @@ def main():
 
             rfdetr_main(config_file)
             return
-        model_name = settings["model_type"]
-
         current_time = datetime.now().strftime(clearml_settings["task_name_format"])
         task_name = f"{model_name}-{current_time}"
 
@@ -415,12 +451,13 @@ def main():
             project_name=clearml_settings["project_name"],
             task_name=task_name,
             tags=[model_name[:4].upper() + model_name[4:]],
+            clearml_settings=clearml_settings,
         )
         if task is False:
             console.print("[bold yellow]Training cancelled.[/bold yellow]")
             return
 
-        if task is not None:
+        if task is not None and clearml_settings.get("log_hyperparameters", True):
             task.connect(
                 {
                     "dataset_config": dataset_config,
@@ -452,6 +489,8 @@ def main():
         # Export the model
         console.print("\n[bold green]Exporting model...[/bold green]")
         model.export(**export_params)
+
+        upload_clearml_final_model(task, run_dir, clearml_settings)
 
         upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_name, console)
 

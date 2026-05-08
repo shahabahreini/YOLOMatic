@@ -23,12 +23,13 @@ from rich.table import Table
 
 from src.utils.cli import (
     console,
+    expected_error_panel,
     get_user_choice,
     print_stylized_header,
     render_summary_panel,
     render_table,
 )
-from src.utils.ml_dependencies import MLDependencyError, import_ultralytics_yolo
+from src.utils.ml_dependencies import MLDependencyError, import_detectron2, import_ultralytics_yolo
 from src.utils.ml_dependencies import import_rfdetr_model_class
 from src.utils.project import (
     find_available_weights,
@@ -123,7 +124,14 @@ def resolve_weight(
 
 
 def is_rfdetr_weight(weight_path: Path) -> bool:
-    return weight_path.suffix.lower() == ".pth"
+    return weight_path.suffix.lower() == ".pth" and not is_detectron2_weight(weight_path)
+
+
+def is_detectron2_weight(weight_path: Path) -> bool:
+    if weight_path.suffix.lower() != ".pth":
+        return False
+    text = str(weight_path).lower()
+    return "detectron2" in text or "faster_rcnn" in text or "mask_rcnn" in text or "retinanet" in text
 
 
 def infer_rfdetr_class_from_weight(weight_path: Path) -> str:
@@ -146,6 +154,17 @@ def infer_rfdetr_class_from_weight(weight_path: Path) -> str:
 def load_rfdetr_model(weight_path: Path) -> object:
     model_class = import_rfdetr_model_class(infer_rfdetr_class_from_weight(weight_path))
     return model_class(pretrain_weights=str(weight_path))
+
+
+def load_detectron2_predictor(weight_path: Path) -> object:
+    import_detectron2()
+    from detectron2.config import get_cfg
+    from detectron2.engine import DefaultPredictor
+
+    cfg = get_cfg()
+    cfg.MODEL.WEIGHTS = str(weight_path)
+    cfg.MODEL.DEVICE = "cpu"
+    return DefaultPredictor(cfg)
 
 
 def select_mode() -> str:
@@ -244,7 +263,7 @@ def render_weight_table(project_root: Path, available_weights: Sequence[Path]) -
 def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -> None:
     fields = {
         "Weight": weight_path,
-        "Model Family": "RF-DETR" if is_rfdetr_weight(weight_path) else "Ultralytics YOLO",
+        "Model Family": "Detectron2" if is_detectron2_weight(weight_path) else "RF-DETR" if is_rfdetr_weight(weight_path) else "Ultralytics YOLO",
         "Mode": MODE_LABELS[mode],
         "Source": source_path,
     }
@@ -252,6 +271,8 @@ def render_prediction_summary(weight_path: Path, mode: str, source_path: Path) -
 
 
 def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | None:
+    if is_detectron2_weight(weight_path):
+        return run_detectron2_prediction(weight_path, source_path, conf)
     if is_rfdetr_weight(weight_path):
         return run_rfdetr_prediction(weight_path, source_path, conf)
     yolo_class = import_ultralytics_yolo()
@@ -263,6 +284,25 @@ def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | 
     if save_dir is None:
         return None
     return Path(save_dir)
+
+
+def run_detectron2_prediction(weight_path: Path, source_path: Path, conf: float) -> Path:
+    predictor = load_detectron2_predictor(weight_path)
+    output_dir = Path("runs") / "predict" / "detectron2"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sources = [source_path] if source_path.is_file() else discover_images(source_path)
+    for image_path in sources:
+        try:
+            from PIL import Image
+            import numpy as np
+
+            image = np.asarray(Image.open(image_path).convert("RGB"))[:, :, ::-1]
+            predictor(image)
+        except ImportError:
+            predictor(str(image_path))
+        marker = output_dir / f"{image_path.stem}.txt"
+        marker.write_text(f"Detectron2 prediction completed for {image_path}\n", encoding="utf-8")
+    return output_dir
 
 
 def run_rfdetr_prediction(weight_path: Path, source_path: Path, conf: float) -> Path:
@@ -498,9 +538,9 @@ def main() -> None:
     available_weights = find_available_weights(root)
     if not available_weights:
         console.print(
-            Panel(
-                "[bold red]No .pt weights were found in the project root or runs directory.[/bold red]",
-                border_style="red",
+            expected_error_panel(
+                "No .pt weights were found in the project root or runs directory.",
+                next_step="Train a model first or pass a valid weights path with --weight.",
             )
         )
         raise SystemExit(1)
@@ -528,10 +568,10 @@ def main() -> None:
         else:
             output_dir = run_prediction(selected_weight, source_path, args.conf)
     except FileNotFoundError as error:
-        console.print(f"[bold red]Error: {error}[/bold red]")
+        console.print(expected_error_panel(str(error), next_step="Choose an existing image, folder, or weights file."))
         raise SystemExit(1) from error
     except ValueError as error:
-        console.print(f"[bold red]Error: {error}[/bold red]")
+        console.print(expected_error_panel(str(error), next_step="Review the selected mode, source path, and confidence value."))
         raise SystemExit(1) from error
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Prediction cancelled.[/bold yellow]")
@@ -539,10 +579,10 @@ def main() -> None:
     except SystemExit:
         raise
     except MLDependencyError as error:
-        console.print(f"[bold red]Prediction failed: {error}[/bold red]")
+        console.print(expected_error_panel(str(error), title="Dependency Missing", next_step="Install the missing ML dependency and retry prediction."))
         raise SystemExit(1) from error
     except Exception as error:
-        console.print(f"[bold red]Prediction failed: {error}[/bold red]")
+        console.print(expected_error_panel(str(error), title="Prediction Failed", next_step="Check the selected model, source path, and console output above."))
         raise SystemExit(1) from error
 
     if mode == "folder":

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Sequence
 
 from blessed import Terminal
@@ -21,6 +22,36 @@ NAV_BACK = "__BACK__"
 NAV_LIST = "__LIST__"
 
 
+class TUIState(str, Enum):
+    """Shared visual states for TUI panels and status messages."""
+
+    NORMAL = "normal"
+    INFO = "info"
+    SUCCESS = "success"
+    WARNING = "warning"
+    ERROR = "error"
+    CONFIRMATION = "confirmation"
+
+
+PANEL_BORDER_STYLES: dict[TUIState, str] = {
+    TUIState.NORMAL: "blue",
+    TUIState.INFO: "cyan",
+    TUIState.SUCCESS: "green",
+    TUIState.WARNING: "yellow",
+    TUIState.ERROR: "red",
+    TUIState.CONFIRMATION: "yellow",
+}
+
+STATUS_HINTS: dict[str, list[tuple[str, str]]] = {
+    "menu": [("↑↓", "Move"), ("Enter", "Select"), ("B", "Back"), ("Q", "Quit")],
+    "confirmation": [("↑↓", "Move"), ("Enter", "Confirm"), ("B", "Back"), ("Q", "Cancel")],
+    "parameter_list": [("↑↓", "Move"), ("Space", "Toggle"), ("Enter/→", "Edit"), ("F", "Finish"), ("Q", "Back")],
+    "parameter_input": [("Type", "Edit"), ("Enter", "Save"), ("Esc/←/B", "Back")],
+    "progress": [("Ctrl+C", "Cancel")],
+    "back": [("Enter", "Continue"), ("B", "Back")],
+}
+
+
 def shorten_middle(value: str, max_chars: int = 44) -> str:
     """Compact long menu labels while preserving the beginning and file suffix."""
     if len(value) <= max_chars:
@@ -35,6 +66,98 @@ def shorten_middle(value: str, max_chars: int = 44) -> str:
     return f"{value[:front]}{marker}{value[-back:]}"
 
 
+def format_label(value: Any, max_chars: int = 44) -> str:
+    """Render a compact user-facing label while preserving useful suffixes."""
+    return shorten_middle(str(value), max_chars=max_chars)
+
+
+def format_path(value: Any, max_chars: int = 58) -> str:
+    """Render a compact path with the filename or suffix kept visible."""
+    text = str(value)
+    if len(text) <= max_chars:
+        return text
+    normalized = text.replace("\\", "/")
+    if "/" in normalized:
+        tail = normalized.rsplit("/", 1)[-1]
+        if len(tail) + 4 <= max_chars:
+            return f".../{tail}"
+    return shorten_middle(text, max_chars=max_chars)
+
+
+def make_panel(
+    content: RenderableType | str,
+    *,
+    title: str | None = None,
+    state: TUIState = TUIState.NORMAL,
+    padding: tuple[int, int] = (1, 2),
+    expand: bool = True,
+) -> Panel:
+    """Create a standard TUI panel for expected states and summaries."""
+    renderable: RenderableType = Text.from_markup(content) if isinstance(content, str) else content
+    return Panel(
+        renderable,
+        title=f"[bold]{title}[/bold]" if title else None,
+        title_align="left",
+        border_style=PANEL_BORDER_STYLES[state],
+        padding=padding,
+        box=box.ROUNDED,
+        expand=expand,
+    )
+
+
+def make_table(
+    *,
+    title: str | None = None,
+    expand: bool = True,
+    box_style: box.Box = box.SIMPLE_HEAD,
+) -> Table:
+    """Create a compact, consistent Rich table for TUI pages."""
+    return Table(
+        title=title,
+        title_style="bold cyan",
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+        box=box_style,
+        expand=expand,
+        pad_edge=False,
+    )
+
+
+def render_hints(hint_set: str = "menu") -> Text:
+    """Render keyboard hints in the shared footer style."""
+    hints = STATUS_HINTS.get(hint_set, STATUS_HINTS["menu"])
+    return Text.from_markup(
+        "  •  ".join(
+            f"[bold yellow]{key}[/bold yellow] {action}" for key, action in hints
+        )
+    )
+
+
+def expected_error_panel(message: str, *, title: str = "Cannot Continue", next_step: str | None = None) -> Panel:
+    """Render expected validation or environment failures without traceback noise."""
+    lines: list[RenderableType] = [Text.from_markup(message)]
+    if next_step:
+        lines.extend([Text(""), Text.from_markup(f"[bold yellow]Next:[/bold yellow] {next_step}")])
+    return make_panel(Group(*lines), title=title, state=TUIState.ERROR)
+
+
+def warning_panel(message: str, *, title: str = "Review Required", next_step: str | None = None) -> Panel:
+    lines: list[RenderableType] = [Text.from_markup(message)]
+    if next_step:
+        lines.extend([Text(""), Text.from_markup(f"[bold yellow]Next:[/bold yellow] {next_step}")])
+    return make_panel(Group(*lines), title=title, state=TUIState.WARNING)
+
+
+def build_summary_table(fields: dict[str, Any]) -> Table:
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="dim cyan", no_wrap=True)
+    table.add_column(style="white")
+    for key, value in fields.items():
+        table.add_row(f"{key}:", format_path(value))
+    return table
+
+
 def clear_screen() -> None:
     """Clear the terminal screen."""
     print(TUI_TERM.clear)
@@ -43,9 +166,7 @@ def clear_screen() -> None:
 def print_header(text: str) -> None:
     """Print a stylized header."""
     header = Text(text, style="bold cyan", justify="center")
-    TUI_CONSOLE.print(
-        Panel(header, border_style="cyan", padding=(0, 2), box=box.ROUNDED)
-    )
+    TUI_CONSOLE.print(make_panel(header, state=TUIState.INFO, padding=(0, 2)))
 
 
 class MenuRenderer:
@@ -96,10 +217,9 @@ class MenuRenderer:
             else:
                 items.append(Text(f"  {shorten_middle(option)}", style="dim"))
 
-        return Panel(
+        return make_panel(
             Group(*items),
             title="[bold cyan]Navigation[/bold cyan]",
-            border_style="blue",
             padding=(0, 1),
             expand=True,
         )
@@ -122,6 +242,8 @@ class MenuRenderer:
         """Map a menu option string to its model_data_dict family key."""
         o = option.lower()
         mapping = {
+            "detectron2-seg": "detectron2-seg",
+            "detectron2": "detectron2",
             "rfdetr-seg": "rfdetr-seg",
             "rfdetr": "rfdetr",
             "yolo26-seg": "yolo26-seg",
@@ -239,13 +361,7 @@ class MenuRenderer:
         if not self.model_data:
             return None
 
-        table = Table(
-            expand=True,
-            border_style="dim",
-            box=box.SIMPLE_HEAD,
-            show_header=True,
-            header_style="bold cyan",
-        )
+        table = make_table(expand=True)
 
         headers = list(self.model_data[0].keys())
         for header in headers:
@@ -264,18 +380,7 @@ class MenuRenderer:
         """Render a small status bar with keyboard hints and app version."""
         from src.__version__ import __version__
 
-        hints = [
-            ("[bold yellow]↑↓[/bold yellow]", "Move"),
-            ("[bold yellow]Enter[/bold yellow]", "Select"),
-            ("[bold yellow]B[/bold yellow]", "Back"),
-            ("[bold yellow]Q[/bold yellow]", "Quit"),
-        ]
-
-        parts = []
-        for key, action in hints:
-            parts.append(f"{key} {action}")
-
-        hints_text = Text.from_markup("  •  ".join(parts))
+        hints_text = render_hints("menu")
         version_text = Text(f"v{__version__}", style="dim cyan")
 
         status_table = Table.grid(expand=True)
@@ -295,7 +400,7 @@ class MenuRenderer:
 
         lines.append(
             Text.from_markup(
-                f"Current Choice: [bold yellow]{current_option}[/bold yellow]"
+                f"Current Choice: [bold yellow]{format_label(current_option)}[/bold yellow]"
             )
         )
 
@@ -304,14 +409,13 @@ class MenuRenderer:
             status_table.add_column(style="dim cyan")
             status_table.add_column(style="white")
             for key, value in self.status_fields.items():
-                status_table.add_row(f"{key}:", str(value))
+                status_table.add_row(f"{key}:", format_path(value, max_chars=32))
             lines.append(status_table)
 
-        return Panel(
+        return make_panel(
             Group(*lines),
-            border_style="dim",
             title="[dim]Context[/dim]",
-            title_align="left",
+            state=TUIState.NORMAL,
             padding=(0, 1),
         )
 
@@ -325,10 +429,10 @@ class MenuRenderer:
 
         # Header
         layout["header"].update(
-            Panel(
+            make_panel(
                 Text(self.title, style="bold cyan", justify="center"),
-                border_style="cyan",
-                box=box.ROUNDED,
+                state=TUIState.INFO,
+                padding=(0, 1),
             )
         )
 
@@ -409,9 +513,8 @@ class MenuRenderer:
             main_group.append(Text.from_markup(description))
 
         content_layout["main"].update(
-            Panel(
+            make_panel(
                 Group(*main_group),
-                border_style="blue",
                 title="[bold cyan]Details[/bold cyan]",
                 padding=(1, 2),
             )
@@ -421,11 +524,10 @@ class MenuRenderer:
         # screens without a specific tip aren't padded with filler text.
         if show_tip:
             content_layout["tip"].update(
-                Panel(
+                make_panel(
                     Text.from_markup(self.tip),
-                    border_style="dim green",
                     title="[bold green]Tip[/bold green]",
-                    title_align="left",
+                    state=TUIState.SUCCESS,
                     padding=(0, 1),
                 )
             )
@@ -519,13 +621,9 @@ def render_table(
     border_style: str = "dim",
 ) -> None:
     """Render a standard table."""
-    table = Table(
-        title=title,
-        title_style=title_style,
-        border_style=border_style,
-        expand=True,
-        box=box.ROUNDED,
-    )
+    table = make_table(title=title, expand=True, box_style=box.ROUNDED)
+    table.title_style = title_style
+    table.border_style = border_style
     for col in columns:
         table.add_column(col, style="cyan")
     for row in rows:
@@ -544,15 +642,8 @@ def render_summary_panel(
     for key, value in fields.items():
         table.add_row(f"{key}:", str(value))
 
-    TUI_CONSOLE.print(
-        Panel(
-            table,
-            title=f"[bold]{title}[/bold]",
-            border_style=border_style,
-            padding=(1, 2),
-            box=box.ROUNDED,
-        )
-    )
+    state = TUIState.SUCCESS if border_style == "green" else TUIState.INFO
+    TUI_CONSOLE.print(make_panel(table, title=title, state=state, padding=(1, 2)))
 
 
 @dataclass
@@ -774,10 +865,24 @@ class MultiSelectRenderer:
             Text.from_markup(f"[bold cyan]Type:[/bold cyan] {param.value_type}"),
             Text.from_markup(f"[bold cyan]Default:[/bold cyan] {param.default}"),
             Text.from_markup(f"[bold cyan]Current:[/bold cyan] {current_val}"),
-            Text(""),
-            Text.from_markup("[bold yellow]What It Controls:[/bold yellow]"),
-            Text(param.description),
         ]
+
+        if self.validation_error:
+            info_lines.extend(
+                [
+                    Text.from_markup(f"[bold red]Validation:[/bold red] {self.validation_error}"),
+                    Text(""),
+                ]
+            )
+        else:
+            info_lines.append(Text(""))
+
+        info_lines.extend(
+            [
+                Text.from_markup("[bold yellow]What It Controls:[/bold yellow]"),
+                Text(param.description),
+            ]
+        )
 
         if param.affects:
             info_lines.extend(
@@ -788,14 +893,6 @@ class MultiSelectRenderer:
                 ]
             )
 
-        info_lines.extend(
-            [
-                Text(""),
-                Text.from_markup("[bold green]How To Choose:[/bold green]"),
-                Text.from_markup(param.help_text, style="dim"),
-            ]
-        )
-
         if param.min_value is not None or param.max_value is not None:
             info_lines.append(Text(""))
             range_str = f"Range: {param.min_value if param.min_value is not None else '-∞'} to {param.max_value if param.max_value is not None else '+∞'}"
@@ -804,6 +901,14 @@ class MultiSelectRenderer:
         if param.allowed_values:
             info_lines.append(Text(""))
             info_lines.append(Text.from_markup(f"[bold magenta]Allowed values:[/bold magenta] {', '.join(repr(value) for value in param.allowed_values)}"))
+
+        info_lines.extend(
+            [
+                Text(""),
+                Text.from_markup("[bold green]How To Choose:[/bold green]"),
+                Text.from_markup(param.help_text, style="dim"),
+            ]
+        )
 
         option_descriptions = param.option_descriptions
         if option_descriptions is None and param.value_type == "bool":
@@ -833,17 +938,8 @@ class MultiSelectRenderer:
                 ]
             )
 
-        if self.validation_error:
-            info_lines.extend(
-                [
-                    Text(""),
-                    Text.from_markup(f"[bold red]Validation:[/bold red] {self.validation_error}"),
-                ]
-            )
-
         # Input Area
         info_lines.append(Text(""))
-        border_style = "blue" if self.focus == "input" else "dim"
         title_prefix = "➤ " if self.focus == "input" else ""
         
         input_content = []
@@ -870,55 +966,40 @@ class MultiSelectRenderer:
                 input_content.append(Text(" (Press Enter to edit)", style="dim"))
 
         info_lines.append(
-            Panel(
+            make_panel(
                 Text.assemble(*input_content),
                 title=f"{title_prefix}Edit Value",
-                border_style=border_style,
+                state=TUIState.INFO if self.focus == "input" else TUIState.NORMAL,
                 padding=(0, 1)
             )
         )
 
-        return Panel(
+        return make_panel(
             Group(*info_lines),
             title="[bold cyan]Details & Configuration[/bold cyan]",
-            border_style="blue",
             padding=(1, 2),
             expand=True,
         )
 
     def _render_status_bar(self) -> Panel:
         if self.focus == "list":
-            hints = [
-                ("[bold yellow]↑↓[/bold yellow]", "Move"),
-                ("[bold yellow]Space[/bold yellow]", "Toggle"),
-                ("[bold yellow]Enter/→[/bold yellow]", "Edit Value"),
-                ("[bold yellow]A/N[/bold yellow]", "All/None"),
-                ("[bold yellow]F[/bold yellow]", "Finish"),
-                ("[bold yellow]Q[/bold yellow]", "Back"),
-            ]
+            hints_text = render_hints("parameter_list")
         else:
             param = self.filtered_params[self.current_index]
             if param.value_type == "bool":
-                hints = [
-                    ("[bold yellow]Enter/Space[/bold yellow]", "Toggle + Save"),
-                    ("[bold yellow]Esc/←/B[/bold yellow]", "Back"),
-                ]
+                hints_text = Text.from_markup(
+                    "[bold yellow]Enter/Space[/bold yellow] Toggle + Save  •  "
+                    "[bold yellow]Esc/←/B[/bold yellow] Back"
+                )
             elif param.allowed_values:
-                hints = [
-                    ("[bold yellow]↑↓[/bold yellow]", "Cycle"),
-                    ("[bold yellow]Type[/bold yellow]", "Adjust"),
-                    ("[bold yellow]Enter[/bold yellow]", "Validate + Save"),
-                    ("[bold yellow]Esc/←/B[/bold yellow]", "Back"),
-                ]
+                hints_text = Text.from_markup(
+                    "[bold yellow]↑↓[/bold yellow] Cycle  •  "
+                    "[bold yellow]Type[/bold yellow] Adjust  •  "
+                    "[bold yellow]Enter[/bold yellow] Save  •  "
+                    "[bold yellow]Esc/←/B[/bold yellow] Back"
+                )
             else:
-                hints = [
-                    ("[bold yellow]Type[/bold yellow]", "Edit"),
-                    ("[bold yellow]Enter[/bold yellow]", "Validate + Save"),
-                    ("[bold yellow]Esc/←/B[/bold yellow]", "Back"),
-                ]
-
-        parts = [f"{key} {action}" for key, action in hints]
-        hints_text = Text.from_markup("  •  ".join(parts))
+                hints_text = render_hints("parameter_input")
 
         selected_count = len(self.selected)
         count_text = Text(f"Selected: {selected_count}", style="bold cyan")
@@ -939,10 +1020,10 @@ class MultiSelectRenderer:
         )
 
         layout["header"].update(
-            Panel(
+            make_panel(
                 Text(self.title, style="bold cyan", justify="center"),
-                border_style="cyan",
-                box=box.ROUNDED,
+                state=TUIState.INFO,
+                padding=(0, 1),
             )
         )
 

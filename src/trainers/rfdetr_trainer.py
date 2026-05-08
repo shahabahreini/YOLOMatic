@@ -9,6 +9,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from src.cli.upload import build_candidate, deploy_rfdetr_model, load_env_config
+from src.config.settings import deep_merge, load_settings
 from src.models.rfdetr import get_rfdetr_variant
 from src.utils.ml_dependencies import MLDependencyError, import_rfdetr_model_class
 
@@ -57,6 +59,60 @@ def find_rfdetr_checkpoint(run_dir: Path | None) -> Path | None:
     return checkpoints[0] if checkpoints else None
 
 
+def effective_clearml_settings(config: dict[str, Any]) -> dict[str, Any]:
+    return deep_merge(load_settings().get("clearml", {}), config.get("clearml", {}))
+
+
+def initialize_clearml_task(config: dict[str, Any], run_name: str):
+    clearml = effective_clearml_settings(config)
+    if not clearml.get("enabled", True):
+        return None
+    try:
+        from clearml import Task
+
+        return Task.init(
+            project_name=clearml.get("project_name", "RF-DETR Training"),
+            task_name=run_name,
+            tags=["RF-DETR"],
+        )
+    except Exception as error:
+        if clearml.get("require_configured", False):
+            raise RuntimeError(f"ClearML is required but not configured: {error}") from error
+        console.print(f"[bold yellow]ClearML is not configured: {error}[/bold yellow]")
+        return None
+
+
+def maybe_upload_clearml_checkpoint(task, checkpoint: Path | None, config: dict[str, Any]) -> None:
+    if task is None or checkpoint is None:
+        return
+    if not effective_clearml_settings(config).get("upload_final_model", True):
+        return
+    try:
+        task.upload_artifact(name="final_model", artifact_object=str(checkpoint))
+    except Exception as error:
+        console.print(f"[bold yellow]ClearML final model upload skipped: {error}[/bold yellow]")
+
+
+def deploy_to_roboflow_if_configured(config: dict[str, Any], checkpoint: Path | None) -> None:
+    roboflow = config.get("roboflow", {})
+    if not roboflow.get("upload", False):
+        return
+    if checkpoint is None:
+        console.print("[bold yellow]Skipping Roboflow deploy: no RF-DETR checkpoint was found.[/bold yellow]")
+        return
+    dataset_rf = config.get("dataset", {}).get("roboflow", {})
+    workspace = roboflow.get("workspace") or dataset_rf.get("workspace")
+    project = roboflow.get("project_id") or roboflow.get("project") or dataset_rf.get("project")
+    version = roboflow.get("version") or dataset_rf.get("version") or roboflow.get("rfdetr_project_version", 1)
+    if not workspace or not project:
+        console.print("[bold yellow]Skipping Roboflow deploy: workspace/project metadata is missing.[/bold yellow]")
+        return
+    env_config = load_env_config(Path.cwd())
+    candidate = build_candidate(checkpoint)
+    deploy_rfdetr_model(env_config.api_key, candidate, workspace, project, int(version), "rfdetr")
+    console.print("[bold green]RF-DETR Roboflow deploy completed successfully.[/bold green]")
+
+
 def print_config_summary(config: dict[str, Any]) -> None:
     settings = config["settings"]
     training = config.get("training", {})
@@ -99,28 +155,36 @@ def train_from_config(config_file: str | Path) -> Path | None:
     model = instantiate_rfdetr_model(config)
     training_params = prepare_training_params(config)
     training_params.setdefault("output_dir", str(run_dir))
+    task = initialize_clearml_task(config, run_name)
+    if task is not None and effective_clearml_settings(config).get("log_hyperparameters", True):
+        task.connect({"settings": settings, "dataset": config.get("dataset", {}), "training": training_params})
 
-    console.print("\n[bold green]Starting RF-DETR training...[/bold green]")
-    model.train(dataset_dir=str(dataset_dir), **training_params)
+    try:
+        console.print("\n[bold green]Starting RF-DETR training...[/bold green]")
+        model.train(dataset_dir=str(dataset_dir), **training_params)
 
-    if config.get("export", {}).get("enabled", True):
-        export_params = prepare_export_params(config)
-        export_output_dir = export_params.get("output_dir")
-        if export_output_dir:
-            export_params["output_dir"] = str(Path(export_output_dir))
-        console.print("\n[bold green]Exporting RF-DETR model...[/bold green]")
-        model.export(**export_params)
-
-    checkpoint = find_rfdetr_checkpoint(run_dir)
-    if checkpoint is None:
-        console.print(
-            "[bold yellow]RF-DETR training completed, but no .pth checkpoint was found under the expected run directory.[/bold yellow]"
-        )
-    else:
-        console.print(
-            f"[bold green]RF-DETR training completed. Best checkpoint: {checkpoint}[/bold green]"
-        )
-    return checkpoint
+        if config.get("export", {}).get("enabled", True):
+            export_params = prepare_export_params(config)
+            export_output_dir = export_params.get("output_dir")
+            if export_output_dir:
+                export_params["output_dir"] = str(Path(export_output_dir))
+            console.print("\n[bold green]Exporting RF-DETR model...[/bold green]")
+            model.export(**export_params)
+        checkpoint = find_rfdetr_checkpoint(run_dir)
+        if checkpoint is None:
+            console.print(
+                "[bold yellow]RF-DETR training completed, but no .pth checkpoint was found under the expected run directory.[/bold yellow]"
+            )
+        else:
+            console.print(
+                f"[bold green]RF-DETR training completed. Best checkpoint: {checkpoint}[/bold green]"
+            )
+        maybe_upload_clearml_checkpoint(task, checkpoint, config)
+        deploy_to_roboflow_if_configured(config, checkpoint)
+        return checkpoint
+    finally:
+        if task is not None:
+            task.close()
 
 
 def main(config_file: str | Path) -> None:

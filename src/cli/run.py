@@ -16,7 +16,15 @@ from rich.panel import Panel
 from rich.table import Table
 from ruamel.yaml import YAML
 
-from src.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator, YOLONASConfigGenerator
+from src.config.settings import (
+    load_settings,
+    reset_settings,
+    roboflow_credential_status,
+    save_settings,
+)
+from src.config.generator import Detectron2ConfigGenerator, RFDETRConfigGenerator, YOLOConfigGenerator, YOLONASConfigGenerator
+from src.datasets import summarize_dataset
+from src.models.detectron2 import is_detectron2_model
 from src.models.data import model_data_dict
 from src.models.rfdetr import is_rfdetr_model
 from src.utils.cli import (
@@ -1661,7 +1669,19 @@ def display_configuration_summary(
         "Config File": config_file,
     }
 
-    if is_rfdetr_model(str(model_choice)):
+    if is_detectron2_model(str(model_choice)):
+        training = config.get("training", {})
+        dataset_config = config.get("dataset", {})
+        fields.update(
+            {
+                "Max Iter": training.get("max_iter", "N/A"),
+                "Images/Batch": training.get("ims_per_batch", "N/A"),
+                "Workers": training.get("num_workers", "N/A"),
+                "Dataset Format": dataset_config.get("prepared_format", "N/A"),
+                "Task": config.get("settings", {}).get("task", "N/A"),
+            }
+        )
+    elif is_rfdetr_model(str(model_choice)):
         training = config.get("training", {})
         fields.update(
             {
@@ -1698,20 +1718,46 @@ def display_configuration_summary(
 
     render_summary_panel("Configuration Summary", fields)
 
-    # Simplified dataset paths display
-    path_rows = []
+    render_table(
+        "Dataset Paths",
+        ["Type", "Path"],
+        dataset_path_rows_for_config(model_choice, config),
+        title_style="bold blue",
+    )
+
+
+def dataset_path_rows_for_config(model_choice: str, config: dict[str, Any]) -> list[list[str]]:
+    """Return summary path rows for each supported config schema."""
+    if is_detectron2_model(str(model_choice)):
+        splits = config.get("dataset", {}).get("splits", {})
+
+        def _split_path(split_name: str, key: str) -> str:
+            split = splits.get(split_name, {})
+            value = split.get(key) if isinstance(split, dict) else None
+            return value or "N/A"
+
+        return [
+            ["Train Images", _split_path("train", "images_path")],
+            ["Train Annotations", _split_path("train", "annotations_path")],
+            ["Validation Images", _split_path("val", "images_path")],
+            ["Validation Annotations", _split_path("val", "annotations_path")],
+            ["Test Images", _split_path("test", "images_path")],
+            ["Test Annotations", _split_path("test", "annotations_path")],
+        ]
+
     if is_rfdetr_model(str(model_choice)):
         dataset_config = config.get("dataset", {})
         base_dir = dataset_config.get("base_dir", "")
-        path_rows = [
+        return [
             ["Train", os.path.join(base_dir, "train/images")],
             ["Validation", os.path.join(base_dir, "valid/images")],
             ["Test", os.path.join(base_dir, "test/images")],
         ]
-    elif "nas" in model_choice.lower():
+
+    if "nas" in model_choice.lower():
         structure = config.get("dataset", {}).get("structure", {})
         base_dir = config.get("dataset", {}).get("base_dir", "")
-        path_rows = [
+        return [
             [
                 "Train",
                 os.path.join(base_dir, structure.get("train", {}).get("images", "N/A")),
@@ -1725,25 +1771,23 @@ def display_configuration_summary(
                 os.path.join(base_dir, structure.get("test", {}).get("images", "N/A")),
             ],
         ]
-    else:
-        model_config = config.get("model", {})
-        data_dir = model_config.get("data_dir", "")
-        path_rows = [
-            [
-                "Train",
-                os.path.join(data_dir, model_config.get("train_images_dir", "N/A")),
-            ],
-            [
-                "Validation",
-                os.path.join(data_dir, model_config.get("val_images_dir", "N/A")),
-            ],
-            [
-                "Test",
-                os.path.join(data_dir, model_config.get("test_images_dir", "N/A")),
-            ],
-        ]
 
-    render_table("Dataset Paths", ["Type", "Path"], path_rows, title_style="bold blue")
+    model_config = config.get("model", {})
+    data_dir = model_config.get("data_dir", "")
+    return [
+        [
+            "Train",
+            os.path.join(data_dir, model_config.get("train_images_dir", "N/A")),
+        ],
+        [
+            "Validation",
+            os.path.join(data_dir, model_config.get("val_images_dir", "N/A")),
+        ],
+        [
+            "Test",
+            os.path.join(data_dir, model_config.get("test_images_dir", "N/A")),
+        ],
+    ]
 
 
 def display_paths_info(dataset_info):
@@ -1794,10 +1838,43 @@ def list_datasets():
     dataset_names = [Path(d["path"]) for d in datasets]
     name_to_path = {path.name: str(path) for path in dataset_names}
 
-    dataset_descriptions = {
-        d["name"]: f"Select dataset '{d['name']}' ({d['size']}) located at {d['path']}"
-        for d in datasets
-    }
+    dataset_descriptions = {}
+    for d in datasets:
+        try:
+            summary = summarize_dataset(d["path"])
+            classes = ", ".join(summary.classes[:8]) or "No classes found"
+            if len(summary.classes) > 8:
+                classes += ", ..."
+            split_lines = []
+            for split_name, split in summary.splits.items():
+                split_lines.append(
+                    f"  • {split_name}: {split.image_count} images, "
+                    f"{split.annotation_count} annotations, {split.missing_file_count} missing ({split.status})"
+                )
+            health = "Valid" if not summary.errors else "Blocking errors"
+            if summary.warnings and not summary.errors:
+                health = "Warnings"
+            dataset_descriptions[d["name"]] = (
+                f"[bold cyan]{d['name']}[/bold cyan]\n\n"
+                f"[bold]Format:[/bold] {summary.format.upper()}    "
+                f"[bold]Task:[/bold] {summary.task.title()}\n"
+                f"[bold]Size:[/bold] {d['size']}    "
+                f"[bold]Images:[/bold] {summary.image_count}    "
+                f"[bold]Annotations:[/bold] {summary.annotation_count}\n\n"
+                f"[bold]Splits[/bold]\n" + ("\n".join(split_lines) or "  No splits found") + "\n\n"
+                f"[bold]Classes:[/bold] {len(summary.classes)} total — {classes}\n"
+                f"[bold]Health:[/bold] {health}\n"
+                f"[bold]Compatibility:[/bold] YOLO/RF-DETR: {summary.compatibility.get('yolo', 'unknown')}; "
+                f"Detectron2: {summary.compatibility.get('detectron2', 'unknown')}\n"
+                f"[dim]Conversions, when needed, are written under datasets/.yolomatic_cache.[/dim]\n"
+                f"[dim]{d['path']}[/dim]"
+            )
+        except Exception as error:
+            dataset_descriptions[d["name"]] = (
+                f"[bold yellow]{d['name']}[/bold yellow]\n\n"
+                f"YOLOmatic could not inspect this dataset cleanly: {error}\n"
+                f"[dim]{d['path']}[/dim]"
+            )
     dataset_descriptions["Back"] = "Return to the previous menu."
 
     choice = get_user_choice(
@@ -2052,7 +2129,6 @@ def clone_saved_config_flow() -> bool:
         {"mode": "fully_customized"},
         profile_context,
     )
-    display_paths_info(generator.dataset_info)
     return True
 
 
@@ -2230,7 +2306,12 @@ def update_config(
     config_file = f"{source_slug}_{safe_dataset_name}_{timestamp}.yaml"
 
     # Initialize appropriate generator
-    if is_rfdetr_model(model_choice):
+    if is_detectron2_model(model_choice):
+        generator = Detectron2ConfigGenerator(str(dataset_path))
+        generator.extract_dataset_info()
+        profile_context = None
+        profile_selection = None
+    elif is_rfdetr_model(model_choice):
         generator = RFDETRConfigGenerator(str(dataset_path))
         generator.extract_dataset_info()
         profile_context = None
@@ -2261,9 +2342,10 @@ def update_config(
         and not is_seg_model
         and "nas" not in model_choice.lower()
         and not is_rfdetr_model(model_choice)
+        and not is_detectron2_model(model_choice)
     ):
         mismatch_type = "seg_model_needed"
-    elif dataset_type == "detection" and is_seg_model:
+    elif dataset_type == "detection" and is_seg_model and not is_detectron2_model(model_choice):
         mismatch_type = "det_model_needed"
     elif dataset_type == "unknown":
         mismatch_type = "unknown"
@@ -2438,7 +2520,13 @@ def update_config(
         # Continue with "Continue Anyway"
 
     custom_params = None
-    if is_rfdetr_model(model_choice):
+    if is_detectron2_model(model_choice):
+        config = generator.generate_config(
+            model_choice,
+            finetune_source=finetune_source,
+            finetune_strategy=finetune_strategy,
+        )
+    elif is_rfdetr_model(model_choice):
         config = generator.generate_config(
             model_choice,
             finetune_source=finetune_source,
@@ -2503,7 +2591,6 @@ def update_config(
         profile_selection,
         profile_context,
     )
-    display_paths_info(generator.dataset_info)
 
     return True
 
@@ -2990,6 +3077,7 @@ def get_model_menu():
     """Get the list of available model families grouped by category."""
     models = [
         "[Detection]",
+        "detectron2",
         "rfdetr",
         "yolo26",
         "yolov12",
@@ -2999,6 +3087,7 @@ def get_model_menu():
         "yolov8",
         "yolox",
         "[Segmentation]",
+        "detectron2-seg",
         "rfdetr-seg",
         "yolo26-seg",
         "yolov12-seg",
@@ -3043,6 +3132,132 @@ class _ExitTUI(Exception):
     """Raised internally when the user chooses Exit from the main menu."""
 
 
+def _edit_settings_value(settings: dict[str, Any], section: str, key: str, definition: ParameterDefinition) -> None:
+    value = get_parameter_value_input(definition, settings.get(section, {}).get(key))
+    if value in (NAV_BACK, NAV_LIST):
+        return
+    settings.setdefault(section, {})[key] = value
+    save_settings(settings)
+
+
+def _settings_table(title: str, values: dict[str, Any]) -> None:
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Setting", style="dim")
+    table.add_column("Value")
+    for key, value in values.items():
+        if "api_key" in key:
+            value = "configured" if value else "missing"
+        table.add_row(key, str(value))
+    console.print(Panel.fit(f"[bold]{title}[/bold]", style="bold blue"))
+    console.print(table)
+
+
+def settings_clearml_page() -> None:
+    settings = load_settings()
+    definitions = {
+        "enabled": ParameterDefinition("enabled", "ClearML", True, "bool", "Enable ClearML", "Controls whether training initializes a ClearML task.", config_section="clearml"),
+        "require_configured": ParameterDefinition("require_configured", "ClearML", False, "bool", "Require ClearML", "When true, training cancels if ClearML cannot initialize.", config_section="clearml"),
+        "project_name_template": ParameterDefinition("project_name_template", "ClearML", "{family} Training - {model}", "str", "Project template", "Supports {family} and {model}.", config_section="clearml"),
+        "task_name_format": ParameterDefinition("task_name_format", "ClearML", "%Y-%m-%d-%H-%M", "str", "Task timestamp format", "Python datetime format used in task names.", config_section="clearml"),
+        "upload_final_model": ParameterDefinition("upload_final_model", "ClearML", True, "bool", "Upload final model", "Uploads best/last checkpoint as a ClearML artifact.", config_section="clearml"),
+        "upload_artifacts": ParameterDefinition("upload_artifacts", "ClearML", True, "bool", "Upload artifacts", "Reserved for generated artifacts beyond the final model.", config_section="clearml"),
+        "log_hyperparameters": ParameterDefinition("log_hyperparameters", "ClearML", True, "bool", "Log hyperparameters", "Connects training, dataset, and export parameters to the task.", config_section="clearml"),
+        "log_dataset_summary": ParameterDefinition("log_dataset_summary", "ClearML", True, "bool", "Log dataset summary", "Reserved for dataset summary logging.", config_section="clearml"),
+    }
+    while True:
+        _settings_table("ClearML Integration", settings["clearml"])
+        console.print("[cyan]Setup command:[/cyan] uv run clearml-init  [dim]or[/dim]  clearml-init")
+        choice = get_user_choice(list(definitions) + ["Back"], title="ClearML Integration", text="Choose a setting to edit:")
+        if choice == "Back":
+            return
+        _edit_settings_value(settings, "clearml", choice, definitions[choice])
+        settings = load_settings()
+
+
+def settings_roboflow_page() -> None:
+    settings = load_settings()
+    definitions = {
+        "upload_wizard_enabled": ParameterDefinition("upload_wizard_enabled", "Roboflow", True, "bool", "Enable manual upload wizard", "Controls whether Upload to Roboflow is available from the main TUI.", config_section="roboflow"),
+        "auto_upload_after_training": ParameterDefinition("auto_upload_after_training", "Roboflow", False, "bool", "Auto-upload after training", "New configs snapshot this as roboflow.upload.", config_section="roboflow"),
+        "auto_upload_weight": ParameterDefinition("auto_upload_weight", "Roboflow", "best.pt", "str", "Auto-upload weight", "Usually best.pt or last.pt.", config_section="roboflow"),
+        "default_model_name_template": ParameterDefinition("default_model_name_template", "Roboflow", "{run_name}-best", "str", "Model name template", "Supports {run_name}.", config_section="roboflow"),
+        "require_dataset_metadata": ParameterDefinition("require_dataset_metadata", "Roboflow", True, "bool", "Require dataset metadata", "Skip auto upload when workspace/project metadata is unavailable.", config_section="roboflow"),
+        "rfdetr_project_version": ParameterDefinition("rfdetr_project_version", "Roboflow", 1, "int", "RF-DETR version", "Default project version used for RF-DETR deploy.", min_value=1, config_section="roboflow"),
+    }
+    while True:
+        _settings_table("Roboflow Integration", settings["roboflow"])
+        choice = get_user_choice(list(definitions) + ["Back"], title="Roboflow Integration", text="Choose a setting to edit:")
+        if choice == "Back":
+            return
+        _edit_settings_value(settings, "roboflow", choice, definitions[choice])
+        settings = load_settings()
+
+
+def settings_narratives_page() -> None:
+    settings = load_settings()
+    definitions = {
+        "mode": ParameterDefinition("mode", "Narratives", "guided", "str", "Narrative mode", "guided shows full panels, concise uses shorter messages, quiet only reports blockers and final results.", allowed_values=["guided", "concise", "quiet"], config_section="narratives"),
+        "show_setup_guidance": ParameterDefinition("show_setup_guidance", "Narratives", True, "bool", "Show setup guidance", "Controls setup guidance text.", config_section="narratives"),
+        "show_success_panels": ParameterDefinition("show_success_panels", "Narratives", True, "bool", "Show success panels", "Controls success panels.", config_section="narratives"),
+        "show_skip_reasons": ParameterDefinition("show_skip_reasons", "Narratives", True, "bool", "Show skip reasons", "Controls expected skip messages.", config_section="narratives"),
+    }
+    while True:
+        _settings_table("Integration Narratives", settings["narratives"])
+        choice = get_user_choice(list(definitions) + ["Back"], title="Integration Narratives", text="Choose a setting to edit:")
+        if choice == "Back":
+            return
+        _edit_settings_value(settings, "narratives", choice, definitions[choice])
+        settings = load_settings()
+
+
+def settings_credentials_page() -> None:
+    status = roboflow_credential_status()
+    rows = {
+        "ROBOFLOW_API_KEY": "configured" if status["api_key"] else "missing",
+        "ROBOFLOW_WORKSPACE": "configured" if status["workspace"] else "missing",
+        "ROBOFLOW_PROJECT_IDS": "configured" if status["project_ids"] else "missing",
+    }
+    _settings_table("Credential Status", rows)
+    console.print("[dim]API key values are never displayed or written to YAML settings.[/dim]")
+    input("\nPress Enter to return...")
+
+
+def settings_reset_page() -> None:
+    choice = get_user_choice(["Reset to Defaults", "Cancel"], title="Reset Settings", text="Restore configs/yolomatic_settings.yaml to built-in defaults?")
+    if choice == "Reset to Defaults":
+        reset_settings()
+        console.print("[bold green]Settings reset to defaults.[/bold green]")
+        input("\nPress Enter to return...")
+
+
+def settings_menu() -> None:
+    while True:
+        choice = get_user_choice(
+            [
+                "ClearML Integration",
+                "Roboflow Integration",
+                "Integration Narratives",
+                "Credential Status",
+                "Reset to Defaults",
+                "Back",
+            ],
+            title="Settings",
+            text="Configure global integration defaults:",
+        )
+        if choice == "Back":
+            return
+        if choice == "ClearML Integration":
+            settings_clearml_page()
+        elif choice == "Roboflow Integration":
+            settings_roboflow_page()
+        elif choice == "Integration Narratives":
+            settings_narratives_page()
+        elif choice == "Credential Status":
+            settings_credentials_page()
+        elif choice == "Reset to Defaults":
+            settings_reset_page()
+
+
 def _main_loop_iteration():
     while True:
         clear_screen()
@@ -3063,10 +3278,13 @@ def _main_loop_iteration():
             "Combine Datasets",
             "Upload to Roboflow",
             "[Maintenance]",
+            "Settings",
             "Check for Updates",
             "About YOLOmatic",
             "Exit",
         ]
+        if not load_settings().get("roboflow", {}).get("upload_wizard_enabled", True):
+            main_menu_options.remove("Upload to Roboflow")
 
         main_choice = get_user_choice(
             main_menu_options,
@@ -3111,6 +3329,10 @@ def _main_loop_iteration():
                     "WORKSPACE / PROJECT_IDS from .env and stages the weight correctly for "
                     "Roboflow's deploy API."
                 ),
+                "Settings": (
+                    "Edit global ClearML, Roboflow, narrative, and credential-status settings. "
+                    "Secrets remain in .env and are never displayed."
+                ),
                 "Check for Updates": (
                     "Run a dependency health check across every critical package — "
                     "ultralytics, torch, torchvision, rfdetr, tensorboard, "
@@ -3128,6 +3350,10 @@ def _main_loop_iteration():
 
         elif main_choice == "Check for Updates":
             check_for_updates()
+            continue
+
+        elif main_choice == "Settings":
+            settings_menu()
             continue
 
         elif main_choice == "Train Model":
@@ -3284,6 +3510,16 @@ def _main_loop_iteration():
                 text="Choose a model family for your project:",
                 allow_back=True,
                 descriptions={
+                    "detectron2": (
+                        "[bold cyan]Detectron2[/bold cyan]  [green]● Optional native COCO detection[/green]\n\n"
+                        "Faster R-CNN and RetinaNet variants using Detectron2's model zoo. "
+                        "Detectron2 is imported only when you train or predict with this family."
+                    ),
+                    "detectron2-seg": (
+                        "[bold cyan]Detectron2 Segmentation[/bold cyan]  [green]● Optional native COCO masks[/green]\n\n"
+                        "Mask R-CNN instance segmentation with COCO annotations. YOLO polygon "
+                        "datasets are converted into cached COCO manifests when needed."
+                    ),
                     "rfdetr": (
                         "[bold cyan]RF-DETR[/bold cyan]  [green]● Transformer detection[/green]\n\n"
                         "Real-time DETR-style object detection with automatic pretrained "

@@ -1,8 +1,13 @@
 import unittest
 
 from src.utils.tui import (
+    MenuRenderer,
+    MultiSelectRenderer,
     ParameterDefinition,
     convert_and_validate_parameter_value,
+    expected_error_panel,
+    format_path,
+    render_hints,
     parse_parameter_value,
     shorten_middle,
 )
@@ -81,6 +86,100 @@ class TUIParameterValidationTest(unittest.TestCase):
         self.assertTrue(shortened.endswith(".yaml"))
         self.assertIn("...", shortened)
 
+    def test_format_path_preserves_important_suffix(self) -> None:
+        path = "/tmp/some/deeply/nested/project/runs/detect/train/weights/best.pt"
+
+        formatted = format_path(path, max_chars=34)
+
+        self.assertLessEqual(len(formatted), 34)
+        self.assertTrue(formatted.endswith("best.pt"))
+        self.assertIn("...", formatted)
+
+    def test_standard_footer_hints_render_expected_menu_keys(self) -> None:
+        hints = render_hints("menu")
+
+        self.assertIn("Move", hints.plain)
+        self.assertIn("Select", hints.plain)
+        self.assertIn("Back", hints.plain)
+        self.assertIn("Quit", hints.plain)
+
+    def test_menu_renderer_includes_breadcrumbs_status_description_and_tip(self) -> None:
+        from rich.console import Console
+
+        console = Console(record=True, width=80, height=24, color_system=None)
+        renderer = MenuRenderer(
+            options=["Train", "Predict"],
+            current_selection=0,
+            title="YOLOmatic",
+            instruction="Choose a workflow.",
+            descriptions={"Train": "Create or run a training configuration."},
+            breadcrumbs=["YOLOmatic", "Main Menu"],
+            tip="Recommended: start with Train when configuring a new dataset.",
+            status_fields={
+                "Dataset": "/very/long/path/to/datasets/project.v1i.yolov11/data.yaml",
+            },
+        )
+
+        console.print(renderer)
+        output = console.export_text()
+
+        self.assertIn("YOLOmatic", output)
+        self.assertIn("Main Menu", output)
+        self.assertIn("Current Choice", output)
+        self.assertIn("Create or run a training configuration.", output)
+        self.assertIn("Recommended: start with Train", output)
+        self.assertIn("data.yaml", output)
+
+    def test_parameter_editor_render_shows_validation_and_allowed_values(self) -> None:
+        from rich.console import Console
+
+        param = ParameterDefinition(
+            name="optimizer",
+            category="optimizer",
+            default="auto",
+            value_type="str",
+            description="Learning algorithm",
+            help_text="Choose the optimizer for training.",
+            allowed_values=["auto", "SGD", "AdamW"],
+        )
+        console = Console(record=True, width=80, height=24, color_system=None)
+        renderer = MultiSelectRenderer(
+            parameters=[param],
+            selected={"optimizer"},
+            values={"optimizer": "AdamW"},
+            current_index=0,
+            title="Custom Parameters",
+            instruction="Edit selected parameters.",
+            focus="input",
+            input_buffer="bad",
+            validation_error="Choose one of: 'auto', 'SGD', 'AdamW'.",
+        )
+
+        console.print(renderer)
+        output = console.export_text()
+
+        self.assertIn("Custom Parameters", output)
+        self.assertIn("optimizer", output)
+        self.assertIn("Allowed values", output)
+        self.assertIn("Validation", output)
+        self.assertIn("AdamW", output)
+
+    def test_expected_error_panel_has_next_step_without_traceback(self) -> None:
+        from rich.console import Console
+
+        console = Console(record=True, width=80, color_system=None)
+        console.print(
+            expected_error_panel(
+                "Path not found: missing/images",
+                next_step="Choose an existing image file or folder.",
+            )
+        )
+        output = console.export_text()
+
+        self.assertIn("Path not found", output)
+        self.assertIn("Choose an existing image file or folder.", output)
+        self.assertNotIn("Traceback", output)
+
     def test_clone_helpers_collect_only_known_tunable_sections(self) -> None:
         from pathlib import Path
 
@@ -127,6 +226,37 @@ class TUIParameterValidationTest(unittest.TestCase):
                 "QGIS Vegetation.v10i.yolo26",
             ).startswith("clone_source_with_a_very_long_name"),
         )
+
+    def test_detectron2_summary_paths_use_dataset_splits_schema(self) -> None:
+        from src.cli.run import dataset_path_rows_for_config
+
+        rows = dataset_path_rows_for_config(
+            "Mask R-CNN R50-FPN 3x",
+            {
+                "dataset": {
+                    "splits": {
+                        "train": {
+                            "images_path": "datasets/cache/train/images",
+                            "annotations_path": "datasets/cache/train_annotations.coco.json",
+                        },
+                        "val": {
+                            "images_path": "datasets/cache/val/images",
+                            "annotations_path": "datasets/cache/valid_annotations.coco.json",
+                        },
+                        "test": {
+                            "images_path": "datasets/cache/test/images",
+                            "annotations_path": "datasets/cache/test_annotations.coco.json",
+                        },
+                    }
+                }
+            },
+        )
+
+        flattened = [value for row in rows for value in row]
+        self.assertIn("Train Images", flattened)
+        self.assertIn("datasets/cache/train/images", flattened)
+        self.assertIn("datasets/cache/train_annotations.coco.json", flattened)
+        self.assertNotIn("N/A", flattened)
 
     def test_rfdetr_seg_update_config_extracts_dataset_before_mismatch_check(self) -> None:
         import tempfile

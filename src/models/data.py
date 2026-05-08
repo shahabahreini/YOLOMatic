@@ -1,7 +1,10 @@
+from src.models.detectron2 import detectron2_table_rows
 from src.models.rfdetr import rfdetr_table_rows
 
 
 model_data_dict = {
+    "detectron2": detectron2_table_rows("detection"),
+    "detectron2-seg": detectron2_table_rows("segmentation"),
     "rfdetr": rfdetr_table_rows("detection"),
     "rfdetr-seg": rfdetr_table_rows("segmentation"),
     "yolov11": [

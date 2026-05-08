@@ -8,11 +8,16 @@ import psutil
 import yaml
 
 try:
+    from src.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
+    from src.datasets import prepare_dataset_for_family, summarize_dataset
+    from src.models.detectron2 import get_detectron2_variant
     from src.models.rfdetr import get_rfdetr_variant
     from src.models.data import model_data_dict
     from src.utils.ml_dependencies import MLDependencyError, import_torch
 except ImportError:
     try:
+        from datasets import prepare_dataset_for_family, summarize_dataset
+        from models.detectron2 import get_detectron2_variant
         from models.rfdetr import get_rfdetr_variant
         from models.data import model_data_dict
         from utils.ml_dependencies import MLDependencyError, import_torch
@@ -22,6 +27,9 @@ except ImportError:
 
         def get_rfdetr_variant(model_choice: str) -> object:
             raise RuntimeError(f"RF-DETR metadata is not available for {model_choice}.")
+
+        def get_detectron2_variant(model_choice: str) -> object:
+            raise RuntimeError(f"Detectron2 metadata is not available for {model_choice}.")
 
         def import_torch() -> object:
             raise RuntimeError("torch is not available.")
@@ -192,8 +200,47 @@ class BaseConfigGenerator:
                 logger.error(f"Error reading YAML file: {e}")
                 raise  # Re-raise the exception for debugging
 
+        try:
+            summary = summarize_dataset(self.dataset_path)
+            if summary.format in {"coco", "mixed"}:
+                self.dataset_info.update(
+                    {
+                        "classes": summary.classes,
+                        "num_classes": len(summary.classes),
+                        "train_path": "",
+                        "valid_path": "",
+                        "test_path": "",
+                        "task_type": summary.task,
+                        "source_format": summary.format,
+                    }
+                )
+                return True
+        except Exception as error:
+            logger.warning(f"Dataset summary fallback failed: {error}")
+
         logger.warning("No valid data.yaml found")
         return False
+
+    def _prepared_dataset_config(self, family: str, task: str | None = None) -> dict[str, Any]:
+        """Return public dataset config metadata with lazy format conversion."""
+        try:
+            prepared = prepare_dataset_for_family(self.dataset_path, family, task=task)
+        except Exception as error:
+            logger.warning(f"Dataset preparation metadata failed: {error}")
+            summary = summarize_dataset(self.dataset_path)
+            prepared_format = "coco" if family == "detectron2" else "yolo"
+            return {
+                "name": self.dataset_path.name,
+                "source_format": summary.format,
+                "prepared_format": prepared_format,
+                "source_dir": str(self.dataset_path),
+                "prepared_dir": str(self.dataset_path),
+                "base_dir": str(self.dataset_path),
+                "classes": summary.classes or self.dataset_info.get("classes", []),
+                "splits": {key: value.__dict__ for key, value in summary.splits.items()},
+            }
+        prepared["base_dir"] = prepared["prepared_dir"]
+        return prepared
 
     def _resolve_path(self, base_path: Path, relative_path: str) -> Path:
         """
@@ -1054,6 +1101,8 @@ class RFDETRConfigGenerator(BaseConfigGenerator):
                 if finetune_strategy == "short_adaptation":
                     training["epochs"] = 50
 
+        dataset_config = self._prepared_dataset_config("rfdetr", variant.task)
+        integration_settings = load_settings()
         return {
             "settings": {
                 "model_family": "rfdetr",
@@ -1065,15 +1114,13 @@ class RFDETRConfigGenerator(BaseConfigGenerator):
                 "plus_model": variant.plus,
                 "license": variant.license,
             },
-            "clearml": {
-                "project_name": f"{task_name} - {model_choice}",
-                "task_name_format": "%Y-%m-%d-%H-%M",
-            },
+            "clearml": snapshot_clearml_settings(integration_settings, task_name, model_choice),
             "dataset": {
                 "name": self.dataset_path.name,
-                "base_dir": str(self.dataset_path),
-                "classes": self.dataset_info["classes"],
-                "format": "auto",
+                "base_dir": dataset_config["prepared_dir"],
+                "classes": dataset_config["classes"],
+                "format": dataset_config["prepared_format"],
+                **dataset_config,
             },
             "training": training,
             "export": {
@@ -1086,12 +1133,55 @@ class RFDETRConfigGenerator(BaseConfigGenerator):
                 "quantization": None,
                 "calibration_data": None,
             },
-            "roboflow": {
-                "upload": False,
-                "workspace": None,
-                "project_id": None,
-                "version": None,
+            "roboflow": snapshot_roboflow_settings(integration_settings),
+        }
+
+
+class Detectron2ConfigGenerator(BaseConfigGenerator):
+    def generate_config(
+        self,
+        model_choice: str,
+        finetune_source: str | None = None,
+        finetune_strategy: str | None = None,
+    ) -> Dict:
+        self.extract_dataset_info()
+        variant = get_detectron2_variant(model_choice)
+        system_metrics = self._collect_system_metrics()
+        dataset_config = self._prepared_dataset_config("detectron2", variant.task)
+        output_slug = model_choice.lower().replace(" ", "-").replace("/", "-")
+        training: dict[str, Any] = {
+            "max_iter": 3000,
+            "ims_per_batch": 2 if system_metrics["device"] != "cuda" else 4,
+            "base_lr": 0.00025,
+            "num_workers": self._get_optimal_workers(),
+            "device": "cuda" if system_metrics["device"] == "cuda" else "cpu",
+            "eval_period": 500,
+            "checkpoint_period": 1000,
+            "output_dir": f"runs/detectron2/{output_slug}",
+        }
+        if finetune_source:
+            training["weights"] = finetune_source
+            if finetune_strategy == "short_adaptation":
+                training["max_iter"] = 1000
+
+        integration_settings = load_settings()
+        return {
+            "settings": {
+                "model_family": "detectron2",
+                "model_type": model_choice,
+                "dataset": self.dataset_path.name,
+                "task": variant.task,
+                "auto_download_pretrained": finetune_source is None,
             },
+            "clearml": snapshot_clearml_settings(integration_settings, "Detectron2", model_choice),
+            "dataset": dataset_config,
+            "detectron2": {
+                "config_path": variant.config_path,
+                "weights_url": variant.weights_url,
+            },
+            "training": training,
+            "export": {"enabled": False},
+            "roboflow": snapshot_roboflow_settings(integration_settings),
         }
 
 
@@ -1113,15 +1203,19 @@ class YOLOConfigGenerator(BaseConfigGenerator):
         if profile_selection is None:
             profile_selection = dict(profile_context["recommended_profiles"])
 
+        task = self.dataset_info.get("task_type") or (
+            "segmentation" if str(model_choice).lower().endswith("-seg") else "detection"
+        )
+        dataset_config = self._prepared_dataset_config("yolo", task)
+        integration_settings = load_settings()
         config = {
             "settings": {
+                "model_family": "yolo",
                 "model_type": finetune_source or model_choice.lower(),
                 "dataset": self.dataset_path.name,
+                "task": task,
             },
-            "clearml": {
-                "project_name": f"YOLO Training - {model_choice.upper()}",
-                "task_name_format": "%Y-%m-%d-%H-%M",
-            },
+            "clearml": snapshot_clearml_settings(integration_settings, "YOLO", model_choice.upper()),
             "training": {
                 "epochs": 300,
                 "patience": 50,
@@ -1133,15 +1227,16 @@ class YOLOConfigGenerator(BaseConfigGenerator):
                 "device": self._detect_device(),
             },
             "model": {
-                "data_dir": f"./datasets/{self.dataset_path.name}",
+                "data_dir": dataset_config["prepared_dir"],
                 "train_images_dir": "train/images",
                 "train_labels_dir": "train/labels",
                 "val_images_dir": "valid/images",
                 "val_labels_dir": "valid/labels",
                 "test_images_dir": "test/images",
                 "test_labels_dir": "test/labels",
-                "classes": self.dataset_info["classes"],
+                "classes": dataset_config["classes"],
             },
+            "dataset": dataset_config,
             "export": {
                 "format": "onnx",
                 "optimize": True,
@@ -1152,6 +1247,7 @@ class YOLOConfigGenerator(BaseConfigGenerator):
                 "simplify": True,
                 "opset": None,
             },
+            "roboflow": snapshot_roboflow_settings(integration_settings),
         }
         if finetune_source:
             config["settings"]["base_model_type"] = model_choice.lower()

@@ -197,6 +197,24 @@ All values can also be entered interactively when the uploader prompts for them.
 
 ---
 
+## Global Integration Settings
+
+Global ClearML, Roboflow, and narrative defaults live in `configs/yolomatic_settings.yaml` and can be edited from the TUI under **Maintenance → Settings**. New YOLO, RF-DETR, and Detectron2 configs snapshot these defaults so each run remains reproducible and can still be overridden directly in that training YAML.
+
+Roboflow secrets stay in `.env` only. YOLOmatic reports whether `ROBOFLOW_API_KEY`, `ROBOFLOW_WORKSPACE`, and `ROBOFLOW_PROJECT_IDS` are configured, but it never writes API keys to YAML or displays their values.
+
+ClearML setup is still run from your shell:
+
+```sh
+uv run clearml-init
+# or
+clearml-init
+```
+
+Set `clearml.enabled: false` to skip ClearML task creation, or `clearml.require_configured: true` to cancel training when ClearML cannot initialize. Set `roboflow.auto_upload_after_training: true` to make newly generated configs opt into post-training upload/deploy by default.
+
+---
+
 ## Usage Guide
 
 YOLOmatic exposes a primary TUI plus focused helper commands for direct training, prediction, upload, TensorBoard, and versioning.
@@ -309,7 +327,7 @@ roboflow:
   upload: true
   weight: "best.pt"
 ```
-Ensure your dataset contains Roboflow workspace/project metadata or your `.env` has default fallback credentials.
+Ensure your dataset contains Roboflow workspace/project metadata. `.env` supplies credentials and optional fallback workspace/project IDs for the manual uploader.
 
 **Upload requirements:**
 

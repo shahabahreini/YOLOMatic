@@ -157,7 +157,11 @@ def load_yaml_file(file_path: str | Path) -> dict[str, Any]:
 
 
 def load_dataset_config(dataset_name: str, datasets_root: str | Path = "datasets") -> tuple[dict[str, Any], str, str]:
-    dataset_path = (Path(datasets_root) / dataset_name).resolve()
+    requested_path = Path(dataset_name)
+    if requested_path.exists() or requested_path.is_absolute() or "/" in str(dataset_name):
+        dataset_path = requested_path.resolve()
+    else:
+        dataset_path = (Path(datasets_root) / dataset_name).resolve()
     data_yaml_path = dataset_path / "data.yaml"
     if not data_yaml_path.exists():
         raise FileNotFoundError(f"data.yaml not found in {dataset_path}")
