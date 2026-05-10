@@ -4,7 +4,7 @@ requires = ["setuptools>=61.0", "wheel"]
 
 [project]
 authors = [
-  {name = "shahab"},
+  {name = "Shahab Bahreini Jangjoo", email = "shahabahreini@hotmail.com"},
 ]
 dependencies = [
   "ultralytics",
@@ -55,6 +55,7 @@ keywords = [
   "ultralytics",
   "pytorch",
   "training-cli",
+  "fine-tuning",
   "tui",
   "clearml",
   "roboflow",
@@ -65,6 +66,8 @@ keywords = [
   "edge-deployment",
   "onnx",
   "cuda",
+  "mps",
+  "dataset-tools",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -87,6 +90,12 @@ name = "yolomatic"
 readme = "README.md"
 requires-python = ">=3.10,<3.11"
 version = "4.1.0"
+
+[project.urls]
+Homepage = "https://github.com/shahabahreini/YOLOMatic"
+Documentation = "https://github.com/shahabahreini/YOLOMatic#readme"
+Issues = "https://github.com/shahabahreini/YOLOMatic/issues"
+Repository = "https://github.com/shahabahreini/YOLOMatic"
 
 [tool.setuptools]
 package-dir = {"src" = "src"}

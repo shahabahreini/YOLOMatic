@@ -122,15 +122,6 @@ class BaseConfigGenerator:
             "test_path": "",
         }
 
-    def read_yaml(self, file_path: str) -> Optional[Dict]:
-        """Read and parse YAML file."""
-        try:
-            with open(file_path, "r") as f:
-                return yaml.safe_load(f)
-        except Exception as e:
-            logger.error(f"Error reading YAML file {file_path}: {e}")
-            return None
-
     def extract_dataset_info(self):
         """Extract dataset information from data.yaml"""
         logger.info(f"Looking for data.yaml in: {self.dataset_path}")
@@ -486,7 +477,7 @@ class BaseConfigGenerator:
     def _infer_model_variant_rank(self, model_choice: str) -> int:
         """Return a coarse size rank (0-4) for a YOLO variant name.
 
-        Handles all observed shapes: ``YOLO11n``, ``YOLOv10-N``, ``YOLO-NAS-S``,
+        Handles all supported shapes: ``YOLO11n``, ``YOLOv10-N``,
         ``YOLO26n-seg``, ``YOLOv9e``, ``YOLOX-M``. Strips task suffixes and the
         family-vs-variant separator, then looks up the trailing size letter.
         """
@@ -496,7 +487,7 @@ class BaseConfigGenerator:
                 normalized = normalized[: -len(suffix)]
                 break
         if "-" in normalized:
-            # For YOLO-NAS-S or YOLOv10-B the variant letter is after the last dash.
+            # For YOLOv10-B or YOLOX-M the variant letter is after the last dash.
             normalized = normalized.rsplit("-", 1)[-1]
         if not normalized:
             return 2
@@ -530,7 +521,7 @@ class BaseConfigGenerator:
         """Map a lowercased variant name to its key in ``model_data_dict``.
 
         Variant names in ``model_data_dict`` are inconsistent across families
-        (e.g. ``YOLO11n`` for v11, ``YOLOv10-N`` for v10, ``YOLO-NAS-S`` for NAS).
+        (e.g. ``YOLO11n`` for v11, ``YOLOv10-N`` for v10, ``YOLOX-M`` for YOLOX).
         This mapping table covers each observed shape explicitly so a new
         family name doesn't silently fall through to a missing key.
         """
@@ -547,8 +538,6 @@ class BaseConfigGenerator:
             ("yolov9", "yolov9-seg", "yolov9"),
             ("yolov8", "yolov8-seg", "yolov8"),
             ("yolox", "yolox", "yolox"),
-            ("yolo-nas", "yolo_nas", "yolo_nas"),
-            ("yolo_nas", "yolo_nas", "yolo_nas"),
         )
         for prefix, seg_key, base_key in prefixes:
             if normalized.startswith(prefix):
@@ -948,101 +937,6 @@ class BaseConfigGenerator:
             training.pop(key, None)
 
         training.update(AUGMENTATION_PROFILES[profile_selection["augmentation"]])
-        return config
-
-
-class YOLONASConfigGenerator(BaseConfigGenerator):
-    @staticmethod
-    def _normalize_nas_name(model_choice: str) -> str:
-        """Convert display names like ``YOLO-NAS-S`` to SuperGradients' ``yolo_nas_s``.
-
-        ``super_gradients.training.models.get`` expects the underscore form;
-        passing the display form (with dashes) raises KeyError at training time.
-        """
-        return model_choice.strip().lower().replace("-", "_")
-
-    def generate_config(
-        self,
-        model_choice: str,
-        profile_selection: dict[str, str] | None = None,
-        profile_context: dict[str, Any] | None = None,
-    ) -> Dict:
-        """Generate YOLO NAS specific configuration."""
-        self.extract_dataset_info()
-
-        config = {
-            "experiment": {
-                "name_prefix": f"YoloNAS-{model_choice}",
-                "checkpoint_dir": "./results/",
-                "console_log_file": "./logs/console.log",
-                "description": "Yolo NAS Training",
-            },
-            "clearml": {
-                "project_name": "YOLO NAS Training",
-                "tags": [f"YOLO NAS {model_choice}"],
-            },
-            "dataset": {
-                "name": self.dataset_path.name,
-                "base_dir": str(self.dataset_path),
-                "structure": {
-                    "train": {"images": "train/images", "labels": "train/labels"},
-                    "valid": {"images": "valid/images", "labels": "valid/labels"},
-                    "test": {"images": "test/images", "labels": "test/labels"},
-                },
-                "classes": self.dataset_info["classes"],
-            },
-            "training": {
-                "batch_size": 35,
-                "max_epochs": 20,
-                "num_workers": self._get_optimal_workers(),
-                "optimizer": {
-                    "weight_decay": 0.0001,
-                    "zero_weight_decay_on_bias_and_bn": True,
-                },
-                "learning_rate": {
-                    "warmup_initial_lr": 1.0e-6,
-                    "initial_lr": 5.0e-3,
-                    "warmup_epochs": 3,
-                    "warmup_mode": "LinearEpochLRWarmup",
-                },
-                "mixed_precision": {
-                    "enabled": True,
-                    "dtype": "qint8",
-                    "loss_scale_value": 1024,
-                    "loss_scale_method": "dynamic",
-                },
-                "checkpoint": {
-                    "save_last": True,
-                    "save_best_only": True,
-                    "monitor": "mAP@0.50",
-                    "mode": "max",
-                },
-                "ema": {"enabled": True, "decay": 0.9, "decay_type": "threshold"},
-            },
-            "model": {
-                "name": self._normalize_nas_name(model_choice),
-                "pretrained_weights": "coco",
-                "loss": {
-                    "type": "PPYoloELoss",
-                    "use_static_assigner": False,
-                    "reg_max": 16,
-                },
-                "metrics": {
-                    "score_threshold": 0.1,
-                    "top_k_predictions": 300,
-                    "post_prediction": {
-                        "score_threshold": 0.01,
-                        "nms_top_k": 1000,
-                        "max_predictions": 300,
-                        "nms_threshold": 0.7,
-                    },
-                },
-            },
-            "export": {
-                "output_name": f"{self._normalize_nas_name(model_choice)}_int8.onnx",
-                "calibration": {"batch_size": 8, "num_samples": 32, "num_workers": 0},
-            },
-        }
         return config
 
 

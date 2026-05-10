@@ -6,7 +6,7 @@
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/shahabahreini/YOLOMatic.git
 cd YOLOMatic
 
 # Sync the existing project environment with uv
@@ -114,7 +114,7 @@ Upload tips:
 - Choose a full checkpoint such as `best.pt` or `last.pt`.
 - Generated artifacts like `state_dict.pt` are not uploadable checkpoints.
 - YOLO26 uploads require a size-specific Roboflow type such as `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
-- YOLO-NAS training is supported in YOLOmatic, but Roboflow upload compatibility still depends on Roboflow SDK support for the selected checkpoint family.
+- YOLO-NAS configs no longer train in this build because SuperGradients conflicts with RF-DETR's modern training dependency stack.
 
 ---
 
@@ -444,18 +444,12 @@ Manual Windows repair fallback:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip uninstall -y torch torchvision torchaudio
-.\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio numpy==1.23.0 --index-url https://download.pytorch.org/whl/cu128
+.\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio "numpy>=1.24.4" --index-url https://download.pytorch.org/whl/cu128
 ```
 
-### YOLO-NAS NumPy compatibility
+### YOLO-NAS deprecation
 
-This project pins `numpy==1.23.0` because `super-gradients 3.7.1` is not compatible with newer NumPy versions.
-
-If NumPy drifts, restore it with:
-
-```bash
-uv run python -m pip install --force-reinstall numpy==1.23.0
-```
+YOLO-NAS is deprecated in this build because SuperGradients conflicts with RF-DETR's modern training dependency stack. Use YOLO26, YOLO11, or RF-DETR for new training runs.
 
 ### YOLO26 Issues
 
@@ -552,6 +546,6 @@ uv run python -m pip install --force-reinstall numpy==1.23.0
 
 ---
 
-**Last Updated**: April 24, 2026  
-**YOLOMatic Version**: 3.0.0  
+**Last Updated**: May 8, 2026  
+**YOLOMatic Version**: 4.1.0  
 **Status**: ✅ Fully Supported and Integrated

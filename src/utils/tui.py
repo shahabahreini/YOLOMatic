@@ -258,7 +258,6 @@ class MenuRenderer:
             "yolov8-seg": "yolov8-seg",
             "yolov8": "yolov8",
             "yolox": "yolox",
-            "yolo_nas": "yolo_nas",
         }
         return mapping.get(o, o)
 

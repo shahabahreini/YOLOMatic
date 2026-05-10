@@ -1,3 +1,3 @@
-from .generator import YOLOConfigGenerator, YOLONASConfigGenerator
+from .generator import Detectron2ConfigGenerator, RFDETRConfigGenerator, YOLOConfigGenerator
 
-__all__ = ["YOLOConfigGenerator", "YOLONASConfigGenerator"]
+__all__ = ["Detectron2ConfigGenerator", "RFDETRConfigGenerator", "YOLOConfigGenerator"]

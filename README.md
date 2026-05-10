@@ -17,7 +17,7 @@
 
 ---
 
-**YOLOmatic** is a production-grade CLI toolkit for the full YOLO and RF-DETR training lifecycle — model selection, configuration generation, checkpoint fine-tuning, training, prediction, TensorBoard monitoring, dataset combining, dependency health checks, and Roboflow upload — all driven through a rich interactive terminal interface.
+**YOLOmatic** is an automated computer-vision training CLI for YOLO and RF-DETR workflows: model selection, hardware-aware configuration generation, checkpoint fine-tuning, training, prediction, TensorBoard monitoring, dataset combining, dependency health checks, and Roboflow upload.
 
 Supported model families: **RF-DETR**, **YOLO26**, **YOLOv12**, **YOLOv11**, **YOLOv10**, **YOLOv9**, **YOLOv8**, and **YOLOX**.
 
@@ -46,7 +46,7 @@ YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR comput
 
 **Deployment targets:** CUDA GPU (NVIDIA), Apple Silicon MPS, CPU (all platforms), ONNX Runtime, TensorRT.
 
-**Keywords:** yolo training cli, automated yolo training, yolo26 training, yolov12 training, yolov11 training, ultralytics training pipeline, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, clearml yolo, roboflow yolo upload, tensorboard yolo, edge deployment yolo, yolo tui, yolo interactive terminal.
+**Search keywords:** yolo training cli, automated yolo training, yolo26 training, yolov12 training, yolov11 training, ultralytics training pipeline, RF-DETR training, rfdetr fine tuning, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, clearml yolo, roboflow yolo upload, tensorboard yolo, edge deployment yolo, yolo tui, yolo interactive terminal.
 
 ---
 
@@ -63,7 +63,8 @@ YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR comput
 9. [Versioning](#versioning)
 10. [Troubleshooting](#troubleshooting)
 11. [Related Docs](#related-docs)
-12. [License](#license)
+12. [AI & Search Discovery](#ai--search-discovery)
+13. [License](#license)
 
 ---
 
@@ -434,6 +435,13 @@ Or choose **Continue Without ClearML** when the training TUI prompts.
 |---|---|
 | [`YOLO_GUIDE.md`](YOLO_GUIDE.md) | Workflow guide: model selection, deployment scenarios, export options |
 | [`MODELS.md`](MODELS.md) | Architecture reference, benchmark tables, model family comparison |
+| [`llms.txt`](llms.txt) | AI-readable repository map for LLM assistants and documentation retrieval |
+
+---
+
+## AI & Search Discovery
+
+YOLOmatic keeps a curated [`llms.txt`](llms.txt) file at the repository root. It summarizes the project, supported model families, entrypoints, important docs, and non-goals for LLM search, code assistants, and retrieval-augmented documentation tools. Traditional search and package discovery are supported through this README, GitHub topics, PyPI metadata in `pyproject.toml`, and descriptive documentation pages.
 
 ---
 
@@ -446,8 +454,5 @@ Licensed under the [Apache License 2.0](LICENSE.md).
 <div align="center">
 
 Built on top of [Ultralytics](https://github.com/ultralytics/ultralytics) and [ClearML](https://github.com/allegroai/clearml).
-
-</div>
-arml).
 
 </div>

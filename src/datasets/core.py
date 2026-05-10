@@ -17,6 +17,12 @@ SPLIT_ALIASES = {
 }
 
 
+def read_yaml_file(file_path: str | Path) -> dict[str, Any] | None:
+    with open(file_path, "r", encoding="utf-8") as file:
+        payload = yaml.safe_load(file)
+    return payload if isinstance(payload, dict) else None
+
+
 @dataclass
 class SplitSummary:
     name: str

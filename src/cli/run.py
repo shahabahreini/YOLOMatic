@@ -22,7 +22,7 @@ from src.config.settings import (
     roboflow_credential_status,
     save_settings,
 )
-from src.config.generator import Detectron2ConfigGenerator, RFDETRConfigGenerator, YOLOConfigGenerator, YOLONASConfigGenerator
+from src.config.generator import Detectron2ConfigGenerator, RFDETRConfigGenerator, YOLOConfigGenerator
 from src.datasets import summarize_dataset
 from src.models.detectron2 import is_detectron2_model
 from src.models.data import model_data_dict
@@ -1608,30 +1608,6 @@ def check_for_updates():
             return
 
 
-# Removed clear_screen, now imported from src.utils.tui
-
-
-def backup_config(config_file):
-    """
-    Create a backup of the existing configuration file if it exists.
-
-    Args:
-        config_file (str): Name of the configuration file to backup
-    """
-    config_path = os.path.join("configs", config_file)
-    if os.path.exists(config_path):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_name = f"config_backup_{timestamp}.yaml"
-        backup_path = os.path.join("configs", backup_name)
-
-        try:
-            with open(config_path, "r") as source, open(backup_path, "w") as target:
-                target.write(source.read())
-            console.print(f"✅ Created backup: {backup_name}", style="green")
-        except Exception as e:
-            console.print(f"⚠️ Failed to create backup: {str(e)}", style="yellow")
-
-
 def display_configuration_summary(
     model_choice,
     dataset_name,
@@ -2317,9 +2293,12 @@ def update_config(
         profile_context = None
         profile_selection = None
     elif "nas" in model_choice.lower():
-        generator = YOLONASConfigGenerator(str(dataset_path))
-        profile_context = None
-        profile_selection = None
+        console.print(
+            "[bold yellow]YOLO-NAS support is deprecated in this build.[/bold yellow]\n\n"
+            "SuperGradients conflicts with RF-DETR's training dependency stack. "
+            "Choose a YOLO, RF-DETR, or Detectron2 model instead."
+        )
+        return False
     else:
         generator = YOLOConfigGenerator(str(dataset_path))
         profile_context = generator.get_regular_yolo_profile_context(model_choice)

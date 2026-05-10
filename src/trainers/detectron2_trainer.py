@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from src.config.settings import deep_merge, load_settings
+from src.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
 from src.utils.ml_dependencies import MLDependencyError, import_detectron2
 
 console = Console()
@@ -40,10 +40,6 @@ def find_detectron2_checkpoint(run_dir: Path | None) -> Path | None:
     return checkpoints[0] if checkpoints else None
 
 
-def effective_clearml_settings(config: dict[str, Any]) -> dict[str, Any]:
-    return deep_merge(load_settings().get("clearml", {}), config.get("clearml", {}))
-
-
 def initialize_clearml_task(config: dict[str, Any], run_name: str):
     clearml = effective_clearml_settings(config)
     if not clearml.get("enabled", True):
@@ -61,18 +57,6 @@ def initialize_clearml_task(config: dict[str, Any], run_name: str):
             raise RuntimeError(f"ClearML is required but not configured: {error}") from error
         console.print(f"[bold yellow]ClearML is not configured: {error}[/bold yellow]")
         return None
-
-
-def maybe_upload_clearml_checkpoint(task, checkpoint: Path | None, config: dict[str, Any]) -> None:
-    if task is None or checkpoint is None:
-        return
-    if not effective_clearml_settings(config).get("upload_final_model", True):
-        return
-    try:
-        task.upload_artifact(name="final_model", artifact_object=str(checkpoint))
-    except Exception as error:
-        console.print(f"[bold yellow]ClearML final model upload skipped: {error}[/bold yellow]")
-
 
 def report_roboflow_skip_if_configured(config: dict[str, Any]) -> None:
     if config.get("roboflow", {}).get("upload", False):
@@ -173,7 +157,7 @@ def train_from_config(config_file: str | Path) -> Path | None:
             console.print("[bold yellow]Detectron2 training completed, but no .pth checkpoint was found.[/bold yellow]")
         else:
             console.print(f"[bold green]Detectron2 training completed. Best checkpoint: {checkpoint}[/bold green]")
-        maybe_upload_clearml_checkpoint(task, checkpoint, config)
+        maybe_upload_clearml_checkpoint(task, checkpoint, config, console)
         report_roboflow_skip_if_configured(config)
         return checkpoint
     finally:

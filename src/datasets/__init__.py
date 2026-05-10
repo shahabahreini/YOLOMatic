@@ -1,7 +1,4 @@
-# datasets utilities
 from .analyzer import DatasetAnalyzer
-
-__all__ = ["DatasetAnalyzer"]
 from src.datasets.core import (
     DatasetSummary,
     DatasetValidationError,
@@ -10,10 +7,12 @@ from src.datasets.core import (
     convert_yolo_to_coco,
     detect_dataset_format,
     prepare_dataset_for_family,
+    read_yaml_file,
     summarize_dataset,
 )
 
 __all__ = [
+    "DatasetAnalyzer",
     "DatasetSummary",
     "DatasetValidationError",
     "SplitSummary",
@@ -21,5 +20,6 @@ __all__ = [
     "convert_yolo_to_coco",
     "detect_dataset_format",
     "prepare_dataset_for_family",
+    "read_yaml_file",
     "summarize_dataset",
 ]

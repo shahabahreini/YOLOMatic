@@ -1,0 +1,63 @@
+# YOLOmatic
+
+> Automated YOLO and RF-DETR training CLI for configuring, training, fine-tuning, predicting, monitoring, combining datasets, and uploading computer-vision models.
+
+YOLOmatic is a Python 3.10 command-line toolkit for object detection, instance segmentation, image classification, pose estimation, and oriented object detection workflows. It supports Ultralytics YOLO model families and native RF-DETR training, with hardware-aware config generation, TensorBoard logging, ClearML tracking, CUDA repair guidance, dataset utilities, prediction helpers, and Roboflow deployment support.
+
+## Primary Use Cases
+
+- Generate training YAML configs for YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, and Detectron2.
+- Fine-tune existing Ultralytics `.pt` checkpoints and RF-DETR `.pth` checkpoints on custom datasets.
+- Train, validate, export, and monitor computer-vision models through CLI/TUI workflows.
+- Run single-image or batch-folder prediction from discovered project weights.
+- Merge YOLO-format datasets and preserve class mappings.
+- Upload YOLO checkpoints and deploy RF-DETR checkpoints to Roboflow.
+
+## Important Commands
+
+- `uv sync` - create the project environment.
+- `uv run yolomatic` - launch the main interactive TUI.
+- `uv run yolomatic-train` - train from a saved config.
+- `uv run yolomatic-predict` - run prediction workflows.
+- `uv run yolomatic-upload` - upload or deploy trained checkpoints to Roboflow.
+- `uv run yolomatic-tensorboard` - launch TensorBoard for discovered runs.
+- `uv run bump patch|minor|major|VERSION` - update the package version.
+
+## Documentation Map
+
+- [README.md](README.md) - installation, supported models, usage guide, troubleshooting, and integration summary.
+- [YOLO_GUIDE.md](YOLO_GUIDE.md) - model-selection guidance, deployment scenarios, export options, and operational notes.
+- [MODELS.md](MODELS.md) - supported model families, benchmark tables, task support, and model recommendations.
+- [pyproject.toml](pyproject.toml) - package metadata, dependencies, Python version, and console scripts.
+- [tests/](tests/) - unit and smoke tests for imports, prediction helpers, config generation, trainer helpers, settings, TUI parameters, and preflight checks.
+
+## Supported Model Families
+
+- RF-DETR detection and segmentation variants: Nano, Small, Medium, Large, XLarge, 2XLarge.
+- YOLO26 detection and segmentation variants.
+- YOLOv12 detection and segmentation variants.
+- YOLOv11 detection, segmentation, classification, pose, and OBB variants.
+- YOLOv10 detection variants.
+- YOLOv9 detection and segmentation variants.
+- YOLOv8 detection, segmentation, classification, pose, and OBB variants.
+- YOLOX detection variants.
+- Detectron2 detection and segmentation configs.
+
+## Repository Structure
+
+- `src/cli/` - TUI, prediction, upload, TensorBoard launcher, and version bump commands.
+- `src/config/` - config generation and global settings.
+- `src/datasets/` - dataset analysis, format detection, conversion, and preparation.
+- `src/models/` - model-family metadata for supported training options.
+- `src/trainers/` - YOLO, RF-DETR, Detectron2, and shared trainer helpers.
+- `src/utils/` - project discovery, TUI rendering, TensorBoard logging, dependency checks, and training preflight logic.
+
+## Current Non-Goals
+
+- YOLO-NAS training is deprecated in this build because SuperGradients conflicts with RF-DETR's modern dependency stack.
+- This project does not vendor datasets, trained weights, or generated run artifacts.
+- Secrets such as Roboflow API keys belong in `.env`, not YAML configs or documentation.
+
+## Search Phrases
+
+yolo training cli, automated yolo training, yolo26 training, RF-DETR training, rfdetr fine tuning, ultralytics training pipeline, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, roboflow upload, clearml tracking, tensorboard yolo, edge deployment yolo, computer vision training CLI.

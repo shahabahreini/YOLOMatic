@@ -313,27 +313,6 @@ def build_tensorboard_metadata(
     return metadata
 
 
-def normalize_supergradients_metrics(metrics_dict: dict[str, Any]) -> dict[str, float]:
-    normalized: dict[str, float] = {}
-    for tag, value in _flatten_metrics(metrics_dict).items():
-        lowered = tag.lower()
-        if "map" in lowered and "50_95" in lowered:
-            normalized["metrics/map50_95"] = value
-        elif "map" in lowered and "50" in lowered:
-            normalized["metrics/map50"] = value
-        elif "precision" in lowered:
-            normalized["metrics/precision"] = value
-        elif "recall" in lowered:
-            normalized["metrics/recall"] = value
-        elif "loss" in lowered and "valid" in lowered:
-            normalized[f"loss/val/{_normalize_tag_component(tag)}"] = value
-        elif "loss" in lowered and "train" in lowered:
-            normalized[f"loss/train/{_normalize_tag_component(tag)}"] = value
-        else:
-            normalized[f"metrics/raw/{_normalize_tag_component(tag)}"] = value
-    return normalized
-
-
 def validate_tensorboard_run(run_dir: str | Path) -> TensorBoardValidationReport:
     run_path = Path(run_dir)
     event_files = _collect_event_files(run_path)
@@ -412,78 +391,3 @@ def emit_tensorboard_report(console: Any, report: TensorBoardValidationReport) -
             + ", ".join(report.missing_optional)
         )
 
-
-class SuperGradientsTensorBoardCallback:
-    def __init__(self, run_dir: str | Path, metadata: dict[str, Any]):
-        self.run_dir = Path(run_dir)
-        self.metadata = metadata
-        self.logger = TensorBoardLogger(self.run_dir)
-        self._epoch_train_loss_totals: dict[str, float] = {}
-        self._epoch_train_loss_counts: dict[str, int] = {}
-        self._train_epoch_start_time: float | None = None
-        self._epoch_sample_logged = False
-
-    def on_training_start(self, context: Any) -> None:
-        self.logger.log_metadata(self.metadata)
-
-    def on_train_loader_start(self, context: Any) -> None:
-        self._epoch_train_loss_totals = {}
-        self._epoch_train_loss_counts = {}
-        self._train_epoch_start_time = time.perf_counter()
-        self._epoch_sample_logged = False
-
-    def on_train_batch_loss_end(self, context: Any) -> None:
-        names = getattr(context, "loss_logging_items_names", None) or []
-        values = getattr(context, "loss_log_items", None)
-        if values is None:
-            values = []
-        for name, value in zip(names, values):
-            scalar = _safe_scalar(value)
-            if scalar is None:
-                continue
-            tag = f"loss/train/{_normalize_tag_component(name)}"
-            self._epoch_train_loss_totals[tag] = self._epoch_train_loss_totals.get(tag, 0.0) + scalar
-            self._epoch_train_loss_counts[tag] = self._epoch_train_loss_counts.get(tag, 0) + 1
-
-    def on_train_loader_end(self, context: Any) -> None:
-        epoch = int(getattr(context, "epoch", 0))
-        for tag, total in self._epoch_train_loss_totals.items():
-            count = max(1, self._epoch_train_loss_counts.get(tag, 1))
-            self.logger.add_scalar(tag, total / count, epoch)
-
-        optimizer = getattr(context, "optimizer", None)
-        if optimizer is not None:
-            for index, param_group in enumerate(getattr(optimizer, "param_groups", [])):
-                self.logger.add_scalar(
-                    f"optimization/lr/pg{index}",
-                    param_group.get("lr"),
-                    epoch,
-                )
-
-        if self._train_epoch_start_time is not None:
-            self.logger.add_scalar(
-                "runtime/epoch_total_time_sec",
-                time.perf_counter() - self._train_epoch_start_time,
-                epoch,
-            )
-        self.logger.add_runtime_stats(getattr(context, "device", None), epoch)
-
-    def on_validation_batch_end(self, context: Any) -> None:
-        if self._epoch_sample_logged:
-            return
-        epoch = int(getattr(context, "epoch", 0))
-        if self.logger.add_image_tensor("artifacts/samples/validation_input", getattr(context, "inputs", None), epoch):
-            self._epoch_sample_logged = True
-
-    def on_validation_loader_end(self, context: Any) -> None:
-        epoch = int(getattr(context, "epoch", 0))
-        metrics_dict = getattr(context, "metrics_dict", None) or {}
-        self.logger.add_scalars(normalize_supergradients_metrics(metrics_dict), epoch)
-        loss_avg_meter = getattr(context, "loss_avg_meter", None)
-        avg_value = getattr(loss_avg_meter, "average", None)
-        self.logger.add_scalar("loss/val/total", avg_value, epoch)
-        self.logger.add_runtime_stats(getattr(context, "device", None), epoch)
-
-    def on_training_end(self, context: Any) -> None:
-        self.logger.log_known_artifacts(self.run_dir, getattr(context, "epoch", 0) or 0)
-        self.logger.close()

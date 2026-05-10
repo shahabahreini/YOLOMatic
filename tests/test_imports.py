@@ -12,6 +12,9 @@ MODULES = [
     "src.cli.predict",
     "src.cli.upload",
     "src.cli.tensorboard_launcher",
+    "src.config",
+    "src.datasets",
+    "src.trainers.common",
     "src.trainers.yolo_trainer",
     "src.utils.tensorboard",
 ]
@@ -39,3 +42,15 @@ class ImportSmokeTests(unittest.TestCase):
                 )
                 self.assertEqual(process.returncode, 0, process.stderr)
                 self.assertIn("usage:", process.stdout.lower())
+
+    def test_package_exports_include_supported_generators(self) -> None:
+        config = importlib.import_module("src.config")
+        self.assertTrue(hasattr(config, "YOLOConfigGenerator"))
+        self.assertTrue(hasattr(config, "RFDETRConfigGenerator"))
+        self.assertTrue(hasattr(config, "Detectron2ConfigGenerator"))
+        self.assertFalse(hasattr(config, "YOLONASConfigGenerator"))
+
+    def test_dataset_exports_keep_analyzer_and_core_helpers(self) -> None:
+        datasets = importlib.import_module("src.datasets")
+        self.assertIn("DatasetAnalyzer", datasets.__all__)
+        self.assertIn("summarize_dataset", datasets.__all__)
