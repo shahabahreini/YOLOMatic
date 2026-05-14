@@ -10,6 +10,7 @@ from rich.panel import Panel
 
 from src.utils.cli import (
     NAV_BACK,
+    ParameterDefinition,
     clear_screen,
     console,
     expected_error_panel,
@@ -30,8 +31,8 @@ from src.utils.project import (
 _DEFAULT_VAL_DIR = "output/nir/valid"
 _DEFAULT_OUT_DIR = "output/benchmark_reports"
 
-# Prefix characters — plain ASCII so they render on every terminal
-_CHECK = "[bold green]✓[/bold green]"
+# Prefix characters kept plain; the shared TUI renderer applies color.
+_CHECK = "✓"
 _EMPTY = " "
 
 
@@ -328,10 +329,15 @@ def _select_validation_dir() -> Path | str:
 
     if choice == "Enter custom path...":
         raw = get_parameter_value_input(
-            name="validation_dir",
-            current_value=str(default),
-            value_type="str",
-            description="Path to validation images + annotation JSON",
+            ParameterDefinition(
+                name="validation_dir",
+                category="benchmark",
+                default=str(root / _DEFAULT_VAL_DIR),
+                value_type="str",
+                description="Path to validation images + annotation JSON",
+                help_text="Use an absolute path or a path relative to the project root.",
+            ),
+            current_value=str(root / _DEFAULT_VAL_DIR),
         )
         if raw is None or raw == NAV_BACK:
             return NAV_BACK
@@ -383,10 +389,15 @@ def _configure_options(val_dir: Path) -> dict | str:
 
     if ann_fmt not in ("coco", "yolo") or (ann_fmt == "coco" and ann_file is None):
         raw = get_parameter_value_input(
-            name="annotations_file",
+            ParameterDefinition(
+                name="annotations_file",
+                category="benchmark",
+                default="",
+                value_type="str",
+                description="Path to COCO annotation JSON (absolute or relative to project root)",
+                help_text="Use the COCO JSON file that matches the selected validation images.",
+            ),
             current_value="",
-            value_type="str",
-            description="Path to COCO annotation JSON (absolute or relative to project root)",
         )
         if raw is None or raw == NAV_BACK:
             return NAV_BACK
@@ -402,12 +413,17 @@ def _configure_options(val_dir: Path) -> dict | str:
             return NAV_BACK
 
     conf_raw = get_parameter_value_input(
-        name="conf_threshold",
+        ParameterDefinition(
+            name="conf_threshold",
+            category="benchmark",
+            default=0.25,
+            value_type="float",
+            description="Minimum confidence to count a prediction (0.01-0.99)",
+            help_text="Lower values keep more detections; higher values count only more confident predictions.",
+            min_value=0.01,
+            max_value=0.99,
+        ),
         current_value=0.25,
-        value_type="float",
-        description="Minimum confidence to count a prediction (0.01–0.99)",
-        min_value=0.01,
-        max_value=0.99,
     )
     if conf_raw is None or conf_raw == NAV_BACK:
         return NAV_BACK
@@ -416,10 +432,15 @@ def _configure_options(val_dir: Path) -> dict | str:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     default_out = root / _DEFAULT_OUT_DIR / ts
     out_raw = get_parameter_value_input(
-        name="output_dir",
+        ParameterDefinition(
+            name="output_dir",
+            category="benchmark",
+            default=str(default_out),
+            value_type="str",
+            description="Directory where the HTML report will be saved",
+            help_text="A timestamped directory under output/benchmark_reports is used by default.",
+        ),
         current_value=str(default_out),
-        value_type="str",
-        description="Directory where the HTML report will be saved",
     )
     if out_raw is None or out_raw == NAV_BACK:
         return NAV_BACK
@@ -447,7 +468,7 @@ def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
     }
     clear_screen()
     print_stylized_header("Benchmark Configuration")
-    console.print(render_summary_panel(rows, title="Ready to Run"))
+    render_summary_panel("Ready to Run", rows)
 
     choice = get_user_choice(
         ["Start Benchmark", "Cancel"],

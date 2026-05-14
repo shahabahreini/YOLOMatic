@@ -32,6 +32,16 @@ def format_weight_label(project_root: Path, weight_path: Path) -> str:
         return str(weight_path)
 
 
+def is_sam_checkpoint(path: Path) -> bool:
+    """Detect a SAM fine-tuned checkpoint directory produced by HuggingFace Trainer."""
+    if not path.is_dir():
+        return False
+    path_lower = str(path).lower()
+    return (path / "config.json").exists() and (
+        "sam3" in path_lower or "sam 3" in path_lower
+    )
+
+
 def find_available_weights(project_root: Path) -> list[Path]:
     discovered: dict[Path, Path] = {}
     for weight_path in project_root.glob("*.pt"):
@@ -45,6 +55,13 @@ def find_available_weights(project_root: Path) -> list[Path]:
             discovered[weight_path.resolve()] = weight_path
         for weight_path in runs_dir.glob("**/*.pth"):
             discovered[weight_path.resolve()] = weight_path
+
+    # SAM fine-tuned checkpoints (HuggingFace Trainer output dirs)
+    sam_runs_dir = project_root / "runs" / "sam3.1"
+    if sam_runs_dir.exists():
+        for ckpt_dir in sam_runs_dir.rglob("checkpoint-*"):
+            if ckpt_dir.is_dir() and (ckpt_dir / "config.json").exists():
+                discovered[ckpt_dir.resolve()] = ckpt_dir
 
     return sorted(
         discovered.values(),

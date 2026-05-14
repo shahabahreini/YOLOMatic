@@ -1196,3 +1196,83 @@ class YOLOConfigGenerator(BaseConfigGenerator):
 
         config["export"] = export_config
         return config
+
+
+class SAMConfigGenerator(BaseConfigGenerator):
+    """Generates YAML training config for SAM 3.1 fine-tuning."""
+
+    _DEFAULTS: dict[str, Any] = {
+        "base_model": "facebook/sam3.1",
+        "freeze_image_encoder": True,
+        "fine_tune_strategy": "decoder_only",
+        "epochs": 10,
+        "batch_size": 2,
+        "learning_rate": 1e-5,
+        "weight_decay": 0.01,
+        "warmup_steps": 100,
+        "save_steps": 500,
+        "max_grad_norm": 1.0,
+        "fp16": True,
+    }
+
+    def generate_config(
+        self,
+        model_choice: str = "SAM 3.1",
+        finetune_source: str | None = None,
+    ) -> dict[str, Any]:
+        from datetime import datetime
+        try:
+            from src.models.sam import get_sam_variant
+        except ImportError:
+            from models.sam import get_sam_variant
+
+        variant = get_sam_variant(model_choice)
+        self.extract_dataset_info()
+
+        base_model = finetune_source or variant.hf_model_id
+        run_name = f"sam3.1_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        training_keys = (
+            "epochs", "batch_size", "learning_rate", "weight_decay",
+            "warmup_steps", "save_steps", "max_grad_norm", "fp16",
+        )
+
+        try:
+            from src.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
+            integration_settings = load_settings()
+            clearml_cfg = snapshot_clearml_settings(integration_settings, "SAM", model_choice)
+            roboflow_cfg = snapshot_roboflow_settings(integration_settings)
+        except Exception:
+            clearml_cfg = {}
+            roboflow_cfg = {}
+
+        return {
+            "settings": {
+                "model_family": "sam3.1",
+                "model_type": model_choice,
+                "dataset": self.dataset_path.name,
+                "task": "segmentation",
+                "auto_download_pretrained": finetune_source is None,
+            },
+            "clearml": clearml_cfg,
+            "model": {
+                "base_model": base_model,
+                "freeze_image_encoder": self._DEFAULTS["freeze_image_encoder"],
+                "fine_tune_strategy": self._DEFAULTS["fine_tune_strategy"],
+            },
+            "dataset": {
+                "base_dir": str(self.dataset_path),
+                "format": "coco",
+                "input_size": 1008,
+            },
+            "training": {k: self._DEFAULTS[k] for k in training_keys},
+            "output": {
+                "run_name": run_name,
+                "output_dir": "runs/sam3.1",
+            },
+            "hardware": {
+                "device": "auto",
+            },
+            "export": {"enabled": False},
+            "roboflow": roboflow_cfg,
+        }

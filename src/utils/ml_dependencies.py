@@ -218,3 +218,38 @@ def import_detectron2() -> object:
             "compatible with your Python, PyTorch, and CUDA versions to train "
             "Detectron2 models."
         ) from error
+
+
+def import_sam_transformers() -> object:
+    """Import transformers, validating that Sam3TrackerModel (added in 5.8) is present."""
+    try:
+        mod = import_module_or_raise("transformers")
+        if not hasattr(mod, "Sam3TrackerModel"):
+            raise MLDependencyError(
+                "The installed transformers version does not include Sam3TrackerModel. "
+                "SAM 3.1 requires transformers>=5.8. Run: uv sync"
+            )
+        return mod
+    except MLDependencyError as error:
+        raise MLDependencyError(
+            f"{error}\nSAM 3.1 requires transformers>=5.8 and accelerate>=0.26. "
+            "Run `uv sync` to update dependencies."
+        ) from error
+
+
+def check_hf_auth() -> str | None:
+    """Return the active HuggingFace token, or None if not authenticated.
+
+    Checks in order: HF_TOKEN env var, HUGGING_FACE_HUB_TOKEN env var,
+    huggingface-cli cached token at ~/.huggingface/token.
+    """
+    import os
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if token:
+        return token
+    token_file = Path.home() / ".huggingface" / "token"
+    if token_file.exists():
+        content = token_file.read_text().strip()
+        if content:
+            return content
+    return None

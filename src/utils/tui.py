@@ -52,6 +52,11 @@ STATUS_HINTS: dict[str, list[tuple[str, str]]] = {
 }
 
 
+def is_enter_key(key: Any) -> bool:
+    """Return True for Enter across blessed terminal variants."""
+    return key.name == "KEY_ENTER" or str(key) in {"\n", "\r", "\r\n"}
+
+
 def shorten_middle(value: str, max_chars: int = 44) -> str:
     """Compact long menu labels while preserving the beginning and file suffix."""
     if len(value) <= max_chars:
@@ -198,10 +203,36 @@ class MenuRenderer:
         """Check if an option is a header (non-selectable)."""
         return option.startswith("[") and option.endswith("]")
 
+    def _visible_option_range(self) -> tuple[int, int]:
+        """Return the slice of options that fits in the sidebar."""
+        total_options = len(self.options)
+        if total_options == 0:
+            return 0, 0
+
+        # Leave room for the panel border, title, layout chrome, and overflow
+        # indicators so Rich does not clip the selected row outside the box.
+        visible_items = max(3, min(total_options, TUI_TERM.height - 15))
+        half_window = visible_items // 2
+        start = max(
+            0,
+            min(self.current_selection - half_window, total_options - visible_items),
+        )
+        end = min(start + visible_items, total_options)
+        return start, end
+
+    def _sidebar_label_width(self) -> int:
+        """Estimate available label width in the left navigation column."""
+        return max(12, min(44, (TUI_TERM.width // 4) - 6))
+
     def _render_sidebar(self) -> Panel:
         """Render the list of options in a sidebar with grouping support."""
         items = []
-        for i, option in enumerate(self.options):
+        start, end = self._visible_option_range()
+        label_width = self._sidebar_label_width()
+        if start > 0:
+            items.append(Text(f"↑ {start} more above", style="dim cyan"))
+
+        for i, option in enumerate(self.options[start:end], start=start):
             if self._is_header(option):
                 # Header item
                 header_text = option[1:-1].upper()
@@ -210,16 +241,22 @@ class MenuRenderer:
                 # Active selection
                 prefix = "➤ "
                 text = Text(
-                    f"{prefix}{shorten_middle(option)}",
+                    f"{prefix}{shorten_middle(option, max_chars=label_width)}",
                     style="bold white on blue",
                 )
                 items.append(text)
             else:
-                items.append(Text(f"  {shorten_middle(option)}", style="dim"))
+                style = "green" if option.lstrip().startswith("✓") else "dim"
+                items.append(
+                    Text(f"  {shorten_middle(option, max_chars=label_width)}", style=style)
+                )
+
+        if end < len(self.options):
+            items.append(Text(f"↓ {len(self.options) - end} more below", style="dim cyan"))
 
         return make_panel(
             Group(*items),
-            title="[bold cyan]Navigation[/bold cyan]",
+            title=f"[bold cyan]Navigation ({self.current_selection + 1}/{len(self.options)})[/bold cyan]",
             padding=(0, 1),
             expand=True,
         )
@@ -595,7 +632,7 @@ def get_user_choice(
                     current_nav_idx = (current_nav_idx - 1) % len(navigable_indices)
                 elif key.name == "KEY_DOWN" or key.lower() == "j":
                     current_nav_idx = (current_nav_idx + 1) % len(navigable_indices)
-                elif key.name == "KEY_ENTER":
+                elif is_enter_key(key):
                     return selectable_options[navigable_indices[current_nav_idx]]
                 elif key.lower() == "b" and "Back" in selectable_options:
                     return "Back"
@@ -1125,7 +1162,7 @@ def get_user_multi_select(
                         else:
                             selected.add(param.name)
                         validation_error = None
-                    elif key.name == "KEY_RIGHT" or key.name == "KEY_ENTER":
+                    elif key.name == "KEY_RIGHT" or is_enter_key(key):
                         focus = "input"
                         input_buffer = current_buffer_value(param)
                         typed_input_started = False
@@ -1146,8 +1183,7 @@ def get_user_multi_select(
                         focus = "list"
                         validation_error = None
                     elif param.value_type == "bool":
-                        if key == " " or key.name in {
-                            "KEY_ENTER",
+                        if key == " " or is_enter_key(key) or key.name in {
                             "KEY_UP",
                             "KEY_DOWN",
                             "KEY_RIGHT",
@@ -1173,7 +1209,7 @@ def get_user_multi_select(
                                 step,
                             )
                             validation_error = None
-                        elif key.name == "KEY_ENTER":
+                        elif is_enter_key(key):
                             save_input_value(param)
                         elif key.name == "KEY_BACKSPACE":
                             input_buffer = input_buffer[:-1]
@@ -1186,7 +1222,7 @@ def get_user_multi_select(
                                 input_buffer = str(key)
                             typed_input_started = True
                             validation_error = None
-                    elif key.name == "KEY_ENTER":
+                    elif is_enter_key(key):
                         save_input_value(param)
                     elif key.name == "KEY_BACKSPACE":
                         input_buffer = input_buffer[:-1]

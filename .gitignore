@@ -143,3 +143,4 @@ runs/*
 .idea/*
 .DS_Store
 yolomatic.egg-info
+output/*

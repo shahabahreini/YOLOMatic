@@ -31,7 +31,8 @@ dependencies = [
   "packaging",
   "psutil",
   "pycocotools>=2.0.11",
-  "transformers>=5.1,<6",
+  "transformers>=5.8,<6",
+  "accelerate>=0.26",
   "plotly>=5.0",
   "umap-learn>=0.5",
   "Pillow>=9.0",
@@ -129,3 +130,4 @@ yolomatic-tensorboard = "src.cli.tensorboard_launcher:main"
 yolomatic-train = "src.trainers.yolo_trainer:main"
 yolomatic-upload = "src.cli.upload:main"
 yolomatic-benchmark = "src.cli.benchmark:main"
+yolomatic-sam = "src.cli.sam_predict:main"

@@ -130,6 +130,45 @@ class TUIParameterValidationTest(unittest.TestCase):
         self.assertIn("Recommended: start with Train", output)
         self.assertIn("data.yaml", output)
 
+    def test_menu_renderer_windows_long_option_lists(self) -> None:
+        from rich.console import Console
+
+        options = [f"Option {i:02d}" for i in range(40)]
+        console = Console(record=True, width=80, height=20, color_system=None)
+        renderer = MenuRenderer(
+            options=options,
+            current_selection=30,
+            title="Long Menu",
+            instruction="Choose an item.",
+        )
+
+        console.print(renderer)
+        output = console.export_text()
+
+        self.assertIn("Option 30", output)
+        self.assertIn("more above", output)
+        self.assertIn("more below", output)
+        self.assertNotIn("Option 00", output)
+
+    def test_menu_renderer_does_not_leak_markup_in_checked_labels(self) -> None:
+        from rich.console import Console
+
+        console = Console(record=True, width=80, height=20, color_system=None)
+        renderer = MenuRenderer(
+            options=["✓ runs/detect/train/weights/best.pt", "  Confirm Selection"],
+            current_selection=1,
+            title="Weights",
+            instruction="Choose weights.",
+        )
+
+        console.print(renderer)
+        output = console.export_text()
+
+        self.assertIn("✓ run", output)
+        self.assertIn("est.pt", output)
+        self.assertNotIn("[/bold green]", output)
+        self.assertNotIn("[bold green]", output)
+
     def test_parameter_editor_render_shows_validation_and_allowed_values(self) -> None:
         from rich.console import Console
 

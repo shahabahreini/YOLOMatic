@@ -22,11 +22,12 @@ from src.config.settings import (
     roboflow_credential_status,
     save_settings,
 )
-from src.config.generator import Detectron2ConfigGenerator, RFDETRConfigGenerator, YOLOConfigGenerator
+from src.config.generator import Detectron2ConfigGenerator, RFDETRConfigGenerator, SAMConfigGenerator, YOLOConfigGenerator
 from src.datasets import summarize_dataset
 from src.models.detectron2 import is_detectron2_model
 from src.models.data import model_data_dict
 from src.models.rfdetr import is_rfdetr_model
+from src.models.sam import is_sam_model
 from src.utils.cli import (
     ParameterDefinition,
     NAV_BACK,
@@ -2292,6 +2293,11 @@ def update_config(
         generator.extract_dataset_info()
         profile_context = None
         profile_selection = None
+    elif is_sam_model(model_choice):
+        generator = SAMConfigGenerator(str(dataset_path))
+        generator.extract_dataset_info()
+        profile_context = None
+        profile_selection = None
     elif "nas" in model_choice.lower():
         console.print(
             "[bold yellow]YOLO-NAS support is deprecated in this build.[/bold yellow]\n\n"
@@ -2316,7 +2322,9 @@ def update_config(
 
     # Determine if there's a mismatch
     mismatch_type = None
-    if (
+    if is_sam_model(model_choice):
+        pass  # SAM handles any segmentation dataset natively; skip mismatch checks
+    elif (
         dataset_type == "segmentation"
         and not is_seg_model
         and "nas" not in model_choice.lower()
@@ -3066,6 +3074,7 @@ def get_model_menu():
         "yolov8",
         "yolox",
         "[Segmentation]",
+        "sam3.1",
         "detectron2-seg",
         "rfdetr-seg",
         "yolo26-seg",
@@ -3268,6 +3277,7 @@ def _main_loop_iteration():
             "Run Prediction",
             "Launch TensorBoard",
             "Benchmark Models",
+            "SAM Segment",
             "[Datasets & Deployment]",
             "Combine Datasets",
             "Upload to Roboflow",
@@ -3319,6 +3329,15 @@ def _main_loop_iteration():
                     "and per-image rankings split by object size. Generates an interactive "
                     "Plotly HTML report with UMAP vector analysis for exploring model "
                     "strengths and failure cases — works for both detection and segmentation."
+                ),
+                "SAM Segment": (
+                    "Run SAM 3.1 (Meta's Segment Anything Model) inference on images.\n\n"
+                    "Three modes: Auto (segment everything without prompts), "
+                    "Text-prompted (open-vocabulary concept labels), "
+                    "and Box-prompted (use YOLO detection .txt files as SAM prompts).\n\n"
+                    "Outputs PNG overlays, COCO JSON annotations, and YOLO .txt files.\n\n"
+                    "[dim]Requires a HuggingFace account and Meta's terms agreement "
+                    "at huggingface.co/facebook/sam3.1[/dim]"
                 ),
                 "Combine Datasets": (
                     "Merge several YOLO datasets into a unified one — class names are "
@@ -3381,6 +3400,12 @@ def _main_loop_iteration():
             from src.cli.benchmark import main as benchmark_main
 
             _safe_subcommand("Benchmark", benchmark_main, prog="yolomatic-benchmark")
+            continue
+
+        elif main_choice == "SAM Segment":
+            from src.cli.sam_predict import main as sam_predict_main
+
+            _safe_subcommand("SAM Segment", sam_predict_main, prog="yolomatic-sam")
             continue
 
         elif main_choice == "Upload to Roboflow":
@@ -3521,6 +3546,27 @@ def _main_loop_iteration():
                         "[bold cyan]Detectron2[/bold cyan]  [green]● Optional native COCO detection[/green]\n\n"
                         "Faster R-CNN and RetinaNet variants using Detectron2's model zoo. "
                         "Detectron2 is imported only when you train or predict with this family."
+                    ),
+                    "sam3.1": (
+                        "[bold cyan]SAM 3.1[/bold cyan]  [green]● Foundation Segmentation — 2025[/green]\n\n"
+                        "[bold]Architecture[/bold]\n"
+                        "  • Meta's Segment Anything Model 3.1 (Object Multiplex)\n"
+                        "  • Unified DETR detector + memory-based tracker\n"
+                        "  • Shared memory for simultaneous multi-object segmentation\n"
+                        "  • 7× faster multi-object throughput vs SAM 3\n\n"
+                        "[bold]Capabilities[/bold]\n"
+                        "  • Open-vocabulary text prompting ('vegetation', 'person')\n"
+                        "  • Auto mask generation — segment everything without prompts\n"
+                        "  • Point and bounding box prompted segmentation\n"
+                        "  • Video object segmentation and multi-object tracking\n\n"
+                        "[bold]Parameters[/bold]  873M\n"
+                        "[bold]Input Size[/bold]  1008×1008\n"
+                        "[bold]HuggingFace[/bold]  facebook/sam3.1\n\n"
+                        "[dim]Gated model — requires HuggingFace account and "
+                        "Meta's terms agreement.[/dim]\n\n"
+                        "[bold]Best for[/bold]\n"
+                        "  High-quality instance masks, zero-shot segmentation, "
+                        "annotation generation for new domains"
                     ),
                     "detectron2-seg": (
                         "[bold cyan]Detectron2 Segmentation[/bold cyan]  [green]● Optional native COCO masks[/green]\n\n"

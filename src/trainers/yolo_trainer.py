@@ -399,6 +399,14 @@ def main():
 
             detectron2_main(config_file)
             return
+        if config.get("settings", {}).get("model_family") == "sam3.1":
+            console.print(
+                "\n[bold green]Routing SAM 3.1 configuration to SAM trainer...[/bold green]"
+            )
+            from src.trainers.sam_trainer import main as sam_main
+
+            sam_main(config_file)
+            return
         settings = config["settings"]
         clearml_settings = effective_clearml_settings(config.get("clearml", {}))
         training_params = config["training"]

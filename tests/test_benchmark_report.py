@@ -51,6 +51,12 @@ def _make_model_metrics(name: str = "best_model", task: str = "detection") -> Mo
     )
 
 
+def _make_model_metrics_for_path(path: Path, task: str = "detection") -> ModelMetrics:
+    model = _make_model_metrics(path.stem, task)
+    model.weights_path = path
+    return model
+
+
 def _make_result(tasks=("detection",)) -> BenchmarkResult:
     with tempfile.TemporaryDirectory() as tmp:
         val_dir = Path(tmp)
@@ -95,6 +101,29 @@ class TestWriteReport(unittest.TestCase):
             content = path.read_text()
             self.assertIn("model_detection", content)
             self.assertIn("model_segmentation", content)
+
+    def test_best_and_last_weights_use_distinguishable_names(self):
+        config = BenchmarkConfig(
+            weights=[
+                Path("runs/detect/train_a/weights/best.pt"),
+                Path("runs/detect/train_a/weights/last.pt"),
+            ],
+            validation_dir=Path("valid"),
+            generate_thumbnails=False,
+        )
+        result = BenchmarkResult(
+            models=[
+                _make_model_metrics_for_path(Path("runs/detect/train_a/weights/best.pt")),
+                _make_model_metrics_for_path(Path("runs/detect/train_a/weights/last.pt")),
+            ],
+            config=config,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_benchmark_report(result, Path(tmp))
+            content = path.read_text()
+
+        self.assertIn("train_a / best.pt", content)
+        self.assertIn("train_a / last.pt", content)
 
     def test_report_is_self_contained(self):
         result = _make_result()

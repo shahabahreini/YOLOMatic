@@ -62,6 +62,7 @@ class MatchResult:
     fp: int = 0
     fn: int = 0
     matched_ious: list[float] = field(default_factory=list)
+    prediction_matches: list[bool] = field(default_factory=list)
 
 
 def greedy_match(
@@ -81,6 +82,7 @@ def greedy_match(
     matched_gt = set()
     tp, fp = 0, 0
     matched_ious: list[float] = []
+    prediction_matches: list[bool] = []
 
     for pred in sorted_preds:
         best_iou, best_idx = 0.0, -1
@@ -94,11 +96,19 @@ def greedy_match(
             tp += 1
             matched_gt.add(best_idx)
             matched_ious.append(best_iou)
+            prediction_matches.append(True)
         else:
             fp += 1
+            prediction_matches.append(False)
 
     fn = len(gts) - len(matched_gt)
-    return MatchResult(tp=tp, fp=fp, fn=fn, matched_ious=matched_ious)
+    return MatchResult(
+        tp=tp,
+        fp=fp,
+        fn=fn,
+        matched_ious=matched_ious,
+        prediction_matches=prediction_matches,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -157,11 +167,8 @@ def compute_map_at_threshold(
         else:
             iou_fn = _box_iou_for_pred_gt
         match = greedy_match(result.raw_preds, result.raw_gts, iou_fn, iou_threshold)
-        # Build (conf, is_tp) pairs ordered by confidence
         sorted_preds = sorted(result.raw_preds, key=lambda p: p.conf, reverse=True)
-        matched_so_far = 0
-        for i, pred in enumerate(sorted_preds):
-            is_tp = i < match.tp
+        for pred, is_tp in zip(sorted_preds, match.prediction_matches):
             img_preds.append((pred.conf, is_tp))
         per_image_preds.append(img_preds)
 

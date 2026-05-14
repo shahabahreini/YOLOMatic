@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 import numpy as np
 
@@ -16,13 +17,14 @@ from src.benchmark.metrics import (
     _safe_div,
     box_iou,
     compute_ap,
+    compute_map_at_threshold,
     greedy_match,
     mask_iou,
     mask_to_box,
     polygon_to_mask,
     size_bucket,
 )
-from src.benchmark.engine import PredObject, GTObject
+from src.benchmark.engine import GTObject, ImageResult, PredObject
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +204,32 @@ class TestComputeAP(unittest.TestCase):
     def test_zero_curve(self):
         ap = compute_ap([0.0] * 10, [0.1 * i for i in range(10)])
         self.assertAlmostEqual(ap, 0.0, places=5)
+
+    def test_map_uses_actual_confidence_ordered_matches(self):
+        gt = _det_gt((0, 0, 10, 10))
+        high_conf_fp = _det_pred(0.95, (20, 20, 30, 30))
+        low_conf_tp = _det_pred(0.50, (0, 0, 10, 10))
+        image_result = ImageResult(
+            image_id=1,
+            image_path=Path("image.jpg"),
+            task="detection",
+            gt_count=1,
+            pred_count=2,
+            tp=1,
+            fp=1,
+            fn=0,
+            matched_ious=[1.0],
+            precision=0.5,
+            recall=1.0,
+            f1=2 / 3,
+            raw_preds=[high_conf_fp, low_conf_tp],
+            raw_gts=[gt],
+            mean_iou=1.0,
+        )
+
+        ap = compute_map_at_threshold([image_result], 0.5, "detection")
+
+        self.assertAlmostEqual(ap, 0.5, places=5)
 
 
 # ---------------------------------------------------------------------------
