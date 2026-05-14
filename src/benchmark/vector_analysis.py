@@ -55,7 +55,8 @@ def project_umap(features: np.ndarray, n_neighbors: int = 15, min_dist: float = 
             n_components=2,
             n_neighbors=min(n_neighbors, len(features) - 1),
             min_dist=min_dist,
-            random_state=42,
+            random_state=None,
+            n_jobs=-1,
         )
         return reducer.fit_transform(features).astype(np.float32)
     except ImportError:

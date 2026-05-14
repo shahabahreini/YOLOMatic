@@ -9,6 +9,7 @@ from rich import box
 from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -44,6 +45,7 @@ PANEL_BORDER_STYLES: dict[TUIState, str] = {
 
 STATUS_HINTS: dict[str, list[tuple[str, str]]] = {
     "menu": [("↑↓", "Move"), ("Enter", "Select"), ("B", "Back"), ("Q", "Quit")],
+    "menu_finish": [("↑↓", "Move"), ("Enter", "Select"), ("F", "Continue"), ("B", "Back"), ("Q", "Quit")],
     "confirmation": [("↑↓", "Move"), ("Enter", "Confirm"), ("B", "Back"), ("Q", "Cancel")],
     "parameter_list": [("↑↓", "Move"), ("Space", "Toggle"), ("Enter/→", "Edit"), ("F", "Finish"), ("Q", "Back")],
     "parameter_input": [("Type", "Edit"), ("Enter", "Save"), ("Esc/←/B", "Back")],
@@ -55,6 +57,36 @@ STATUS_HINTS: dict[str, list[tuple[str, str]]] = {
 def is_enter_key(key: Any) -> bool:
     """Return True for Enter across blessed terminal variants."""
     return key.name == "KEY_ENTER" or str(key) in {"\n", "\r", "\r\n"}
+
+
+FORWARD_OPTION_PREFIXES = (
+    "confirm",
+    "continue",
+    "done",
+    "finish",
+    "save",
+    "start",
+)
+
+
+def is_forward_option(option: str) -> bool:
+    """Return True for explicit forward/finish actions."""
+    normalized = option.strip().lower()
+    return normalized.startswith(FORWARD_OPTION_PREFIXES)
+
+
+def resolve_finish_option(
+    options: Sequence[str],
+    finish_options: set[str] | None = None,
+) -> str | None:
+    """Find the menu option that should be activated by the F shortcut."""
+    if finish_options:
+        for option in options:
+            if option in finish_options:
+                return option
+        return None
+    matches = [option for option in options if is_forward_option(option)]
+    return matches[0] if len(matches) == 1 else None
 
 
 def shorten_middle(value: str, max_chars: int = 44) -> str:
@@ -188,6 +220,7 @@ class MenuRenderer:
         breadcrumbs: list[str] | None = None,
         tip: str | None = None,
         status_fields: dict[str, str] | None = None,
+        finish_option: str | None = None,
     ):
         self.options = options
         self.current_selection = current_selection
@@ -198,6 +231,7 @@ class MenuRenderer:
         self.breadcrumbs = breadcrumbs or []
         self.tip = tip
         self.status_fields = status_fields or {}
+        self.finish_option = finish_option
 
     def _is_header(self, option: str) -> bool:
         """Check if an option is a header (non-selectable)."""
@@ -416,7 +450,7 @@ class MenuRenderer:
         """Render a small status bar with keyboard hints and app version."""
         from src.__version__ import __version__
 
-        hints_text = render_hints("menu")
+        hints_text = render_hints("menu_finish" if self.finish_option else "menu")
         version_text = Text(f"v{__version__}", style="dim cyan")
 
         status_table = Table.grid(expand=True)
@@ -436,7 +470,7 @@ class MenuRenderer:
 
         lines.append(
             Text.from_markup(
-                f"Current Choice: [bold yellow]{format_label(current_option)}[/bold yellow]"
+                f"Current Choice: [bold yellow]{escape(format_label(current_option))}[/bold yellow]"
             )
         )
 
@@ -485,17 +519,22 @@ class MenuRenderer:
         is_header = current_option.startswith("[") and current_option.endswith("]")
         if is_header:
             default_description = (
-                f"[bold cyan]{current_option}[/bold cyan]\n\n"
+                f"[bold cyan]{escape(current_option)}[/bold cyan]\n\n"
                 "This is a category header. Use ↑↓ arrow keys to navigate to "
                 "the selectable items below this category."
             )
         else:
             default_description = (
-                f"[bold cyan]{current_option}[/bold cyan]\n\n"
+                f"[bold cyan]{escape(current_option)}[/bold cyan]\n\n"
                 "Press [bold yellow]Enter[/bold yellow] to select this option.\n"
                 "Use [bold yellow]↑↓[/bold yellow] to navigate, "
                 "[bold yellow]B[/bold yellow] to go back."
             )
+            if self.finish_option:
+                default_description += (
+                    f"\nPress [bold yellow]F[/bold yellow] to continue with "
+                    f"[bold green]{escape(format_label(self.finish_option))}[/bold green]."
+                )
         description = self.descriptions.get(current_option, default_description)
 
         # Compute context panel size: 2 rows of content + 2 rows of chrome
@@ -583,6 +622,7 @@ def get_user_choice(
     breadcrumbs: list[str] | None = None,
     tip: str | None = None,
     status_fields: dict[str, str] | None = None,
+    finish_options: set[str] | None = None,
 ) -> str:
     """
     Highly refined interactive menu with grouped options and breadcrumbs.
@@ -596,6 +636,7 @@ def get_user_choice(
     selectable_options = list(options)
     if allow_back and "Back" not in selectable_options:
         selectable_options.append("Back")
+    finish_option = resolve_finish_option(selectable_options, finish_options)
 
     # Filter out headers for navigation, but keep them for rendering
     # Actually, we need to know which indices are selectable
@@ -620,6 +661,7 @@ def get_user_choice(
             breadcrumbs,
             tip=tip,
             status_fields=status_fields,
+            finish_option=finish_option,
         )
 
         with Live(
@@ -634,6 +676,8 @@ def get_user_choice(
                     current_nav_idx = (current_nav_idx + 1) % len(navigable_indices)
                 elif is_enter_key(key):
                     return selectable_options[navigable_indices[current_nav_idx]]
+                elif key.lower() == "f" and finish_option is not None:
+                    return finish_option
                 elif key.lower() == "b" and "Back" in selectable_options:
                     return "Back"
                 elif key.lower() == "q" or key.name == "KEY_ESCAPE":
@@ -833,15 +877,14 @@ class MultiSelectRenderer:
 
     def _render_checkbox(self, param: ParameterDefinition, is_active: bool) -> Text:
         checked = "[x]" if param.name in self.selected else "[ ]"
-        
-        # Show the current value if it's selected or has a custom value
         current_val = self.values.get(param.name, param.default)
-        val_str = f": [yellow]{current_val}[/yellow]" if param.name in self.selected else ""
-        
+
         text = Text()
         text.append(f"{checked} ", style="bold cyan" if param.name in self.selected else "dim")
         text.append(param.name, style="bold" if is_active and self.focus == "list" else "")
-        text.append(Text.from_markup(val_str))
+        if param.name in self.selected:
+            text.append(": ", style="dim")
+            text.append(str(current_val), style="yellow")
 
         if is_active and self.focus == "list":
             text.stylize("on blue")
@@ -850,13 +893,13 @@ class MultiSelectRenderer:
         return Text("  ") + text
 
     def _render_sidebar(self) -> Panel:
-        VISIBLE_ITEMS = 25
         total_items = len(self.filtered_params)
-        
+
         # Windowing logic
-        half_window = VISIBLE_ITEMS // 2
-        start_idx = max(0, min(self.current_index - half_window, total_items - VISIBLE_ITEMS))
-        end_idx = min(start_idx + VISIBLE_ITEMS, total_items)
+        visible_items = max(4, min(total_items, TUI_TERM.height - 12))
+        half_window = visible_items // 2
+        start_idx = max(0, min(self.current_index - half_window, total_items - visible_items))
+        end_idx = min(start_idx + visible_items, total_items)
 
         items: list[Text] = []
         if start_idx > 0:
@@ -878,7 +921,7 @@ class MultiSelectRenderer:
 
         border_style = "blue" if self.focus == "list" else "dim"
         title_prefix = "➤ " if self.focus == "list" else ""
-        
+
         return Panel(
             Group(*items),
             title=f"[bold cyan]{title_prefix}Parameters ({self.current_index + 1}/{total_items})[/bold cyan]",

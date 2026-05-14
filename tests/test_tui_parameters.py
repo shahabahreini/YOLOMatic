@@ -9,6 +9,7 @@ from src.utils.tui import (
     format_path,
     render_hints,
     parse_parameter_value,
+    resolve_finish_option,
     shorten_middle,
 )
 
@@ -103,6 +104,23 @@ class TUIParameterValidationTest(unittest.TestCase):
         self.assertIn("Back", hints.plain)
         self.assertIn("Quit", hints.plain)
 
+    def test_finish_footer_hints_render_continue_key(self) -> None:
+        hints = render_hints("menu_finish")
+
+        self.assertIn("Continue", hints.plain)
+        self.assertIn("F", hints.plain)
+
+    def test_finish_shortcut_resolves_only_explicit_forward_action(self) -> None:
+        self.assertEqual(
+            resolve_finish_option(
+                ["model_a.pt", "Confirm Selection", "Back"],
+                {"Confirm Selection"},
+            ),
+            "Confirm Selection",
+        )
+        self.assertEqual(resolve_finish_option(["Start Benchmark", "Cancel"]), "Start Benchmark")
+        self.assertIsNone(resolve_finish_option(["Train", "Predict", "Benchmark"]))
+
     def test_menu_renderer_includes_breadcrumbs_status_description_and_tip(self) -> None:
         from rich.console import Console
 
@@ -168,6 +186,24 @@ class TUIParameterValidationTest(unittest.TestCase):
         self.assertIn("est.pt", output)
         self.assertNotIn("[/bold green]", output)
         self.assertNotIn("[bold green]", output)
+
+    def test_menu_renderer_shows_finish_shortcut_when_available(self) -> None:
+        from rich.console import Console
+
+        console = Console(record=True, width=90, height=22, color_system=None)
+        renderer = MenuRenderer(
+            options=["weight_a.pt", "Confirm Selection", "Back"],
+            current_selection=0,
+            title="Weights",
+            instruction="Choose weights.",
+            finish_option="Confirm Selection",
+        )
+
+        console.print(renderer)
+        output = console.export_text()
+
+        self.assertIn("F Continue", output)
+        self.assertIn("Confirm Selection", output)
 
     def test_parameter_editor_render_shows_validation_and_allowed_values(self) -> None:
         from rich.console import Console

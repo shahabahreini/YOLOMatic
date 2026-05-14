@@ -196,6 +196,7 @@ def _select_weights() -> list[Path] | str:
         tip = (
             "[bold yellow]↑↓[/bold yellow] navigate  "
             "[bold yellow]Enter[/bold yellow] toggle  "
+            "[bold yellow]F[/bold yellow] continue when ready  "
             "[bold yellow]B[/bold yellow] back"
         )
 
@@ -207,6 +208,7 @@ def _select_weights() -> list[Path] | str:
             descriptions=descriptions,
             breadcrumbs=["YOLOmatic", "Benchmark", "Weight Selection"],
             tip=tip,
+            finish_options={confirm_label} if selected_indices else set(),
         )
 
         if choice in (NAV_BACK, "Back"):
@@ -487,6 +489,7 @@ def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
             "Cancel": "Return to the main menu without running the benchmark.",
         },
         breadcrumbs=["YOLOmatic", "Benchmark", "Confirm"],
+        finish_options={"Start Benchmark"},
     )
     return choice == "Start Benchmark"
 
