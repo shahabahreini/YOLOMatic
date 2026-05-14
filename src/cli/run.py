@@ -1454,22 +1454,40 @@ def _render_dependency_summary(statuses):
 
 
 def _run_pip_upgrade(packages):
-    """Install --upgrade for the given packages; return True on success."""
+    """Upgrade packages in the active environment; return True on success."""
+    import os
     import subprocess
 
-    pip_command = [sys.executable, "-m", "pip", "install", "--upgrade", *packages]
+    upgrade_command = [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        sys.executable,
+        "--upgrade",
+        *packages,
+    ]
+    env = os.environ.copy()
+    env.setdefault("UV_CACHE_DIR", "/tmp/uv-cache")
     with console.status(
         f"[bold]Upgrading {len(packages)} package(s)...", spinner="dots"
     ):
-        result = subprocess.run(pip_command, capture_output=True, text=True)
+        result = subprocess.run(
+            upgrade_command,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
 
     if result.returncode == 0:
         console.print(
             Panel(
                 f"[bold green]Successfully upgraded:[/bold green] "
                 f"{', '.join(packages)}\n\n"
-                "[dim]`uv sync` may re-pin the previous versions from uv.lock — "
-                "regenerate the lockfile to make these upgrades permanent.[/dim]",
+                "[dim]This used `uv pip install --python <active interpreter>` "
+                "so it works even when the venv does not include pip. "
+                "`uv sync` may re-pin versions from uv.lock unless the lockfile "
+                "is updated afterwards.[/dim]",
                 border_style="green",
                 padding=(1, 2),
                 box=box.ROUNDED,

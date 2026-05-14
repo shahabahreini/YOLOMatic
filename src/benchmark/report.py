@@ -40,33 +40,31 @@ def _fmt(v: float, decimals: int = 3) -> str:
 def _interpolate_color(v: float, min_v: float, max_v: float, is_highlight: bool = False) -> str:
     """Interpolate between red and green based on relative performance."""
     if max_v == min_v:
-        return "#f9fafb"
+        return "#ffffff"
     
     # Normalised score 0.0 to 1.0
     s = (v - min_v) / (max_v - min_v)
     
     if is_highlight:
-        # Light blue scale for the highlighted column
-        # Interpolate between #f8fafc (0) and #dbeafe (1)
-        # Using a simplified linear interpolation for the hex colors
-        r = int(248 + s * (219 - 248))
-        g = int(250 + s * (234 - 250))
-        b = int(252 + s * (254 - 252))
+        # High-contrast Blue scale
+        # rgb(240, 249, 255) to rgb(7, 89, 133)
+        r = int(240 + s * (7 - 240))
+        g = int(249 + s * (89 - 249))
+        b = int(255 + s * (133 - 255))
         return f"rgb({r},{g},{b})"
 
-    # Red (#fee2e2) to Yellow (#fef3c7) to Green (#dcfce7)
+    # Vibrant Red-Yellow-Green scale
+    # Red: rgb(254, 226, 226) -> Yellow: rgb(254, 240, 138) -> Green: rgb(187, 247, 208)
     if s < 0.5:
-        # Scale 0 to 0.5 -> Red to Yellow
         s2 = s * 2
         r = int(254 + s2 * (254 - 254))
-        g = int(226 + s2 * (243 - 226))
-        b = int(226 + s2 * (199 - 226))
+        g = int(226 + s2 * (240 - 226))
+        b = int(226 + s2 * (138 - 226))
     else:
-        # Scale 0.5 to 1 -> Yellow to Green
         s2 = (s - 0.5) * 2
-        r = int(254 + s2 * (220 - 254))
-        g = int(243 + s2 * (252 - 243))
-        b = int(199 + s2 * (231 - 199))
+        r = int(254 + s2 * (187 - 254))
+        g = int(240 + s2 * (247 - 240))
+        b = int(138 + s2 * (208 - 138))
     
     return f"rgb({r},{g},{b})"
 
@@ -207,15 +205,14 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
     
     for label, vals, highlight in metrics_data:
         values.append([_fmt(v) for v in vals])
-        if not vals:
+        if not vals or len(vals) < 2:
             fills.append(["#ffffff"] * len(models))
             continue
             
+        # Calculate min/max for THIS column only
         min_v, max_v = min(vals), max(vals)
         fills.append([_interpolate_color(v, min_v, max_v, is_highlight=highlight) for v in vals])
 
-    # Show 10 rows + header. Each row ~32px, header ~40px. 
-    # Approx 400-450px for the table area.
     target_height = 450 if len(models) > 10 else 110 + len(models) * 32
 
     fig = go.Figure(go.Table(
@@ -225,18 +222,18 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
             "fill_color": "#0f172a",
             "font": {"color": "white", "size": 12},
             "align": ["center", "left", "center"] + ["center"] * 6,
-            "height": 38,
+            "height": 40,
         },
         cells={
             "values": values,
             "fill_color": fills,
             "font": {"size": 12, "color": INK},
             "align": ["center", "left", "center"] + ["center"] * 6,
-            "height": 32,
+            "height": 30,
             "line": {"color": "rgba(0,0,0,0.03)", "width": 1},
         },
     ))
-    return _base_layout(fig, title="Model Leaderboard (Scrollable)", height=target_height)
+    return _base_layout(fig, title="Relative Performance Leaderboard", height=target_height)
 
 
 def _ranked_metric_bar(result: Any, names: dict[Path, str]) -> go.Figure:
@@ -547,17 +544,25 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
     sections = [_summary_cards_html(result, names)]
     for key, fig in figs.items():
         div_id = "scatter-plot" if key == "scatter" else f"plot-{key}"
+        
+        # Tables don't behave well with 'responsive: True' when their container has no fixed height.
+        # They collapse to 0. We'll disable responsiveness for tables so they use the height set in the layout.
+        is_table = key in ("leaderboard", "ranking")
+        
         html = fig.to_html(
             full_html=False,
             include_plotlyjs=False,
             div_id=div_id,
-            config={"displaylogo": False, "responsive": True},
+            config={
+                "displaylogo": False, 
+                "responsive": not is_table,
+                "displayModeBar": not is_table
+            },
         )
         sections.append(f'<section class="section chart-section">{html}</section>')
 
-    model_list_items = "" # Removed as it was too bulky
-
-    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Redesigned minimalist header
+    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     val_dir_str = str(result.config.validation_dir)
     conf = _fmt(result.config.conf_threshold, 2)
     iou = _fmt(result.config.iou_threshold, 2)
@@ -568,7 +573,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '<head>\n'
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-        '<title>YOLOMatic Benchmark Report</title>\n'
+        '<title>YOLOMatic Report</title>\n'
         '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
         '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">\n'
@@ -579,59 +584,57 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         f'  --muted: {MUTED};\n'
         f'  --blue: {BLUE};\n'
         f'  --green: {GREEN};\n'
-        '  --bg: #f3f4f6;\n'
+        '  --bg: #f8fafc;\n'
         '  --card-bg: #ffffff;\n'
-        '  --border: #e5e7eb;\n'
-        '  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);\n'
-        '  --radius: 12px;\n'
+        '  --border: #e2e8f0;\n'
+        '  --shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);\n'
+        '  --radius: 8px;\n'
         '}\n'
         '*, *::before, *::after { box-sizing: border-box; }\n'
         f'body {{ font-family: {FONT_FAMILY}; background: var(--bg); color: var(--ink); margin: 0; line-height: 1.5; }}\n'
-        '.hero { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: white; padding: 48px 42px; border-bottom: 1px solid #1e293b; }\n'
-        '.hero h1 { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.025em; }\n'
-        '.hero p { margin: 12px 0 0; color: #94a3b8; font-size: 15px; font-weight: 500; }\n'
-        '.hero-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }\n'
-        '.pill { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 99px; padding: 6px 14px; font-size: 13px; font-weight: 600; color: #e2e8f0; }\n'
-        '.container { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }\n'
-        '.section { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; box-shadow: var(--shadow); overflow: hidden; }\n'
-        '.chart-section { padding: 20px; }\n'
-        '.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; padding: 0; background: transparent; border: none; box-shadow: none; }\n'
-        '.kpi-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; background: var(--card-bg); box-shadow: var(--shadow); position: relative; transition: transform 0.2s; }\n'
-        '.kpi-card:hover { transform: translateY(-2px); }\n'
-        '.primary-card { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-color: #bfdbfe; }\n'
-        '.primary-card .kpi-value { color: #1e40af; }\n'
-        '.model-card { border-left: 4px solid var(--blue); }\n'
-        '.kpi-label { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }\n'
-        '.kpi-value { margin-top: 8px; font-size: 32px; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }\n'
-        '.kpi-note { margin-top: 12px; color: var(--muted); font-size: 13px; }\n'
-        '.model-list { display:none; }\n' # Keep class just in case but hide it
-        '.section-title { font-weight: 800; font-size: 18px; margin-bottom: 20px; color: var(--ink); letter-spacing: -0.01em; }\n'
-        '.gallery-panel { max-width: 800px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }\n'
-        '.gallery-panel img { width: 100%; border-radius: 8px; background: #f1f5f9; min-height: 240px; object-fit: contain; border: 1px solid var(--border); }\n'
+        '.top-bar { background: #0f172a; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }\n'
+        '.top-bar h1 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; }\n'
+        '.top-bar h1 span { color: #38bdf8; }\n'
+        '.top-meta { display: flex; gap: 20px; font-size: 13px; color: #94a3b8; align-items: center; }\n'
+        '.top-meta-item { display: flex; align-items: center; gap: 6px; }\n'
+        '.top-meta-item strong { color: #f1f5f9; }\n'
+        '.container { max-width: 1400px; margin: 0 auto; padding: 24px 24px 64px; }\n'
+        '.section { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; box-shadow: var(--shadow); overflow: visible; }\n'
+        '.chart-section { padding: 16px; min-height: 200px; }\n'
+        '.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 32px; }\n'
+        '.kpi-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; background: var(--card-bg); box-shadow: var(--shadow); }\n'
+        '.primary-card { border-top: 4px solid #0284c7; }\n'
+        '.model-card { border-top: 4px solid #10b981; }\n'
+        '.kpi-label { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }\n'
+        '.kpi-value { margin-top: 4px; font-size: 24px; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }\n'
+        '.kpi-note { margin-top: 8px; color: var(--muted); font-size: 12px; }\n'
+        '.section-title { font-weight: 800; font-size: 16px; margin-bottom: 16px; color: var(--ink); letter-spacing: -0.01em; }\n'
+        '.gallery-panel { max-width: 900px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }\n'
+        '.gallery-panel img { width: 100%; border-radius: 6px; background: #f8fafc; min-height: 300px; object-fit: contain; border: 1px solid var(--border); }\n'
         '.gallery-meta { margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; border-top: 1px solid var(--border); padding-top: 20px; }\n'
-        '.gallery-name { grid-column: 1 / -1; color: var(--ink); font-weight: 700; font-size: 16px; }\n'
+        '.gallery-name { grid-column: 1 / -1; color: var(--ink); font-weight: 700; font-size: 15px; }\n'
         '.gallery-item { font-size: 13px; color: var(--muted); }\n'
         '.gallery-item strong { color: var(--ink); }\n'
-        '.footer { text-align: center; color: var(--muted); font-size: 13px; padding: 48px; border-top: 1px solid var(--border); margin-top: 32px; }\n'
-        '@media (max-width: 780px) { .hero { padding: 32px 20px; } .container { padding: 20px 16px; } .kpi-grid { grid-template-columns: 1fr; } }\n'
+        '.footer { text-align: center; color: var(--muted); font-size: 12px; padding: 40px; }\n'
+        '@media (max-width: 1000px) { .top-bar { flex-direction: column; align-items: flex-start; gap: 12px; } .top-meta { flex-wrap: wrap; gap: 10px; } }\n'
         '</style>\n'
         '</head>\n'
         '<body>\n'
-        '<header class="hero">\n'
-        '<h1>YOLOMatic Benchmark</h1>\n'
-        '<p>Detailed Performance Analysis Report &middot; ' + str(len(result.models)) + ' Models Evaluated</p>\n'
-        '<div class="hero-meta">'
-        '<span class="pill">Run: ' + escape(timestamp_str) + '</span>'
-        '<span class="pill">Validation: ' + escape(val_dir_str) + '</span>'
-        '<span class="pill">Best Model: ' + escape(best_name) + '</span>'
-        '<span class="pill">Conf: ' + conf + ' / IoU: ' + iou + '</span>'
+        '<header class="top-bar">\n'
+        '<h1>YOLO<span>Matic</span> Report</h1>\n'
+        '<div class="top-meta">\n'
+        f'<div class="top-meta-item"><strong>Date:</strong> {escape(timestamp_str)}</div>\n'
+        f'<div class="top-meta-item"><strong>Validation:</strong> {escape(_shorten(val_dir_str, 50))}</div>\n'
+        f'<div class="top-meta-item"><strong>Models:</strong> {len(result.models)}</div>\n'
+        f'<div class="top-meta-item"><strong>Best:</strong> {escape(best_name)}</div>\n'
+        f'<div class="top-meta-item"><strong>Thresholds:</strong> {conf} / {iou}</div>\n'
         '</div>\n'
         '</header>\n'
         '<main class="container">\n'
         + "\n".join(sections) + "\n"
         + _GALLERY_HTML + "\n"
         '</main>\n'
-        '<div class="footer">Generated by <strong>YOLOMatic</strong> &middot; Automated Vision Evaluation</div>\n'
+        '<div class="footer">Generated by <strong>YOLOMatic</strong> &middot; Benchmark System</div>\n'
         + _GALLERY_JS
         + '\n</body>\n</html>'
     )
