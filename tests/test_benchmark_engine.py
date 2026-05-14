@@ -170,6 +170,63 @@ class TestEvaluateModelWorker(unittest.TestCase):
         self.assertTrue(any("my_model.pt" in line for line in logs))
 
 
+class TestResolveWorkers(unittest.TestCase):
+    def test_gpu_always_one(self):
+        from src.benchmark.engine import _resolve_workers
+        self.assertEqual(_resolve_workers(max_workers=0, n_models=4, is_gpu=True, cpu_count=8), 1)
+
+    def test_cpu_scales_with_models(self):
+        from src.benchmark.engine import _resolve_workers
+        w = _resolve_workers(max_workers=0, n_models=3, is_gpu=False, cpu_count=4)
+        self.assertGreaterEqual(w, 2)
+        self.assertLessEqual(w, 3)
+
+    def test_explicit_override(self):
+        from src.benchmark.engine import _resolve_workers
+        self.assertEqual(_resolve_workers(max_workers=3, n_models=10, is_gpu=True, cpu_count=2), 3)
+
+    def test_min_one(self):
+        from src.benchmark.engine import _resolve_workers
+        self.assertEqual(_resolve_workers(max_workers=0, n_models=1, is_gpu=False, cpu_count=1), 1)
+
+
+class TestRunBenchmarkSequential(unittest.TestCase):
+    def test_sequential_path_single_weight(self):
+        from unittest.mock import patch
+        from src.benchmark.config import BenchmarkConfig
+        from src.benchmark.engine import run_benchmark, ModelMetrics, BenchmarkResult
+        from src.benchmark.metrics import SizeBucketMetrics
+        import tempfile
+
+        called: list[Path] = []
+
+        def fake_worker(weights, **_kwargs):
+            called.append(weights)
+            mm = ModelMetrics(
+                weights_path=weights, task="detection",
+                precision=1.0, recall=1.0, f1=1.0,
+                map50=1.0, map75=1.0, map50_95=1.0,
+                small=SizeBucketMetrics("small"),
+                medium=SizeBucketMetrics("medium"),
+                large=SizeBucketMetrics("large"),
+                per_image=[],
+            )
+            return mm, [f"\nLoading model: {weights.name}",
+                        "  mAP@50=1.000  mAP@50:95=1.000  F1=1.000  P=1.000  R=1.000"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_pt = Path(tmp) / "model.pt"
+            fake_pt.touch()
+            cfg = BenchmarkConfig(weights=[fake_pt], validation_dir=Path(tmp))
+            with patch("src.benchmark.engine._evaluate_model_worker", side_effect=fake_worker), \
+                 patch("src.benchmark.engine.detect_annotation_format", return_value="yolo"):
+                result = run_benchmark(cfg)
+
+        self.assertEqual(len(called), 1)
+        self.assertIsInstance(result, BenchmarkResult)
+        self.assertEqual(len(result.models), 1)
+
+
 class TestBenchmarkConfigNewFields(unittest.TestCase):
     def test_defaults(self):
         from src.benchmark.config import BenchmarkConfig

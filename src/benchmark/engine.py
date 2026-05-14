@@ -523,110 +523,83 @@ def _evaluate_model_worker(
 # Public API
 # ---------------------------------------------------------------------------
 
+def _resolve_workers(max_workers: int, n_models: int, is_gpu: bool, cpu_count: int) -> int:
+    if max_workers != 0:
+        return max(1, max_workers)
+    if is_gpu:
+        return 1
+    return max(1, min(n_models, cpu_count // 2))
+
+
 def run_benchmark(
     config: BenchmarkConfig,
     logger_fn: Callable[[str], None] = print,
 ) -> BenchmarkResult:
-    from ultralytics import YOLO
+    import os
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    import multiprocessing
 
-    # Discover images first (needed for YOLO label loading)
     all_images = sorted(
         p for p in config.validation_dir.rglob("*") if p.suffix.lower() in _IMAGE_EXTS
     )
 
-    # Detect annotation format and load GTs accordingly
     ann_format = detect_annotation_format(config.validation_dir)
-
     if config.annotations_file is not None:
         ann_format = "coco"
 
-    if ann_format == "yolo":
-        logger_fn(f"Detected YOLO label format in {config.validation_dir}")
-        fname_to_gts = _load_yolo_data(config.validation_dir, all_images)
-        id_to_path: dict[int, Path] = {}
-        id_to_gts: dict[int, list[GTObject]] = {}
-    else:
-        ann_file = config.annotations_file or _auto_detect_annotations(config.validation_dir)
-        logger_fn(f"Loading annotations from {ann_file}")
-        id_to_path, id_to_gts = _load_coco_data(ann_file)
-        fname_to_gts = {}
+    raw_device = config.device if config.device != "auto" else ""
+    is_gpu = _has_gpu() and raw_device.lower() not in ("cpu",)
+
+    workers = _resolve_workers(
+        max_workers=config.max_workers,
+        n_models=len(config.weights),
+        is_gpu=is_gpu,
+        cpu_count=os.cpu_count() or 2,
+    )
+
+    worker_kwargs = dict(
+        all_images=all_images,
+        ann_format=ann_format,
+        annotations_file=config.annotations_file,
+        validation_dir=config.validation_dir,
+        conf_threshold=config.conf_threshold,
+        iou_threshold=config.iou_threshold,
+        device=raw_device,
+        batch_size=config.batch_size,
+    )
 
     model_results: list[ModelMetrics] = []
 
-    for weights in config.weights:
-        logger_fn(f"\nLoading model: {weights.name}")
-        try:
-            model = YOLO(str(weights))
-        except Exception as exc:
-            logger_fn(f"  [ERROR] Failed to load {weights}: {exc}")
-            continue
-
-        # Determine task from first available image
-        task = "detection"
-        probe_images = [p for p in all_images if p.exists()]
-        if probe_images:
-            logger_fn("  Detecting task type...")
-            device = config.device if config.device != "auto" else ""
-            task = _detect_task(model, probe_images[0], config.conf_threshold, device)
-        logger_fn(f"  Task: {task}")
-
-        device = config.device if config.device != "auto" else ""
-        per_image: list[ImageResult] = []
-        total = len(all_images)
-
-        for idx, img_path in enumerate(all_images, 1):
-            if not img_path.exists():
-                continue
-            if idx % 50 == 0 or idx == total:
-                logger_fn(f"  Processing image {idx}/{total}...")
-
-            # Resolve GTs: YOLO format uses filename key; COCO uses image_id
-            if ann_format == "yolo":
-                gts = fname_to_gts.get(img_path.name, [])
-                img_id = hash(img_path.name) & 0x7FFFFFFF
-            else:
-                img_id = _find_image_id(img_path, id_to_path)
-                gts = id_to_gts.get(img_id, []) if img_id is not None else []
-                img_id = img_id or 0
-
-            try:
-                results = model(str(img_path), conf=config.conf_threshold,
-                                device=device, verbose=False)
-                if not results:
-                    preds = []
-                else:
-                    import PIL.Image
-                    with PIL.Image.open(img_path) as pil_img:
-                        iw, ih = pil_img.size
-                    preds = _extract_preds(results[0], task, iw, ih)
-            except Exception as exc:
-                logger_fn(f"  [WARN] Prediction failed for {img_path.name}: {exc}")
-                preds = []
-
-            result = _evaluate_image(
-                img_id or 0, img_path, preds, gts, task, config.iou_threshold
-            )
-            per_image.append(result)
-
-        agg = aggregate_metrics(per_image, task)
-        logger_fn(
-            f"  mAP@50={agg['map50']:.3f}  mAP@50:95={agg['map50_95']:.3f}"
-            f"  F1={agg['f1']:.3f}  P={agg['precision']:.3f}  R={agg['recall']:.3f}"
-        )
-        model_results.append(ModelMetrics(
-            weights_path=weights,
-            task=task,
-            precision=agg["precision"],
-            recall=agg["recall"],
-            f1=agg["f1"],
-            map50=agg["map50"],
-            map75=agg["map75"],
-            map50_95=agg["map50_95"],
-            small=agg["small"],
-            medium=agg["medium"],
-            large=agg["large"],
-            per_image=per_image,
-        ))
+    if workers <= 1 or len(config.weights) <= 1:
+        for weights in config.weights:
+            result, logs = _evaluate_model_worker(weights=weights, **worker_kwargs)
+            for line in logs:
+                logger_fn(line)
+            if result is not None:
+                model_results.append(result)
+    else:
+        # spawn context avoids CUDA/fork-related issues in child processes
+        mp_ctx = multiprocessing.get_context("spawn")
+        ordered: dict[Path, ModelMetrics] = {}
+        with ProcessPoolExecutor(max_workers=workers, mp_context=mp_ctx) as executor:
+            futures = {
+                executor.submit(_evaluate_model_worker, weights=w, **worker_kwargs): w
+                for w in config.weights
+            }
+            for future in as_completed(futures):
+                w = futures[future]
+                try:
+                    result, logs = future.result()
+                    for line in logs:
+                        logger_fn(line)
+                    if result is not None:
+                        ordered[w] = result
+                except Exception as exc:
+                    logger_fn(f"  [ERROR] Worker for {w.name} failed: {exc}")
+        # Restore original submission order
+        for w in config.weights:
+            if w in ordered:
+                model_results.append(ordered[w])
 
     return BenchmarkResult(models=model_results, config=config)
 
