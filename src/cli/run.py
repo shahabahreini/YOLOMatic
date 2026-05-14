@@ -16,22 +16,27 @@ from rich.panel import Panel
 from rich.table import Table
 from ruamel.yaml import YAML
 
+from src.config.generator import (
+    Detectron2ConfigGenerator,
+    RFDETRConfigGenerator,
+    SAMConfigGenerator,
+    YOLOConfigGenerator,
+)
 from src.config.settings import (
     load_settings,
     reset_settings,
     roboflow_credential_status,
     save_settings,
 )
-from src.config.generator import Detectron2ConfigGenerator, RFDETRConfigGenerator, SAMConfigGenerator, YOLOConfigGenerator
 from src.datasets import summarize_dataset
-from src.models.detectron2 import is_detectron2_model
 from src.models.data import model_data_dict
+from src.models.detectron2 import is_detectron2_model
 from src.models.rfdetr import is_rfdetr_model
 from src.models.sam import is_sam_model
 from src.utils.cli import (
-    ParameterDefinition,
     NAV_BACK,
     NAV_LIST,
+    ParameterDefinition,
     clear_screen,
     console,
     get_parameter_value_input,
@@ -654,7 +659,13 @@ YOLO_TRAINING_PARAMETERS.extend(
             value_type="bool_or_str",
             description="Torch compile mode",
             help_text="Use False for compatibility. Try True/default/reduce-overhead/max-autotune only when your PyTorch and GPU stack support torch.compile well.",
-            allowed_values=["False", "True", "default", "reduce-overhead", "max-autotune"],
+            allowed_values=[
+                "False",
+                "True",
+                "default",
+                "reduce-overhead",
+                "max-autotune",
+            ],
             affects="Affects whether PyTorch compiles the model graph for potential speed gains.",
         ),
         ParameterDefinition(
@@ -1684,7 +1695,9 @@ def display_configuration_summary(
                 "Grad Accum": training.get("grad_accum_steps", "N/A"),
                 "Epochs": training.get("epochs", "N/A"),
                 "Resolution": training.get("resolution", "N/A"),
-                "Auto Download": config.get("settings", {}).get("auto_download_pretrained", "N/A"),
+                "Auto Download": config.get("settings", {}).get(
+                    "auto_download_pretrained", "N/A"
+                ),
             }
         )
     elif "nas" in model_choice.lower():
@@ -1721,7 +1734,9 @@ def display_configuration_summary(
     )
 
 
-def dataset_path_rows_for_config(model_choice: str, config: dict[str, Any]) -> list[list[str]]:
+def dataset_path_rows_for_config(
+    model_choice: str, config: dict[str, Any]
+) -> list[list[str]]:
     """Return summary path rows for each supported config schema."""
     if is_detectron2_model(str(model_choice)):
         splits = config.get("dataset", {}).get("splits", {})
@@ -1856,7 +1871,9 @@ def list_datasets():
                 f"[bold]Size:[/bold] {d['size']}    "
                 f"[bold]Images:[/bold] {summary.image_count}    "
                 f"[bold]Annotations:[/bold] {summary.annotation_count}\n\n"
-                f"[bold]Splits[/bold]\n" + ("\n".join(split_lines) or "  No splits found") + "\n\n"
+                f"[bold]Splits[/bold]\n"
+                + ("\n".join(split_lines) or "  No splits found")
+                + "\n\n"
                 f"[bold]Classes:[/bold] {len(summary.classes)} total — {classes}\n"
                 f"[bold]Health:[/bold] {health}\n"
                 f"[bold]Compatibility:[/bold] YOLO/RF-DETR: {summary.compatibility.get('yolo', 'unknown')}; "
@@ -1971,10 +1988,9 @@ def apply_config_sections(
 
 def clone_config_filename(source_path: Path, dataset_name: str) -> str:
     def slug(value: str, max_len: int) -> str:
-        safe = "".join(
-            char.lower() if char.isalnum() else "_"
-            for char in value
-        ).strip("_")
+        safe = "".join(char.lower() if char.isalnum() else "_" for char in value).strip(
+            "_"
+        )
         safe = "_".join(part for part in safe.split("_") if part)
         return (safe or "config")[:max_len]
 
@@ -2115,7 +2131,9 @@ def clone_saved_config_flow() -> bool:
     with open(config_path, "w") as file:
         output_yaml.dump(cloned_config, file)
 
-    console.print(f"✅ Cloned configuration saved to: {config_file}", style="bold green")
+    console.print(
+        f"✅ Cloned configuration saved to: {config_file}", style="bold green"
+    )
     display_configuration_summary(
         cloned_config.get("settings", {}).get("model_type", model_choice),
         dataset_name,
@@ -2336,7 +2354,9 @@ def update_config(
         if is_rfdetr_model(model_choice) and "-seg-" in model_choice.lower()
         else infer_ultralytics_task_from_name(model_task_source)
     )
-    is_seg_model = inferred_model_task == "segmentation" or "-seg" in model_choice.lower()
+    is_seg_model = (
+        inferred_model_task == "segmentation" or "-seg" in model_choice.lower()
+    )
 
     # Determine if there's a mismatch
     mismatch_type = None
@@ -2350,7 +2370,11 @@ def update_config(
         and not is_detectron2_model(model_choice)
     ):
         mismatch_type = "seg_model_needed"
-    elif dataset_type == "detection" and is_seg_model and not is_detectron2_model(model_choice):
+    elif (
+        dataset_type == "detection"
+        and is_seg_model
+        and not is_detectron2_model(model_choice)
+    ):
         mismatch_type = "det_model_needed"
     elif dataset_type == "unknown":
         mismatch_type = "unknown"
@@ -2548,10 +2572,14 @@ def update_config(
 
         # Handle fully customized mode
         if profile_selection.get("mode") == "fully_customized":
-            result = run_fully_customized_config_flow(dataset_name, model_choice, profile_context)
+            result = run_fully_customized_config_flow(
+                dataset_name, model_choice, profile_context
+            )
             if result is None:
                 return False
-            custom_sections = result.get("sections", {"training": result.get("params", {})})
+            custom_sections = result.get(
+                "sections", {"training": result.get("params", {})}
+            )
             custom_params = custom_sections.get("training", {})
             # Generate base config and apply custom params directly
             config = generator.generate_config(
@@ -3000,9 +3028,7 @@ def run_fully_customized_config_flow(
         custom_values = updated_values
 
         if not selected_names:
-            console.print(
-                "[yellow]No parameters selected. Using defaults.[/yellow]"
-            )
+            console.print("[yellow]No parameters selected. Using defaults.[/yellow]")
             return {"mode": "fully_customized", "params": {}}
 
         # Display summary
@@ -3115,7 +3141,7 @@ def main():
             return
         except _ExitTUI:
             clear_screen()
-            console.print("\U0001f44b Goodbye!", style="bold cyan")
+            console.print("Goodbye!", style="bold cyan")
             return
         except Exception as error:
             # Last-resort safety net — report and re-enter the menu rather than
@@ -3152,28 +3178,176 @@ def _settings_table(title: str, values: dict[str, Any]) -> None:
 
 def _settings_definitions() -> list[ParameterDefinition]:
     return [
-        ParameterDefinition("enabled", "ClearML", True, "bool", "Enable ClearML", "Controls whether training initializes a ClearML task.", config_section="clearml"),
-        ParameterDefinition("require_configured", "ClearML", False, "bool", "Require ClearML", "When true, training cancels if ClearML cannot initialize.", config_section="clearml"),
-        ParameterDefinition("project_name_template", "ClearML", "{family} Training - {model}", "str", "Project template", "Supports {family} and {model}.", config_section="clearml"),
-        ParameterDefinition("task_name_format", "ClearML", "%Y-%m-%d-%H-%M", "str", "Task timestamp format", "Python datetime format used in task names.", config_section="clearml"),
-        ParameterDefinition("upload_final_model", "ClearML", True, "bool", "Upload final model", "Uploads best/last checkpoint as a ClearML artifact.", config_section="clearml"),
-        ParameterDefinition("upload_artifacts", "ClearML", True, "bool", "Upload artifacts", "Reserved for generated artifacts beyond the final model.", config_section="clearml"),
-        ParameterDefinition("log_hyperparameters", "ClearML", True, "bool", "Log hyperparameters", "Connects training, dataset, and export parameters to the task.", config_section="clearml"),
-        ParameterDefinition("log_dataset_summary", "ClearML", True, "bool", "Log dataset summary", "Reserved for dataset summary logging.", config_section="clearml"),
-        ParameterDefinition("upload_wizard_enabled", "Roboflow", True, "bool", "Enable manual upload wizard", "Controls whether Upload to Roboflow is available from the main TUI.", config_section="roboflow"),
-        ParameterDefinition("auto_upload_after_training", "Roboflow", False, "bool", "Auto-upload after training", "New configs snapshot this as roboflow.upload.", config_section="roboflow"),
-        ParameterDefinition("auto_upload_weight", "Roboflow", "best.pt", "str", "Auto-upload weight", "Usually best.pt or last.pt.", config_section="roboflow"),
-        ParameterDefinition("default_model_name_template", "Roboflow", "{run_name}-best", "str", "Model name template", "Supports {run_name}.", config_section="roboflow"),
-        ParameterDefinition("require_dataset_metadata", "Roboflow", True, "bool", "Require dataset metadata", "Skip auto upload when workspace/project metadata is unavailable.", config_section="roboflow"),
-        ParameterDefinition("rfdetr_project_version", "Roboflow", 1, "int", "RF-DETR version", "Default project version used for RF-DETR deploy.", min_value=1, config_section="roboflow"),
-        ParameterDefinition("mode", "Narratives", "guided", "str", "Narrative mode", "guided shows full panels, concise uses shorter messages, quiet only reports blockers and final results.", allowed_values=["guided", "concise", "quiet"], config_section="narratives"),
-        ParameterDefinition("show_setup_guidance", "Narratives", True, "bool", "Show setup guidance", "Controls setup guidance text.", config_section="narratives"),
-        ParameterDefinition("show_success_panels", "Narratives", True, "bool", "Show success panels", "Controls success panels.", config_section="narratives"),
-        ParameterDefinition("show_skip_reasons", "Narratives", True, "bool", "Show skip reasons", "Controls expected skip messages.", config_section="narratives"),
+        ParameterDefinition(
+            "enabled",
+            "ClearML",
+            True,
+            "bool",
+            "Enable ClearML",
+            "Controls whether training initializes a ClearML task.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "require_configured",
+            "ClearML",
+            False,
+            "bool",
+            "Require ClearML",
+            "When true, training cancels if ClearML cannot initialize.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "project_name_template",
+            "ClearML",
+            "{family} Training - {model}",
+            "str",
+            "Project template",
+            "Supports {family} and {model}.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "task_name_format",
+            "ClearML",
+            "%Y-%m-%d-%H-%M",
+            "str",
+            "Task timestamp format",
+            "Python datetime format used in task names.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "upload_final_model",
+            "ClearML",
+            True,
+            "bool",
+            "Upload final model",
+            "Uploads best/last checkpoint as a ClearML artifact.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "upload_artifacts",
+            "ClearML",
+            True,
+            "bool",
+            "Upload artifacts",
+            "Reserved for generated artifacts beyond the final model.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "log_hyperparameters",
+            "ClearML",
+            True,
+            "bool",
+            "Log hyperparameters",
+            "Connects training, dataset, and export parameters to the task.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "log_dataset_summary",
+            "ClearML",
+            True,
+            "bool",
+            "Log dataset summary",
+            "Reserved for dataset summary logging.",
+            config_section="clearml",
+        ),
+        ParameterDefinition(
+            "upload_wizard_enabled",
+            "Roboflow",
+            True,
+            "bool",
+            "Enable manual upload wizard",
+            "Controls whether Upload to Roboflow is available from the main TUI.",
+            config_section="roboflow",
+        ),
+        ParameterDefinition(
+            "auto_upload_after_training",
+            "Roboflow",
+            False,
+            "bool",
+            "Auto-upload after training",
+            "New configs snapshot this as roboflow.upload.",
+            config_section="roboflow",
+        ),
+        ParameterDefinition(
+            "auto_upload_weight",
+            "Roboflow",
+            "best.pt",
+            "str",
+            "Auto-upload weight",
+            "Usually best.pt or last.pt.",
+            config_section="roboflow",
+        ),
+        ParameterDefinition(
+            "default_model_name_template",
+            "Roboflow",
+            "{run_name}-best",
+            "str",
+            "Model name template",
+            "Supports {run_name}.",
+            config_section="roboflow",
+        ),
+        ParameterDefinition(
+            "require_dataset_metadata",
+            "Roboflow",
+            True,
+            "bool",
+            "Require dataset metadata",
+            "Skip auto upload when workspace/project metadata is unavailable.",
+            config_section="roboflow",
+        ),
+        ParameterDefinition(
+            "rfdetr_project_version",
+            "Roboflow",
+            1,
+            "int",
+            "RF-DETR version",
+            "Default project version used for RF-DETR deploy.",
+            min_value=1,
+            config_section="roboflow",
+        ),
+        ParameterDefinition(
+            "mode",
+            "Narratives",
+            "guided",
+            "str",
+            "Narrative mode",
+            "guided shows full panels, concise uses shorter messages, quiet only reports blockers and final results.",
+            allowed_values=["guided", "concise", "quiet"],
+            config_section="narratives",
+        ),
+        ParameterDefinition(
+            "show_setup_guidance",
+            "Narratives",
+            True,
+            "bool",
+            "Show setup guidance",
+            "Controls setup guidance text.",
+            config_section="narratives",
+        ),
+        ParameterDefinition(
+            "show_success_panels",
+            "Narratives",
+            True,
+            "bool",
+            "Show success panels",
+            "Controls success panels.",
+            config_section="narratives",
+        ),
+        ParameterDefinition(
+            "show_skip_reasons",
+            "Narratives",
+            True,
+            "bool",
+            "Show skip reasons",
+            "Controls expected skip messages.",
+            config_section="narratives",
+        ),
     ]
 
 
-def _settings_values(settings: dict[str, Any], definitions: list[ParameterDefinition]) -> dict[str, Any]:
+def _settings_values(
+    settings: dict[str, Any], definitions: list[ParameterDefinition]
+) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for definition in definitions:
         values[definition.name] = settings.get(definition.config_section, {}).get(
@@ -3205,9 +3379,11 @@ def run_settings_customizer(
 
     _selected, values = result
     for definition in definitions:
-        settings.setdefault(definition.config_section, {})[definition.name] = values.get(
-            definition.name,
-            definition.default,
+        settings.setdefault(definition.config_section, {})[definition.name] = (
+            values.get(
+                definition.name,
+                definition.default,
+            )
         )
     save_settings(settings)
     console.print("[bold green]Settings saved.[/bold green]")
@@ -3235,12 +3411,18 @@ def settings_credentials_page() -> None:
         "ROBOFLOW_PROJECT_IDS": "configured" if status["project_ids"] else "missing",
     }
     _settings_table("Credential Status", rows)
-    console.print("[dim]API key values are never displayed or written to YAML settings.[/dim]")
+    console.print(
+        "[dim]API key values are never displayed or written to YAML settings.[/dim]"
+    )
     input("\nPress Enter to return...")
 
 
 def settings_reset_page() -> None:
-    choice = get_user_choice(["Reset to Defaults", "Cancel"], title="Reset Settings", text="Restore configs/yolomatic_settings.yaml to built-in defaults?")
+    choice = get_user_choice(
+        ["Reset to Defaults", "Cancel"],
+        title="Reset Settings",
+        text="Restore configs/yolomatic_settings.yaml to built-in defaults?",
+    )
     if choice == "Reset to Defaults":
         reset_settings()
         console.print("[bold green]Settings reset to defaults.[/bold green]")

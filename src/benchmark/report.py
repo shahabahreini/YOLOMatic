@@ -213,7 +213,13 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
         min_v, max_v = min(vals), max(vals)
         fills.append([_interpolate_color(v, min_v, max_v, is_highlight=highlight) for v in vals])
 
-    target_height = 450 if len(models) > 10 else 110 + len(models) * 32
+    # Header row (40px) + cell rows (32px each) + title/margin overhead (120px)
+    HEADER_H = 40
+    ROW_H = 32
+    OVERHEAD = 120  # title bar + top/bottom margins
+    target_height = max(280, OVERHEAD + HEADER_H + len(models) * ROW_H)
+    if len(models) > 10:
+        target_height = max(target_height, 500)
 
     fig = go.Figure(go.Table(
         columnwidth=[50, 240, 100, 100, 90, 90, 80, 90, 90],
@@ -229,11 +235,27 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
             "fill_color": fills,
             "font": {"size": 12, "color": INK},
             "align": ["center", "left", "center"] + ["center"] * 6,
-            "height": 30,
+            "height": ROW_H,
             "line": {"color": "rgba(0,0,0,0.03)", "width": 1},
         },
     ))
-    return _base_layout(fig, title="Relative Performance Leaderboard", height=target_height)
+    # Use tighter margins so table cells are not obscured
+    fig.update_layout(
+        title={
+            "text": "<b>Relative Performance Leaderboard</b>",
+            "font": {"size": 16, "color": INK},
+            "x": 0.02,
+            "y": 0.98,
+            "yanchor": "top",
+        },
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": FONT_FAMILY, "size": 12, "color": INK},
+        margin={"l": 0, "r": 0, "t": 60, "b": 10},
+        height=target_height,
+        hoverlabel={"bgcolor": "#111827", "font": {"color": "white", "size": 13}},
+    )
+    return fig
 
 
 def _ranked_metric_bar(result: Any, names: dict[Path, str]) -> go.Figure:
@@ -600,7 +622,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.top-meta-item strong { color: #f1f5f9; }\n'
         '.container { max-width: 1400px; margin: 0 auto; padding: 24px 24px 64px; }\n'
         '.section { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; box-shadow: var(--shadow); overflow: visible; }\n'
-        '.chart-section { padding: 16px; min-height: 200px; }\n'
+        '.chart-section { padding: 16px 4px; min-height: 200px; overflow: visible; }\n'
         '.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 32px; }\n'
         '.kpi-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; background: var(--card-bg); box-shadow: var(--shadow); }\n'
         '.primary-card { border-top: 4px solid #0284c7; }\n'
