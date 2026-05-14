@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from src.utils.tui import (
     TUI_CONSOLE,
+    TUI_TERM,
     ParameterDefinition,
     NAV_BACK,
     NAV_LIST,
@@ -29,6 +30,7 @@ print_stylized_header = print_header
 __all__ = [
     "clear_screen",
     "console",
+    "TUI_TERM",
     "get_user_choice",
     "get_user_multi_select",
     "get_parameter_value_input",

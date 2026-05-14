@@ -6,11 +6,14 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 
+from rich.console import Group
 from rich.panel import Panel
+from rich.table import Table
 
 from src.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
+    TUI_TERM,
     clear_screen,
     console,
     expected_error_panel,
@@ -498,6 +501,156 @@ def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
 # Running with live log
 # ---------------------------------------------------------------------------
 
+def _parse_completed_metric_line(line: str) -> dict[str, str] | None:
+    parts = line.strip().split()
+    metrics: dict[str, str] = {}
+    for part in parts:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        if key in {"mAP@50", "mAP@50:95", "F1", "P", "R"}:
+            metrics[key] = value
+    return metrics or None
+
+
+def _progress_weight_label(weight: Path) -> str:
+    if weight.name in {"best.pt", "last.pt", "best.pth", "last.pth"} and weight.parent.name == "weights":
+        return f"{weight.parent.parent.name} / {weight.name}"
+    if weight.name in {"best.pt", "last.pt", "best.pth", "last.pth"}:
+        return f"{weight.parent.name} / {weight.name}"
+    return weight.name
+
+
+def _benchmark_progress_rows(weights: list[Path], log_lines: list[str]) -> list[dict[str, str]]:
+    rows = [
+        {
+            "name": _progress_weight_label(weight),
+            "file_name": weight.name,
+            "status": "Pending",
+            "map50": "-",
+            "map50_95": "-",
+            "f1": "-",
+            "p": "-",
+            "r": "-",
+        }
+        for weight in weights
+    ]
+    current_idx: int | None = None
+
+    for line in log_lines:
+        stripped = line.strip()
+        if stripped.startswith("Loading model:"):
+            model_name = stripped.split("Loading model:", 1)[1].strip()
+            logged_name = Path(model_name).name
+            current_idx = next(
+                (
+                    idx
+                    for idx, row in enumerate(rows)
+                    if row["file_name"] == logged_name and row["status"] in {"Pending", "Next"}
+                ),
+                None,
+            )
+            if current_idx is not None and rows[current_idx]["status"] != "Done":
+                rows[current_idx]["status"] = "Running"
+        elif stripped.startswith("[ERROR] Failed to load"):
+            if current_idx is not None:
+                rows[current_idx]["status"] = "Failed"
+        else:
+            metrics = _parse_completed_metric_line(stripped)
+            if metrics and current_idx is not None:
+                rows[current_idx].update(
+                    {
+                        "status": "Done",
+                        "map50": metrics.get("mAP@50", "-"),
+                        "map50_95": metrics.get("mAP@50:95", "-"),
+                        "f1": metrics.get("F1", "-"),
+                        "p": metrics.get("P", "-"),
+                        "r": metrics.get("R", "-"),
+                    }
+                )
+                next_idx = current_idx + 1
+                if next_idx < len(rows) and rows[next_idx]["status"] == "Pending":
+                    rows[next_idx]["status"] = "Next"
+                current_idx = None
+
+    return rows
+
+
+def _render_benchmark_progress(
+    weights: list[Path],
+    log_lines: list[str],
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> Table:
+    rows = _benchmark_progress_rows(weights, log_lines)
+    done_count = sum(1 for row in rows if row["status"] == "Done")
+    term_width = max(80, width or TUI_TERM.width or 80)
+    term_height = max(24, height or TUI_TERM.height or 24)
+    two_column = term_width >= 112
+    compact = term_width < 140
+    log_limit = max(8, min(28, term_height - 10 if two_column else term_height // 3))
+
+    log_panel = Panel(
+        "\n".join(log_lines[-log_limit:]) or "[dim]Starting...[/dim]",
+        title="Live Log",
+        border_style="cyan",
+        padding=(0, 1),
+    )
+
+    summary = Table(
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+        expand=True,
+        pad_edge=False,
+    )
+    summary.add_column("Model", overflow="fold", ratio=3)
+    summary.add_column("State", justify="center", no_wrap=True, ratio=1)
+    summary.add_column("mAP50", justify="right", no_wrap=True, ratio=1)
+    if not compact:
+        summary.add_column("mAP50:95", justify="right", no_wrap=True, ratio=1)
+    summary.add_column("F1", justify="right", no_wrap=True)
+
+    status_styles = {
+        "Done": "green",
+        "Running": "bold yellow",
+        "Next": "cyan",
+        "Failed": "red",
+        "Pending": "dim",
+    }
+    for row in rows:
+        status = row["status"]
+        summary.add_row(
+            row["name"] if not compact else row["name"].replace(" / ", "/"),
+            status,
+            row["map50"],
+            *([] if compact else [row["map50_95"]]),
+            row["f1"],
+            style=status_styles.get(status, "white"),
+        )
+
+    summary_panel = Panel(
+        Group(
+            f"[bold]Completed:[/bold] {done_count}/{len(rows)}",
+            summary,
+        ),
+        title="Evaluation Summary",
+        border_style="green" if done_count == len(rows) else "yellow",
+        padding=(0, 1),
+    )
+
+    dashboard = Table.grid(expand=True)
+    if two_column:
+        dashboard.add_column(ratio=3)
+        dashboard.add_column(ratio=2)
+        dashboard.add_row(log_panel, summary_panel)
+    else:
+        dashboard.add_column(ratio=1)
+        dashboard.add_row(summary_panel)
+        dashboard.add_row(log_panel)
+    return dashboard
+
 def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Path | None:
     from rich.live import Live
 
@@ -536,15 +689,8 @@ def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Pat
     with Live(console=console, refresh_per_second=4) as live:
         while thread.is_alive():
             thread.join(timeout=0.25)
-            panel_content = "\n".join(log_lines[-30:]) or "[dim]Starting...[/dim]"
-            live.update(Panel(
-                panel_content,
-                title="Benchmark Log",
-                border_style="cyan",
-                padding=(0, 1),
-            ))
-        panel_content = "\n".join(log_lines[-30:]) or "[dim]Done.[/dim]"
-        live.update(Panel(panel_content, title="Benchmark Log", border_style="cyan", padding=(0, 1)))
+            live.update(_render_benchmark_progress(weights, log_lines))
+        live.update(_render_benchmark_progress(weights, log_lines or ["[dim]Done.[/dim]"]))
 
     if "error" in error_holder:
         console.print(Panel(

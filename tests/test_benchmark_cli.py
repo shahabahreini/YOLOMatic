@@ -58,5 +58,89 @@ class TestBenchmarkModuleImports(unittest.TestCase):
         self.assertFalse(config.open_in_browser)
 
 
+class TestBenchmarkProgressRendering(unittest.TestCase):
+    """Verify live benchmark progress parsing stays useful for long model lists."""
+
+    def test_progress_rows_show_done_running_and_next_models(self):
+        from src.cli.benchmark import _benchmark_progress_rows
+
+        weights = [
+            Path("runs/detect/train_a/weights/best.pt"),
+            Path("runs/detect/train_a/weights/last.pt"),
+            Path("runs/detect/train_b/weights/best.pt"),
+        ]
+        rows = _benchmark_progress_rows(
+            weights,
+            [
+                "Loading model: best.pt",
+                "  mAP@50=0.810  mAP@50:95=0.620  F1=0.700  P=0.750  R=0.660",
+                "Loading model: last.pt",
+            ],
+        )
+
+        self.assertEqual(rows[0]["name"], "train_a / best.pt")
+        self.assertEqual(rows[0]["status"], "Done")
+        self.assertEqual(rows[0]["map50"], "0.810")
+        self.assertEqual(rows[1]["name"], "train_a / last.pt")
+        self.assertEqual(rows[1]["status"], "Running")
+        self.assertEqual(rows[2]["name"], "train_b / best.pt")
+        self.assertEqual(rows[2]["status"], "Pending")
+
+    def test_progress_rows_mark_next_after_completed_model(self):
+        from src.cli.benchmark import _benchmark_progress_rows
+
+        rows = _benchmark_progress_rows(
+            [Path("a.pt"), Path("b.pt")],
+            [
+                "Loading model: a.pt",
+                "  mAP@50=0.500  mAP@50:95=0.300  F1=0.400  P=0.450  R=0.350",
+            ],
+        )
+
+        self.assertEqual(rows[0]["status"], "Done")
+        self.assertEqual(rows[1]["status"], "Next")
+
+    def test_progress_renderer_adapts_to_narrow_terminal(self):
+        from rich.console import Console
+        from src.cli import benchmark
+
+        renderable = benchmark._render_benchmark_progress(
+            [Path("runs/detect/train_a/weights/best.pt")],
+            [
+                "Loading model: best.pt",
+                "  mAP@50=0.810  mAP@50:95=0.620  F1=0.700  P=0.750  R=0.660",
+            ],
+            width=90,
+            height=28,
+        )
+        console = Console(record=True, width=90, height=28, color_system=None)
+        console.print(renderable)
+        output = console.export_text()
+
+        self.assertIn("Evaluation Summary", output)
+        self.assertIn("Live Log", output)
+        self.assertNotIn("mAP50:95", output)
+
+    def test_progress_renderer_keeps_full_metrics_on_wide_terminal(self):
+        from rich.console import Console
+        from src.cli import benchmark
+
+        renderable = benchmark._render_benchmark_progress(
+            [Path("runs/detect/train_a/weights/best.pt")],
+            [
+                "Loading model: best.pt",
+                "  mAP@50=0.810  mAP@50:95=0.620  F1=0.700  P=0.750  R=0.660",
+            ],
+            width=150,
+            height=36,
+        )
+        console = Console(record=True, width=150, height=36, color_system=None)
+        console.print(renderable)
+        output = console.export_text()
+
+        self.assertIn("mAP5", output)
+        self.assertIn("0.620", output)
+
+
 if __name__ == "__main__":
     unittest.main()
