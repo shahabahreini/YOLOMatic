@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from src.trainers.yolo_trainer import disable_ultralytics_clearml_callbacks
+from src.trainers.yolo_trainer import (
+    disable_ultralytics_clearml_callbacks,
+    upload_to_roboflow_if_configured,
+)
 
 
 def local_callback():
@@ -36,9 +41,7 @@ class YoloTrainerTests(unittest.TestCase):
         self.assertEqual(model.callbacks["on_val_end"], [local_callback])
 
 
-from unittest.mock import patch, MagicMock
-from pathlib import Path
-from src.trainers.yolo_trainer import upload_to_roboflow_if_configured
+
 
 class TestRoboflowUpload(unittest.TestCase):
     @patch("src.trainers.yolo_trainer.upload_model")

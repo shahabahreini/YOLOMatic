@@ -152,7 +152,6 @@ def compute_map_at_threshold(
     iou_threshold: float,
     task: str,
 ) -> float:
-    from .engine import ImageResult  # late import to avoid circularity
 
     total_gt = sum(r.gt_count for r in per_image_results)
     if total_gt == 0:

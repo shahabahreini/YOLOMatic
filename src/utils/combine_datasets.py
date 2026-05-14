@@ -8,7 +8,6 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.panel import Panel
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import traceback
 
 console = Console()
 
@@ -263,7 +262,7 @@ Automatically created by the **Robust YOLO Dataset Combiner** (parallel + hard-l
     with open(output_path / "README.md", "w", encoding="utf-8") as f:
         f.write(readme)
 
-    console.print(f"\n[bold green]✅ PERFECT MERGE COMPLETE![/bold green]")
+    console.print("\n[bold green]✅ PERFECT MERGE COMPLETE![/bold green]")
     console.print(f"   Location: [blue]{output_path.absolute()}[/blue]")
     console.print(f"   Classes : [cyan]{len(all_classes)}[/cyan]")
     if errors:

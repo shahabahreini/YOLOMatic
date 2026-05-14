@@ -103,7 +103,7 @@ def _weight_description(path: Path, root: Path, selected: bool) -> str:
     run_name, config_name = _find_run_context(path)
 
     status_line = (
-        f"[bold green]● SELECTED[/bold green]"
+        "[bold green]● SELECTED[/bold green]"
         if selected
         else "[dim]○ not selected[/dim]"
     )

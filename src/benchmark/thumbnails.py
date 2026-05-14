@@ -29,7 +29,6 @@ def generate_thumbnail(
     """Return PNG bytes of a resized image with GT (green) and pred (red) overlays."""
     try:
         from PIL import Image, ImageDraw
-        import cv2
 
         img = Image.open(image_path).convert("RGB")
         orig_w, orig_h = img.size
@@ -70,7 +69,6 @@ def _draw_mask_outline(draw, mask: np.ndarray, orig_w: int, orig_h: int,
                        sx: float, sy: float, color: tuple) -> None:
     try:
         import cv2
-        from PIL import Image
 
         m = mask.astype(np.uint8) * 255
         if m.shape != (orig_h, orig_w):

@@ -34,12 +34,9 @@ from src.models.detectron2 import is_detectron2_model
 from src.models.rfdetr import is_rfdetr_model
 from src.models.sam import is_sam_model
 from src.utils.cli import (
-    NAV_BACK,
-    NAV_LIST,
     ParameterDefinition,
     clear_screen,
     console,
-    get_parameter_value_input,
     get_user_choice,
     get_user_multi_select,
     print_stylized_header,
@@ -2548,7 +2545,6 @@ def update_config(
             return False
         # Continue with "Continue Anyway"
 
-    custom_params = None
     if is_detectron2_model(model_choice):
         config = generator.generate_config(
             model_choice,
@@ -2580,7 +2576,6 @@ def update_config(
             custom_sections = result.get(
                 "sections", {"training": result.get("params", {})}
             )
-            custom_params = custom_sections.get("training", {})
             # Generate base config and apply custom params directly
             config = generator.generate_config(
                 model_choice,

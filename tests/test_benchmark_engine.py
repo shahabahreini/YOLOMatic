@@ -1,24 +1,16 @@
 """Tests for the benchmark evaluation engine."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-try:
-    import cv2 as _cv2
-    _HAS_CV2 = True
-except ImportError:
-    _HAS_CV2 = False
-
 from src.benchmark.engine import (
-    BenchmarkResult,
     GTObject,
-    ImageResult,
     PredObject,
     _auto_detect_annotations,
     _dominant_bucket,
@@ -26,6 +18,9 @@ from src.benchmark.engine import (
     _find_image_id,
     _load_coco_data,
 )
+
+_HAS_CV2 = importlib.util.find_spec("cv2") is not None
+
 
 
 def _write_coco(path: Path, images, annotations, categories=None):

@@ -21,7 +21,6 @@ def extract_features(image_result, image_path: Path) -> np.ndarray:
         mean_r = mean_g = mean_b = std_lum = 0.5
 
     gt_count = max(image_result.gt_count, 1)
-    pred_count = image_result.pred_count
     tp = image_result.tp
     fp = image_result.fp
     fn = image_result.fn

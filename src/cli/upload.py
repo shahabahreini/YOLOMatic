@@ -25,7 +25,6 @@ from src.utils.cli import (
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
-    render_summary_panel,
     render_table,
 )
 from src.utils.ml_dependencies import MLDependencyError, import_torch

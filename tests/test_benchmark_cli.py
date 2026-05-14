@@ -1,7 +1,6 @@
 """Tests for benchmark TUI integration."""
 from __future__ import annotations
 
-import ast
 import unittest
 from pathlib import Path
 
@@ -39,7 +38,6 @@ class TestBenchmarkModuleImports(unittest.TestCase):
     """Verify the benchmark package public API is correct."""
 
     def test_public_api_importable(self):
-        from src.benchmark import BenchmarkConfig, BenchmarkResult, ModelMetrics
         from src.benchmark import run_benchmark, write_benchmark_report
         self.assertTrue(callable(run_benchmark))
         self.assertTrue(callable(write_benchmark_report))

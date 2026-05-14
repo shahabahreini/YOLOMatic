@@ -6,22 +6,17 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
 from .config import BenchmarkConfig
 from .metrics import (
-    MatchResult,
     SizeBucketMetrics,
     _mask_iou_for_pred_gt,
     _box_iou_for_pred_gt,
     _safe_div,
     aggregate_metrics,
     greedy_match,
-    mask_iou,
-    box_iou,
-    mask_to_box,
     polygon_to_mask,
     size_bucket,
 )

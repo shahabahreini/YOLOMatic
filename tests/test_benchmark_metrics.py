@@ -1,30 +1,26 @@
 """Tests for benchmark metric computation."""
 from __future__ import annotations
 
+import importlib.util
 import unittest
 from pathlib import Path
 
 import numpy as np
 
-try:
-    import cv2 as _cv2
-    _HAS_CV2 = True
-except ImportError:
-    _HAS_CV2 = False
-
 from src.benchmark.metrics import (
-    SizeBucketMetrics,
     _safe_div,
     box_iou,
     compute_ap,
     compute_map_at_threshold,
     greedy_match,
     mask_iou,
-    mask_to_box,
     polygon_to_mask,
     size_bucket,
 )
 from src.benchmark.engine import GTObject, ImageResult, PredObject
+
+_HAS_CV2 = importlib.util.find_spec("cv2") is not None
+
 
 
 # ---------------------------------------------------------------------------

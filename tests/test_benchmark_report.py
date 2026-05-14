@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import numpy as np
 
 from src.benchmark.config import BenchmarkConfig
 from src.benchmark.engine import BenchmarkResult, ImageResult, ModelMetrics

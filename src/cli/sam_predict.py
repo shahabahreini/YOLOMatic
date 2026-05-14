@@ -17,7 +17,6 @@ from src.utils.cli import (
     NAV_BACK,
     clear_screen,
     console,
-    expected_error_panel,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
@@ -330,7 +329,7 @@ def _save_outputs(
     texts: list[str] | None = None,
 ) -> None:
     """Save PNG overlay, append to COCO JSON, write YOLO .txt."""
-    from PIL import Image as PILImage, ImageDraw
+    from PIL import Image as PILImage
 
     output_dir.mkdir(parents=True, exist_ok=True)
     img = PILImage.open(image_path).convert("RGB")

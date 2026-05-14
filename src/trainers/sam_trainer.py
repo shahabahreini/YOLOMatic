@@ -119,7 +119,7 @@ class _SAMDataset(torch.utils.data.Dataset):
 def _find_ann_file(dataset_dir: Path, split: str) -> Path | None:
     """Locate COCO annotation file for a given split."""
     candidates = [
-        dataset_dir / f"_annotations.coco.json",
+        dataset_dir / "_annotations.coco.json",
         dataset_dir / f"{split}/_annotations.coco.json",
         dataset_dir / "annotations" / f"instances_{split}.json",
         dataset_dir / "annotations" / f"instances_{split}2017.json",
