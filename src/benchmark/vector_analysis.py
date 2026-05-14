@@ -121,11 +121,15 @@ def build_vector_data(model_metrics, thumbnail_fn=None) -> dict:
     }
 
     if thumbnail_fn is not None:
-        for r in results:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _safe_thumb(r):
             try:
-                b64 = thumbnail_fn(r)
+                return thumbnail_fn(r)
             except Exception:
-                b64 = ""
-            data["thumbnails"].append(b64)
+                return ""
+
+        with ThreadPoolExecutor() as pool:
+            data["thumbnails"] = list(pool.map(_safe_thumb, results))
 
     return data
