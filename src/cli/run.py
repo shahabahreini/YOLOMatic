@@ -3267,6 +3267,7 @@ def _main_loop_iteration():
             "[Evaluate & Monitor]",
             "Run Prediction",
             "Launch TensorBoard",
+            "Benchmark Models",
             "[Datasets & Deployment]",
             "Combine Datasets",
             "Upload to Roboflow",
@@ -3311,6 +3312,13 @@ def _main_loop_iteration():
                     "Open a TensorBoard dashboard against a specific run or the entire "
                     "runs/ directory. YOLOmatic back-fills metrics, artifacts, and sample "
                     "images automatically."
+                ),
+                "Benchmark Models": (
+                    "Evaluate one or more trained checkpoints (.pt) on a COCO-format "
+                    "validation dataset. Computes mAP@50, mAP@50:95, F1, precision, recall, "
+                    "and per-image rankings split by object size. Generates an interactive "
+                    "Plotly HTML report with UMAP vector analysis for exploring model "
+                    "strengths and failure cases — works for both detection and segmentation."
                 ),
                 "Combine Datasets": (
                     "Merge several YOLO datasets into a unified one — class names are "
@@ -3367,6 +3375,12 @@ def _main_loop_iteration():
             _safe_subcommand(
                 "TensorBoard", tensorboard_main, prog="yolomatic-tensorboard"
             )
+            continue
+
+        elif main_choice == "Benchmark Models":
+            from src.cli.benchmark import main as benchmark_main
+
+            _safe_subcommand("Benchmark", benchmark_main, prog="yolomatic-benchmark")
             continue
 
         elif main_choice == "Upload to Roboflow":

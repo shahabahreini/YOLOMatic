@@ -83,6 +83,7 @@ YOLOmatic automates the end-to-end workflow for training YOLO and RF-DETR comput
 | **Dataset Combiner** | Merges multiple YOLO datasets, deduplicates class names, remaps labels, and hard-links images where possible |
 | **Roboflow Upload** | Uploads trained YOLO checkpoints and deploys RF-DETR checkpoints with workspace/project prompts and `.env` credential support |
 | **TensorBoard Launcher** | Scans all training runs and starts TensorBoard without manually locating log directories |
+| **Benchmark & Vector Analysis** | Evaluates one or more `.pt` checkpoints on a COCO validation set — computes mAP@50, mAP@50:95, F1, precision, recall, and per-image rankings grouped by object size (small/medium/large). Generates an interactive Plotly HTML report with a UMAP vector scatter for exploring hard-failure and high-performance images. Supports both **detection** and **segmentation** tasks; task type is auto-detected from model output. |
 | **ClearML Integration** | Tracks hyper-parameters, metrics, and artifacts through ClearML for remote experiment management |
 | **Dependency Health Checks** | Checks core ML packages from the TUI and offers guided upgrades for missing or outdated dependencies |
 | **Version Management** | Single-command version bumping via `uv run bump` — `pyproject.toml` is the sole source of truth |
@@ -235,6 +236,7 @@ Launches the interactive TUI. The main menu currently includes:
 | **Train Model** | Train, validate, export, and log from a saved config |
 | **Run Prediction** | Run single-image or folder inference from discovered `.pt` or `.pth` weights |
 | **Launch TensorBoard** | Open TensorBoard for a selected run or the full `runs/` tree |
+| **Benchmark Models** | Evaluate trained checkpoints on a COCO validation set and generate an interactive Plotly HTML report with UMAP vector analysis |
 | **Combine Datasets** | Merge YOLO-format datasets with class remapping |
 | **Upload to Roboflow** | Publish trained checkpoints to Roboflow |
 | **Check for Updates** | Review package health for the local ML stack |
@@ -348,6 +350,66 @@ On Windows, if `uv run` fails with an access-denied error on a locked `torch` fi
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
+```
+
+---
+
+## Benchmark & Vector Analysis
+
+The benchmark workflow evaluates one or more trained checkpoints on a COCO-format validation dataset and produces a self-contained interactive HTML report.
+
+### Running the Benchmark
+
+```sh
+uv run yolomatic
+# Navigate: Evaluate & Monitor → Benchmark Models
+```
+
+Or directly:
+
+```sh
+uv run yolomatic-benchmark
+```
+
+### What the Wizard Collects
+
+| Step | Default |
+|---|---|
+| Weight files | Auto-discovered from `runs/` and project root; multi-select |
+| Validation directory | `output/nir/valid` |
+| Annotation file | `<validation>/_annotations.coco.json` (auto-detected) |
+| Confidence threshold | `0.25` |
+| Output directory | `output/benchmark_reports/<timestamp>/` |
+
+### Report Sections
+
+| Section | Description |
+|---|---|
+| **Summary Cards** | Best model name, mAP@50, mAP@50:95, F1, precision, recall |
+| **Model Comparison Table** | All models side-by-side with colour-coded cells |
+| **mAP by Object Size** | Grouped bar chart — small (<32²), medium (32²–96²), large (>96²) |
+| **TP/FP/FN Summary** | Horizontal bar chart for the best model |
+| **Per-Image Ranking** | Worst 20 and best 20 images by F1 |
+| **Vector Analysis Scatter** | UMAP projection coloured by F1; click a point to see the image thumbnail |
+
+### Task Auto-Detection
+
+The engine runs a probe prediction on the first validation image and checks whether masks are returned. Detection-only models use bounding-box IoU throughout; segmentation models use pixel-level mask IoU. No manual `--task` flag is required.
+
+### Python API
+
+```python
+from src.benchmark import BenchmarkConfig, run_benchmark, write_benchmark_report
+from pathlib import Path
+
+config = BenchmarkConfig(
+    weights=[Path("runs/train/weights/best.pt")],
+    validation_dir=Path("output/nir/valid"),
+    conf_threshold=0.25,
+)
+result = run_benchmark(config)
+report_path = write_benchmark_report(result, Path("output/benchmark_reports"))
+print(f"Report: {report_path}")
 ```
 
 ---

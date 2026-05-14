@@ -1,0 +1,157 @@
+"""Tests for the benchmark evaluation engine."""
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+
+try:
+    import cv2 as _cv2
+    _HAS_CV2 = True
+except ImportError:
+    _HAS_CV2 = False
+
+from src.benchmark.engine import (
+    BenchmarkResult,
+    GTObject,
+    ImageResult,
+    PredObject,
+    _auto_detect_annotations,
+    _dominant_bucket,
+    _evaluate_image,
+    _find_image_id,
+    _load_coco_data,
+)
+
+
+def _write_coco(path: Path, images, annotations, categories=None):
+    cats = categories or [{"id": 0, "name": "object", "supercategory": "none"}]
+    coco = {"images": images, "annotations": annotations, "categories": cats}
+    path.write_text(json.dumps(coco))
+
+
+class TestAutoDetectAnnotations(unittest.TestCase):
+    def test_finds_standard_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            ann = d / "_annotations.coco.json"
+            ann.write_text("{}")
+            result = _auto_detect_annotations(d)
+            self.assertEqual(result, ann)
+
+    def test_falls_back_to_any_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            j = d / "labels.json"
+            j.write_text("{}")
+            result = _auto_detect_annotations(d)
+            self.assertEqual(result, j)
+
+    def test_raises_when_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(FileNotFoundError):
+                _auto_detect_annotations(Path(tmp))
+
+
+@unittest.skipUnless(_HAS_CV2, "cv2 not available")
+class TestLoadCocoDataSegmentation(unittest.TestCase):
+    def test_loads_polygon_mask(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            # Create a dummy image file
+            img_path = d / "img1.jpg"
+            img_path.write_bytes(b"")
+
+            ann_file = d / "_annotations.coco.json"
+            images = [{"id": 1, "file_name": "img1.jpg", "width": 20, "height": 20}]
+            annotations = [{
+                "id": 1, "image_id": 1, "category_id": 0, "area": 25.0,
+                "bbox": [0, 0, 5, 5],
+                "segmentation": [[0, 0, 5, 0, 5, 5, 0, 5]],
+            }]
+            _write_coco(ann_file, images, annotations)
+
+            id_to_path, id_to_gts = _load_coco_data(ann_file)
+            self.assertIn(1, id_to_gts)
+            gt = id_to_gts[1][0]
+            self.assertIsNotNone(gt.mask)
+            self.assertEqual(gt.mask.shape, (20, 20))
+
+    def test_loads_bbox_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            ann_file = d / "_annotations.coco.json"
+            images = [{"id": 2, "file_name": "img2.jpg", "width": 50, "height": 50}]
+            annotations = [{
+                "id": 2, "image_id": 2, "category_id": 0, "area": 100.0,
+                "bbox": [5, 5, 10, 10],
+                "segmentation": [],
+            }]
+            _write_coco(ann_file, images, annotations)
+
+            _, id_to_gts = _load_coco_data(ann_file)
+            gt = id_to_gts[2][0]
+            self.assertIsNone(gt.mask)
+            self.assertAlmostEqual(gt.box_xyxy[2], 15.0)  # x2 = x + w
+
+
+class TestFindImageId(unittest.TestCase):
+    def test_match_by_name(self):
+        id_to_path = {1: Path("/some/dir/img.jpg"), 2: Path("/other/dir/foo.png")}
+        self.assertEqual(_find_image_id(Path("/different/img.jpg"), id_to_path), 1)
+
+    def test_no_match_returns_none(self):
+        id_to_path = {1: Path("/a/b.jpg")}
+        self.assertIsNone(_find_image_id(Path("/a/c.jpg"), id_to_path))
+
+
+class TestEvaluateImage(unittest.TestCase):
+    def _mask(self, r0, r1, c0, c1, shape=(10, 10)):
+        m = np.zeros(shape, dtype=bool)
+        m[r0:r1, c0:c1] = True
+        return m
+
+    def test_perfect_segmentation(self):
+        m = self._mask(0, 5, 0, 5)
+        preds = [PredObject(conf=0.9, cls=0, box_xyxy=(0, 0, 5, 5), mask=m)]
+        gts = [GTObject(cls=0, box_xyxy=(0, 0, 5, 5), mask=m, area=25.0)]
+        result = _evaluate_image(1, Path("img.jpg"), preds, gts, "segmentation", 0.5)
+        self.assertEqual(result.tp, 1)
+        self.assertEqual(result.fp, 0)
+        self.assertEqual(result.fn, 0)
+        self.assertAlmostEqual(result.f1, 1.0)
+
+    def test_no_predictions(self):
+        m = self._mask(0, 5, 0, 5)
+        gts = [GTObject(cls=0, box_xyxy=(0, 0, 5, 5), mask=m, area=25.0)]
+        result = _evaluate_image(1, Path("img.jpg"), [], gts, "segmentation", 0.5)
+        self.assertEqual(result.fn, 1)
+        self.assertAlmostEqual(result.f1, 0.0)
+
+    def test_detection_mode(self):
+        preds = [PredObject(conf=0.9, cls=0, box_xyxy=(0, 0, 10, 10), mask=None)]
+        gts = [GTObject(cls=0, box_xyxy=(0, 0, 10, 10), mask=None, area=100.0)]
+        result = _evaluate_image(1, Path("img.jpg"), preds, gts, "detection", 0.5)
+        self.assertEqual(result.tp, 1)
+        self.assertAlmostEqual(result.f1, 1.0)
+
+
+class TestDominantBucket(unittest.TestCase):
+    def test_small_objects(self):
+        gts = [GTObject(0, (0,0,1,1), None, area=100.0)] * 3
+        self.assertEqual(_dominant_bucket(gts), "small")
+
+    def test_large_objects(self):
+        gts = [GTObject(0, (0,0,100,100), None, area=20000.0)] * 2
+        self.assertEqual(_dominant_bucket(gts), "large")
+
+    def test_empty(self):
+        self.assertEqual(_dominant_bucket([]), "medium")
+
+
+if __name__ == "__main__":
+    unittest.main()

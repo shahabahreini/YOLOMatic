@@ -32,6 +32,9 @@ dependencies = [
   "psutil",
   "pycocotools>=2.0.11",
   "transformers>=5.1,<6",
+  "plotly>=5.0",
+  "umap-learn>=0.5",
+  "Pillow>=9.0",
 ]
 description = "Automated object-detection training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and RF-DETR models with an interactive terminal interface."
 keywords = [
@@ -97,9 +100,13 @@ Documentation = "https://github.com/shahabahreini/YOLOMatic#readme"
 Issues = "https://github.com/shahabahreini/YOLOMatic/issues"
 Repository = "https://github.com/shahabahreini/YOLOMatic"
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
 [tool.setuptools]
 package-dir = {"src" = "src"}
-packages = ["src", "src.cli", "src.config", "src.datasets", "src.models", "src.trainers", "src.utils"]
+packages = ["src", "src.benchmark", "src.cli", "src.config", "src.datasets", "src.models", "src.trainers", "src.utils"]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -121,3 +128,4 @@ yolomatic-predict = "src.cli.predict:main"
 yolomatic-tensorboard = "src.cli.tensorboard_launcher:main"
 yolomatic-train = "src.trainers.yolo_trainer:main"
 yolomatic-upload = "src.cli.upload:main"
+yolomatic-benchmark = "src.cli.benchmark:main"

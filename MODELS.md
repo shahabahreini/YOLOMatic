@@ -2,6 +2,18 @@
 
 This document outlines the YOLO and RF-DETR models supported in YOLOMatic and their key features.
 
+## Benchmark Compatibility
+
+The **Benchmark & Vector Analysis** feature (`Evaluate & Monitor → Benchmark Models`) supports all Ultralytics `.pt` checkpoints — including every YOLO and YOLOX variant listed below. Task type (detection vs. segmentation) is auto-detected from the model's output at runtime; no manual configuration is required.
+
+| Checkpoint type | Benchmark support |
+|---|---|
+| YOLO detection (`.pt`) | ✅ bounding-box IoU metrics |
+| YOLO segmentation (`.pt`) | ✅ pixel-level mask IoU metrics |
+| RF-DETR (`.pth`) | ⚠️ Not yet supported — use YOLO weights |
+
+Annotation format: COCO JSON (`_annotations.coco.json`). Roboflow export with COCO preset is directly compatible.
+
 ## RF-DETR
 
 **Status**: Supported
