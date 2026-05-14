@@ -244,9 +244,6 @@ def aggregate_metrics(per_image_results: list, task: str) -> dict:
         "medium": SizeBucketMetrics("medium"),
         "large": SizeBucketMetrics("large"),
     }
-    for r in per_image_results:
-        for bucket_name, bm in bucket_metrics.items():
-            bucket_results = [r for r in per_image_results if _result_in_bucket(r, bucket_name)]
 
     for bname in ("small", "medium", "large"):
         bucket_results = [r for r in per_image_results if _result_in_bucket(r, bname)]

@@ -258,5 +258,23 @@ class TestSafeDiv(unittest.TestCase):
         self.assertAlmostEqual(_safe_div(5, 0), 0.0)
 
 
+class TestAggregateMetricsBuckets(unittest.TestCase):
+    def test_bucket_counts_correct(self):
+        def _r(tp, fp, fn, bucket):
+            return ImageResult(
+                image_id=0, image_path=Path("x.jpg"), task="detection",
+                gt_count=tp + fn, pred_count=tp + fp,
+                tp=tp, fp=fp, fn=fn, matched_ious=[],
+                precision=0.0, recall=0.0, f1=0.0,
+                dominant_bucket=bucket,
+            )
+
+        from src.benchmark.metrics import aggregate_metrics
+        results = [_r(3, 1, 0, "small"), _r(2, 0, 1, "large"), _r(1, 2, 1, "medium")]
+        agg = aggregate_metrics(results, "detection")
+        self.assertEqual(agg["small"].count, 3)   # gt_count = tp + fn = 3 + 0
+        self.assertEqual(agg["large"].count, 3)   # gt_count = tp + fn = 2 + 1
+
+
 if __name__ == "__main__":
     unittest.main()
