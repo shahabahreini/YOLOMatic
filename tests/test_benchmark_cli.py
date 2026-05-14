@@ -141,6 +141,24 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
         self.assertIn("mAP5", output)
         self.assertIn("0.620", output)
 
+    def test_live_screen_contains_single_refreshable_dashboard(self):
+        from rich.console import Console
+        from src.cli import benchmark
+
+        renderable = benchmark._render_benchmark_live_screen(
+            [Path("runs/detect/train_a/weights/best.pt")],
+            ["Loading model: best.pt"],
+            width=120,
+            height=30,
+        )
+        console = Console(record=True, width=120, height=30, color_system=None)
+        console.print(renderable)
+        output = console.export_text()
+
+        self.assertIn("Running Benchmark", output)
+        self.assertIn("Evaluation Summary", output)
+        self.assertIn("Live Log", output)
+
 
 if __name__ == "__main__":
     unittest.main()

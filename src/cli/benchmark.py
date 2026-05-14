@@ -7,8 +7,10 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.console import Group
+from rich.layout import Layout
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from src.utils.cli import (
     NAV_BACK,
@@ -651,13 +653,35 @@ def _render_benchmark_progress(
         dashboard.add_row(log_panel)
     return dashboard
 
+
+def _render_benchmark_live_screen(
+    weights: list[Path],
+    log_lines: list[str],
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> Layout:
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=3),
+        Layout(name="body"),
+    )
+    layout["header"].update(
+        Panel(
+            Text("Running Benchmark", style="bold cyan", justify="center"),
+            border_style="cyan",
+            padding=(0, 1),
+        )
+    )
+    layout["body"].update(
+        _render_benchmark_progress(weights, log_lines, width=width, height=height)
+    )
+    return layout
+
 def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Path | None:
     from rich.live import Live
 
     from src.benchmark import BenchmarkConfig, run_benchmark, write_benchmark_report
-
-    clear_screen()
-    print_stylized_header("Running Benchmark")
 
     log_lines: list[str] = []
     result_holder: dict = {}
@@ -686,11 +710,18 @@ def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Pat
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
 
-    with Live(console=console, refresh_per_second=4) as live:
+    with Live(
+        _render_benchmark_live_screen(weights, log_lines),
+        console=console,
+        refresh_per_second=4,
+        screen=True,
+        transient=True,
+        vertical_overflow="ellipsis",
+    ) as live:
         while thread.is_alive():
             thread.join(timeout=0.25)
-            live.update(_render_benchmark_progress(weights, log_lines))
-        live.update(_render_benchmark_progress(weights, log_lines or ["[dim]Done.[/dim]"]))
+            live.update(_render_benchmark_live_screen(weights, log_lines))
+        live.update(_render_benchmark_live_screen(weights, log_lines or ["[dim]Done.[/dim]"]))
 
     if "error" in error_holder:
         console.print(Panel(

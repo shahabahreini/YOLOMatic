@@ -37,19 +37,38 @@ def _fmt(v: float, decimals: int = 3) -> str:
     return f"{v:.{decimals}f}"
 
 
-def _metric_fill(v: float, is_highlight: bool = False) -> str:
-    if is_highlight:
-        if v >= 0.85: return "#dbeafe" # Light blue for highlight
-        if v >= 0.70: return "#eff6ff"
-        return "#f8fafc"
+def _interpolate_color(v: float, min_v: float, max_v: float, is_highlight: bool = False) -> str:
+    """Interpolate between red and green based on relative performance."""
+    if max_v == min_v:
+        return "#f9fafb"
     
-    if v >= 0.85:
-        return "#dcfce7"
-    if v >= 0.70:
-        return "#ecfdf5"
-    if v >= 0.50:
-        return "#fef3c7"
-    return "#fee2e2"
+    # Normalised score 0.0 to 1.0
+    s = (v - min_v) / (max_v - min_v)
+    
+    if is_highlight:
+        # Light blue scale for the highlighted column
+        # Interpolate between #f8fafc (0) and #dbeafe (1)
+        # Using a simplified linear interpolation for the hex colors
+        r = int(248 + s * (219 - 248))
+        g = int(250 + s * (234 - 250))
+        b = int(252 + s * (254 - 252))
+        return f"rgb({r},{g},{b})"
+
+    # Red (#fee2e2) to Yellow (#fef3c7) to Green (#dcfce7)
+    if s < 0.5:
+        # Scale 0 to 0.5 -> Red to Yellow
+        s2 = s * 2
+        r = int(254 + s2 * (254 - 254))
+        g = int(226 + s2 * (243 - 226))
+        b = int(226 + s2 * (199 - 226))
+    else:
+        # Scale 0.5 to 1 -> Yellow to Green
+        s2 = (s - 0.5) * 2
+        r = int(254 + s2 * (220 - 254))
+        g = int(243 + s2 * (252 - 243))
+        b = int(199 + s2 * (231 - 199))
+    
+    return f"rgb({r},{g},{b})"
 
 
 def _model_counts(model: Any) -> tuple[int, int, int]:
@@ -165,7 +184,6 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
     model_names = [_display_name(m, names) for m in models]
     
-    # Define metrics and identify which one to highlight
     metrics_data = [
         ("mAP@50:95", [m.map50_95 for m in models], True),
         ("mAP@50", [m.map50 for m in models], False),
@@ -182,20 +200,29 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
         [m.task for m in models],
     ]
     fills = [
-        ["#f9fafb"] * len(models),
-        ["#f9fafb"] * len(models),
-        ["#f9fafb"] * len(models),
+        ["#ffffff"] * len(models),
+        ["#ffffff"] * len(models),
+        ["#ffffff"] * len(models),
     ]
     
     for label, vals, highlight in metrics_data:
         values.append([_fmt(v) for v in vals])
-        fills.append([_metric_fill(v, is_highlight=highlight) for v in vals])
+        if not vals:
+            fills.append(["#ffffff"] * len(models))
+            continue
+            
+        min_v, max_v = min(vals), max(vals)
+        fills.append([_interpolate_color(v, min_v, max_v, is_highlight=highlight) for v in vals])
+
+    # Show 10 rows + header. Each row ~32px, header ~40px. 
+    # Approx 400-450px for the table area.
+    target_height = 450 if len(models) > 10 else 110 + len(models) * 32
 
     fig = go.Figure(go.Table(
         columnwidth=[50, 240, 100, 100, 90, 90, 80, 90, 90],
         header={
             "values": [f"<b>{h}</b>" for h in headers],
-            "fill_color": "#111827",
+            "fill_color": "#0f172a",
             "font": {"color": "white", "size": 12},
             "align": ["center", "left", "center"] + ["center"] * 6,
             "height": 38,
@@ -206,10 +233,10 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
             "font": {"size": 12, "color": INK},
             "align": ["center", "left", "center"] + ["center"] * 6,
             "height": 32,
-            "line": {"color": "#f3f4f6", "width": 1},
+            "line": {"color": "rgba(0,0,0,0.03)", "width": 1},
         },
     ))
-    return _base_layout(fig, title="Model Leaderboard (Ranked by mAP@50:95)", height=max(300, 110 + len(models) * 36))
+    return _base_layout(fig, title="Model Leaderboard (Scrollable)", height=target_height)
 
 
 def _ranked_metric_bar(result: Any, names: dict[Path, str]) -> go.Figure:
@@ -528,12 +555,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         )
         sections.append(f'<section class="section chart-section">{html}</section>')
 
-    model_list_items = "".join(
-        '<li><span class="model-name">' + escape(_display_name(m, names)) + "</span>"
-        + '<span class="model-path">' + escape(str(m.weights_path)) + "</span>"
-        + '<span class="model-score">mAP@50 ' + _fmt(m.map50) + " · F1 " + _fmt(m.f1) + "</span></li>"
-        for m in sorted(result.models, key=lambda model: model.map50, reverse=True)
-    )
+    model_list_items = "" # Removed as it was too bulky
 
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     val_dir_str = str(result.config.validation_dir)
@@ -565,9 +587,9 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '}\n'
         '*, *::before, *::after { box-sizing: border-box; }\n'
         f'body {{ font-family: {FONT_FAMILY}; background: var(--bg); color: var(--ink); margin: 0; line-height: 1.5; }}\n'
-        '.hero { background: #0f172a; color: white; padding: 48px 42px; border-bottom: 1px solid #1e293b; }\n'
+        '.hero { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: white; padding: 48px 42px; border-bottom: 1px solid #1e293b; }\n'
         '.hero h1 { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.025em; }\n'
-        '.hero p { margin: 12px 0 0; color: #94a3b8; font-size: 14px; font-weight: 500; }\n'
+        '.hero p { margin: 12px 0 0; color: #94a3b8; font-size: 15px; font-weight: 500; }\n'
         '.hero-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }\n'
         '.pill { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 99px; padding: 6px 14px; font-size: 13px; font-weight: 600; color: #e2e8f0; }\n'
         '.container { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }\n'
@@ -582,12 +604,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.kpi-label { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }\n'
         '.kpi-value { margin-top: 8px; font-size: 32px; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }\n'
         '.kpi-note { margin-top: 12px; color: var(--muted); font-size: 13px; }\n'
-        '.model-list { list-style: none; padding: 0; margin: 32px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }\n'
-        '.model-list li { display: flex; flex-direction: column; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; transition: background 0.2s; }\n'
-        '.model-list li:hover { background: #334155; }\n'
-        '.model-name { color: white; font-weight: 700; font-size: 15px; }\n'
-        '.model-path { color: #64748b; font-size: 12px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n'
-        '.model-score { color: #94a3b8; font-size: 13px; margin-top: 12px; font-weight: 600; }\n'
+        '.model-list { display:none; }\n' # Keep class just in case but hide it
         '.section-title { font-weight: 800; font-size: 18px; margin-bottom: 20px; color: var(--ink); letter-spacing: -0.01em; }\n'
         '.gallery-panel { max-width: 800px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }\n'
         '.gallery-panel img { width: 100%; border-radius: 8px; background: #f1f5f9; min-height: 240px; object-fit: contain; border: 1px solid var(--border); }\n'
@@ -602,14 +619,13 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '<body>\n'
         '<header class="hero">\n'
         '<h1>YOLOMatic Benchmark</h1>\n'
-        '<p>Detailed Performance Analysis Report</p>\n'
+        '<p>Detailed Performance Analysis Report &middot; ' + str(len(result.models)) + ' Models Evaluated</p>\n'
         '<div class="hero-meta">'
         '<span class="pill">Run: ' + escape(timestamp_str) + '</span>'
         '<span class="pill">Validation: ' + escape(val_dir_str) + '</span>'
-        '<span class="pill">Models: ' + str(len(result.models)) + '</span>'
+        '<span class="pill">Best Model: ' + escape(best_name) + '</span>'
         '<span class="pill">Conf: ' + conf + ' / IoU: ' + iou + '</span>'
         '</div>\n'
-        '<ul class="model-list">' + model_list_items + '</ul>\n'
         '</header>\n'
         '<main class="container">\n'
         + "\n".join(sections) + "\n"
