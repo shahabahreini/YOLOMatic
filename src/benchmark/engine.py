@@ -388,6 +388,138 @@ def _evaluate_image(
 
 
 # ---------------------------------------------------------------------------
+# Performance helpers
+# ---------------------------------------------------------------------------
+
+def _has_gpu() -> bool:
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
+
+
+def _evaluate_model_worker(
+    weights: Path,
+    all_images: list[Path],
+    ann_format: str,
+    annotations_file: "Path | None",
+    validation_dir: Path,
+    conf_threshold: float,
+    iou_threshold: float,
+    device: str,
+    batch_size: int,
+) -> "tuple[ModelMetrics | None, list[str]]":
+    """Evaluate one model over all validation images.
+
+    Returns (metrics, log_lines). Re-loads GT data internally so the
+    function is safe to dispatch to a subprocess worker.
+    """
+    logs: list[str] = []
+    log = logs.append
+
+    # Re-load GT data inside the worker to avoid shipping large arrays
+    # across process boundaries.
+    if ann_format == "yolo":
+        fname_to_gts = _load_yolo_data(validation_dir, all_images)
+        id_to_path: dict[int, Path] = {}
+        id_to_gts: dict[int, list[GTObject]] = {}
+        fname_to_id: dict[str, int] = {}
+    else:
+        ann_file = annotations_file or _auto_detect_annotations(validation_dir)
+        log(f"Loading annotations from {ann_file}")
+        id_to_path, id_to_gts = _load_coco_data(ann_file)
+        fname_to_gts = {}
+        # O(1) reverse index: filename → image_id
+        fname_to_id = {p.name: img_id for img_id, p in id_to_path.items()}
+
+    log(f"\nLoading model: {weights.name}")
+    try:
+        from ultralytics import YOLO
+        model = YOLO(str(weights))
+    except Exception as exc:
+        log(f"  [ERROR] Failed to load {weights}: {exc}")
+        return None, logs
+
+    task = "detection"
+    probe = [p for p in all_images if p.exists()]
+    if probe:
+        log("  Detecting task type...")
+        task = _detect_task(model, probe[0], conf_threshold, device)
+    log(f"  Task: {task}")
+
+    valid_images = [p for p in all_images if p.exists()]
+    total = len(valid_images)
+    per_image: list[ImageResult] = []
+
+    for batch_start in range(0, total, batch_size):
+        batch_paths = valid_images[batch_start: batch_start + batch_size]
+        batch_end = batch_start + len(batch_paths)
+        if batch_end % 50 < batch_size or batch_end >= total:
+            log(f"  Processing image {batch_end}/{total}...")
+
+        # Read image dimensions from headers (lazy, fast — no pixel decoding)
+        import PIL.Image as _PIL
+        img_sizes: list[tuple[int, int]] = []
+        for p in batch_paths:
+            try:
+                with _PIL.open(p) as im:
+                    img_sizes.append(im.size)
+            except Exception:
+                img_sizes.append((640, 640))
+
+        try:
+            batch_results = model(
+                [str(p) for p in batch_paths],
+                conf=conf_threshold,
+                device=device,
+                verbose=False,
+            )
+        except Exception as exc:
+            log(f"  [WARN] Batch inference failed at offset {batch_start}: {exc}")
+            batch_results = [None] * len(batch_paths)
+
+        for img_path, result, (iw, ih) in zip(batch_paths, batch_results, img_sizes):
+            if ann_format == "yolo":
+                gts = fname_to_gts.get(img_path.name, [])
+                img_id = hash(img_path.name) & 0x7FFFFFFF
+            else:
+                img_id = fname_to_id.get(img_path.name)
+                gts = id_to_gts.get(img_id, []) if img_id is not None else []
+                img_id = img_id or 0
+
+            try:
+                preds = _extract_preds(result, task, iw, ih) if result is not None else []
+            except Exception as exc:
+                log(f"  [WARN] Pred extraction failed for {img_path.name}: {exc}")
+                preds = []
+
+            per_image.append(
+                _evaluate_image(img_id or 0, img_path, preds, gts, task, iou_threshold)
+            )
+
+    agg = aggregate_metrics(per_image, task)
+    log(
+        f"  mAP@50={agg['map50']:.3f}  mAP@50:95={agg['map50_95']:.3f}"
+        f"  F1={agg['f1']:.3f}  P={agg['precision']:.3f}  R={agg['recall']:.3f}"
+    )
+    return ModelMetrics(
+        weights_path=weights,
+        task=task,
+        precision=agg["precision"],
+        recall=agg["recall"],
+        f1=agg["f1"],
+        map50=agg["map50"],
+        map75=agg["map75"],
+        map50_95=agg["map50_95"],
+        small=agg["small"],
+        medium=agg["medium"],
+        large=agg["large"],
+        per_image=per_image,
+    ), logs
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 

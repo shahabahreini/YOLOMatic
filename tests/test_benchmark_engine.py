@@ -148,6 +148,28 @@ class TestDominantBucket(unittest.TestCase):
         self.assertEqual(_dominant_bucket([]), "medium")
 
 
+class TestEvaluateModelWorker(unittest.TestCase):
+    def test_logs_model_name_on_load_failure(self):
+        """Worker must log 'Loading model: <name>' even when YOLO load fails."""
+        from src.benchmark.engine import _evaluate_model_worker
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_weights = Path(tmp) / "my_model.pt"
+            fake_weights.touch()
+            _, logs = _evaluate_model_worker(
+                weights=fake_weights,
+                all_images=[],
+                ann_format="yolo",
+                annotations_file=None,
+                validation_dir=Path(tmp),
+                conf_threshold=0.25,
+                iou_threshold=0.5,
+                device="cpu",
+                batch_size=16,
+            )
+        self.assertTrue(any("my_model.pt" in line for line in logs))
+
+
 class TestBenchmarkConfigNewFields(unittest.TestCase):
     def test_defaults(self):
         from src.benchmark.config import BenchmarkConfig
