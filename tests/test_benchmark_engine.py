@@ -148,5 +148,19 @@ class TestDominantBucket(unittest.TestCase):
         self.assertEqual(_dominant_bucket([]), "medium")
 
 
+class TestBenchmarkConfigNewFields(unittest.TestCase):
+    def test_defaults(self):
+        from src.benchmark.config import BenchmarkConfig
+        cfg = BenchmarkConfig(weights=[], validation_dir=Path("."))
+        self.assertEqual(cfg.batch_size, 16)
+        self.assertEqual(cfg.max_workers, 0)
+
+    def test_custom(self):
+        from src.benchmark.config import BenchmarkConfig
+        cfg = BenchmarkConfig(weights=[], validation_dir=Path("."), batch_size=8, max_workers=2)
+        self.assertEqual(cfg.batch_size, 8)
+        self.assertEqual(cfg.max_workers, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

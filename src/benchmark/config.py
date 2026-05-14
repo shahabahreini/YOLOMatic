@@ -16,3 +16,5 @@ class BenchmarkConfig:
     generate_thumbnails: bool = True
     max_thumbnail_size: int = 224
     open_in_browser: bool = False
+    batch_size: int = 16
+    max_workers: int = 0
