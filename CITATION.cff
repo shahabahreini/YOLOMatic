@@ -9,12 +9,14 @@ authors:
 repository-code: "https://github.com/shahabahreini/YOLOMatic"
 url: "https://github.com/shahabahreini/YOLOMatic"
 license: Apache-2.0
-version: 4.1.0
-date-released: 2026-05-08
+version: 4.3.0
+date-released: 2026-05-14
 keywords:
   - YOLO
   - YOLO26
   - RF-DETR
+  - SAM
+  - Detectron2
   - object detection
   - instance segmentation
   - computer vision
@@ -22,3 +24,5 @@ keywords:
   - PyTorch
   - Roboflow
   - ClearML
+  - dataset augmentation
+  - model benchmarking
