@@ -1,4 +1,5 @@
 """Interactive benchmark wizard for YOLOMatic."""
+
 from __future__ import annotations
 
 import threading
@@ -14,8 +15,8 @@ from rich.text import Text
 
 from src.utils.cli import (
     NAV_BACK,
-    ParameterDefinition,
     TUI_TERM,
+    ParameterDefinition,
     clear_screen,
     console,
     expected_error_panel,
@@ -45,6 +46,7 @@ _EMPTY = " "
 # Weight metadata helpers
 # ---------------------------------------------------------------------------
 
+
 def _infer_task(path: Path) -> str:
     if is_rfdetr_source(path):
         return "detection (RF-DETR)"
@@ -55,9 +57,15 @@ def _infer_task(path: Path) -> str:
 def _infer_family(path: Path) -> str:
     name = path.stem.lower()
     families = [
-        ("yolo26", "YOLO26"), ("yolov12", "YOLOv12"), ("yolov11", "YOLOv11"),
-        ("yolov10", "YOLOv10"), ("yolov9", "YOLOv9"), ("yolov8", "YOLOv8"),
-        ("yolox", "YOLOX"), ("rfdetr", "RF-DETR"), ("rf-detr", "RF-DETR"),
+        ("yolo26", "YOLO26"),
+        ("yolov12", "YOLOv12"),
+        ("yolov11", "YOLOv11"),
+        ("yolov10", "YOLOv10"),
+        ("yolov9", "YOLOv9"),
+        ("yolov8", "YOLOv8"),
+        ("yolox", "YOLOX"),
+        ("rfdetr", "RF-DETR"),
+        ("rf-detr", "RF-DETR"),
     ]
     for key, label in families:
         if key in name:
@@ -146,16 +154,19 @@ def _confirm_description(count: int, names: list[str]) -> str:
 # Multi-select weight picker
 # ---------------------------------------------------------------------------
 
+
 def _select_weights() -> list[Path] | str:
     root = project_root()
     available = find_available_weights(root)
 
     if not available:
-        console.print(expected_error_panel(
-            "No Weights Found",
-            "No .pt or .pth files found in the project root or runs/ directory.",
-            next_step="Train a model first, then run the benchmark.",
-        ))
+        console.print(
+            expected_error_panel(
+                "No Weights Found",
+                "No .pt or .pth files found in the project root or runs/ directory.",
+                next_step="Train a model first, then run the benchmark.",
+            )
+        )
         input("\nPress Enter to return...")
         return NAV_BACK
 
@@ -239,14 +250,20 @@ def _select_weights() -> list[Path] | str:
 # Validation directory selection
 # ---------------------------------------------------------------------------
 
+
 def _val_dir_description(path: Path, root: Path) -> str:
-    from src.benchmark.engine import detect_annotation_format, _find_yolo_labels_dir
+    from src.benchmark.engine import _find_yolo_labels_dir, detect_annotation_format
+
     img_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
     img_count = sum(1 for _ in path.rglob("*") if _.suffix.lower() in img_exts)
     ann_fmt = detect_annotation_format(path)
     if ann_fmt == "coco":
         ann = list(path.glob("_annotations.coco.json")) + list(path.glob("*.json"))
-        ann_note = f"[green]✓ COCO JSON:[/green]  {ann[0].name}" if ann else "[green]✓ COCO format[/green]"
+        ann_note = (
+            f"[green]✓ COCO JSON:[/green]  {ann[0].name}"
+            if ann
+            else "[green]✓ COCO format[/green]"
+        )
     elif ann_fmt == "yolo":
         labels_dir = _find_yolo_labels_dir(path)
         label_count = sum(1 for _ in labels_dir.glob("*.txt")) if labels_dir else 0
@@ -298,7 +315,12 @@ def _collect_val_candidates(root: Path) -> list[Path]:
                 _add(ds_dir)
             # Include each split subdir
             for split_dir in ds_dir.iterdir():
-                if split_dir.is_dir() and split_dir.name.lower() in ("train", "valid", "val", "test"):
+                if split_dir.is_dir() and split_dir.name.lower() in (
+                    "train",
+                    "valid",
+                    "val",
+                    "test",
+                ):
                     _add(split_dir)
 
     return candidates
@@ -354,17 +376,23 @@ def _select_validation_dir() -> Path | str:
         path = candidates[idx]
 
     if not path.exists():
-        console.print(Panel(
-            f"[bold red]Directory not found:[/bold red] {path}",
-            border_style="red", padding=(1, 2),
-        ))
+        console.print(
+            Panel(
+                f"[bold red]Directory not found:[/bold red] {path}",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
         input("\nPress Enter to return...")
         return NAV_BACK
 
     from src.benchmark.engine import detect_annotation_format
+
     ann_fmt = detect_annotation_format(path)
     if ann_fmt == "coco":
-        ann_candidates = list(path.glob("_annotations.coco.json")) + list(path.glob("*.json"))
+        ann_candidates = list(path.glob("_annotations.coco.json")) + list(
+            path.glob("*.json")
+        )
         console.print(
             f"[dim]  Auto-detected COCO annotation file: {ann_candidates[0].name}[/dim]\n"
         )
@@ -383,15 +411,19 @@ def _select_validation_dir() -> Path | str:
 # Options configuration
 # ---------------------------------------------------------------------------
 
+
 def _configure_options(val_dir: Path) -> dict | str:
     from src.benchmark.engine import detect_annotation_format
+
     root = project_root()
 
     ann_fmt = detect_annotation_format(val_dir)
     ann_file: Path | None = None
 
     if ann_fmt == "coco":
-        ann_candidates = list(val_dir.glob("_annotations.coco.json")) + list(val_dir.glob("*.json"))
+        ann_candidates = list(val_dir.glob("_annotations.coco.json")) + list(
+            val_dir.glob("*.json")
+        )
         ann_file = ann_candidates[0] if ann_candidates else None
 
     if ann_fmt not in ("coco", "yolo") or (ann_fmt == "coco" and ann_file is None):
@@ -412,10 +444,13 @@ def _configure_options(val_dir: Path) -> dict | str:
         if not ann_file.exists():
             ann_file = root / str(raw)
         if not ann_file.exists():
-            console.print(Panel(
-                f"[bold red]Annotation file not found:[/bold red] {ann_file}",
-                border_style="red", padding=(1, 2),
-            ))
+            console.print(
+                Panel(
+                    f"[bold red]Annotation file not found:[/bold red] {ann_file}",
+                    border_style="red",
+                    padding=(1, 2),
+                )
+            )
             input("\nPress Enter to return...")
             return NAV_BACK
 
@@ -452,10 +487,27 @@ def _configure_options(val_dir: Path) -> dict | str:
     if out_raw is None or out_raw == NAV_BACK:
         return NAV_BACK
 
+    workers_raw = get_parameter_value_input(
+        ParameterDefinition(
+            name="max_workers",
+            category="benchmark",
+            default=0,
+            value_type="int",
+            description="Parallel models (0 = Auto)",
+            help_text="How many models to evaluate at once. [bold]0[/bold] uses an optimized heuristic based on your CPU/GPU. Increase if you have lots of VRAM; set to 1 if you face memory errors.",
+            min_value=0,
+            max_value=32,
+        ),
+        current_value=0,
+    )
+    if workers_raw is None or workers_raw == NAV_BACK:
+        return NAV_BACK
+
     return {
         "annotations_file": ann_file,
         "conf_threshold": conf,
         "output_dir": Path(str(out_raw)),
+        "max_workers": int(workers_raw),
     }
 
 
@@ -463,9 +515,14 @@ def _configure_options(val_dir: Path) -> dict | str:
 # Confirmation summary
 # ---------------------------------------------------------------------------
 
+
 def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
     root = project_root()
-    ann_val = str(options["annotations_file"]) if options.get("annotations_file") else "YOLO labels (auto)"
+    ann_val = (
+        str(options["annotations_file"])
+        if options.get("annotations_file")
+        else "YOLO labels (auto)"
+    )
     rows = {
         "Weights": ", ".join(format_weight_label(root, w) for w in weights),
         "Validation Dir": str(val_dir),
@@ -503,6 +560,7 @@ def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
 # Running with live log
 # ---------------------------------------------------------------------------
 
+
 def _parse_completed_metric_line(line: str) -> dict[str, str] | None:
     parts = line.strip().split()
     metrics: dict[str, str] = {}
@@ -516,14 +574,19 @@ def _parse_completed_metric_line(line: str) -> dict[str, str] | None:
 
 
 def _progress_weight_label(weight: Path) -> str:
-    if weight.name in {"best.pt", "last.pt", "best.pth", "last.pth"} and weight.parent.name == "weights":
+    if (
+        weight.name in {"best.pt", "last.pt", "best.pth", "last.pth"}
+        and weight.parent.name == "weights"
+    ):
         return f"{weight.parent.parent.name} / {weight.name}"
     if weight.name in {"best.pt", "last.pt", "best.pth", "last.pth"}:
         return f"{weight.parent.name} / {weight.name}"
     return weight.name
 
 
-def _benchmark_progress_rows(weights: list[Path], log_lines: list[str]) -> list[dict[str, str]]:
+def _benchmark_progress_rows(
+    weights: list[Path], log_lines: list[str]
+) -> list[dict[str, str]]:
     rows = [
         {
             "name": _progress_weight_label(weight),
@@ -548,7 +611,8 @@ def _benchmark_progress_rows(weights: list[Path], log_lines: list[str]) -> list[
                 (
                     idx
                     for idx, row in enumerate(rows)
-                    if row["file_name"] == logged_name and row["status"] in {"Pending", "Next"}
+                    if row["file_name"] == logged_name
+                    and row["status"] in {"Pending", "Next"}
                 ),
                 None,
             )
@@ -678,7 +742,10 @@ def _render_benchmark_live_screen(
     )
     return layout
 
-def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Path | None:
+
+def _run_with_live_log(
+    weights: list[Path], val_dir: Path, options: dict
+) -> Path | None:
     from rich.live import Live
 
     from src.benchmark import BenchmarkConfig, run_benchmark, write_benchmark_report
@@ -698,12 +765,14 @@ def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Pat
                 annotations_file=options["annotations_file"],
                 output_dir=options["output_dir"],
                 conf_threshold=options["conf_threshold"],
+                max_workers=options.get("max_workers", 0),
             )
             result = run_benchmark(config, logger_fn=_logger)
             report_path = write_benchmark_report(result, options["output_dir"])
             result_holder["path"] = report_path
         except Exception as exc:
             import traceback
+
             error_holder["error"] = str(exc)
             error_holder["tb"] = traceback.format_exc()
 
@@ -721,14 +790,19 @@ def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Pat
         while thread.is_alive():
             thread.join(timeout=0.25)
             live.update(_render_benchmark_live_screen(weights, log_lines))
-        live.update(_render_benchmark_live_screen(weights, log_lines or ["[dim]Done.[/dim]"]))
+        live.update(
+            _render_benchmark_live_screen(weights, log_lines or ["[dim]Done.[/dim]"])
+        )
 
     if "error" in error_holder:
-        console.print(Panel(
-            f"[bold red]Benchmark failed:[/bold red] {error_holder['error']}\n\n"
-            f"[dim]{error_holder.get('tb', '')}[/dim]",
-            border_style="red", padding=(1, 2),
-        ))
+        console.print(
+            Panel(
+                f"[bold red]Benchmark failed:[/bold red] {error_holder['error']}\n\n"
+                f"[dim]{error_holder.get('tb', '')}[/dim]",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
         input("\nPress Enter to return to the main menu...")
         return None
 
@@ -739,11 +813,15 @@ def _run_with_live_log(weights: list[Path], val_dir: Path, options: dict) -> Pat
 # Completion
 # ---------------------------------------------------------------------------
 
+
 def _handle_completion(report_path: Path) -> None:
-    console.print(Panel(
-        f"[bold green]Report saved:[/bold green] {report_path}",
-        border_style="green", padding=(1, 2),
-    ))
+    console.print(
+        Panel(
+            f"[bold green]Report saved:[/bold green] {report_path}",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )
     choice = get_user_choice(
         ["Open in Browser", "Continue"],
         title="Report Ready",
@@ -763,7 +841,9 @@ def _handle_completion(report_path: Path) -> None:
         try:
             webbrowser.open(report_path.as_uri())
         except Exception as exc:
-            console.print(f"[yellow]Could not open browser automatically: {exc}[/yellow]")
+            console.print(
+                f"[yellow]Could not open browser automatically: {exc}[/yellow]"
+            )
             console.print(f"Open manually: [cyan]{report_path}[/cyan]")
             input("\nPress Enter to continue...")
 
@@ -771,6 +851,7 @@ def _handle_completion(report_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     clear_screen()
