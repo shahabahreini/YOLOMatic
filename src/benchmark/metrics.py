@@ -218,6 +218,7 @@ class SizeBucketMetrics:
     recall: float = 0.0
     f1: float = 0.0
     map50: float = 0.0
+    map50_95: float = 0.0
 
 
 def _safe_div(a: float, b: float) -> float:
@@ -256,10 +257,12 @@ def aggregate_metrics(per_image_results: list, task: str) -> dict:
         br = _safe_div(btp, btp + bfn)
         bf = _safe_div(2 * bp * br, bp + br)
         bm50 = compute_map_at_threshold(bucket_results, 0.50, task)
+        bm50_95 = compute_map_range(bucket_results, thresholds_50_95, task)
         bucket_metrics[bname] = SizeBucketMetrics(
             name=bname,
             count=sum(r.gt_count for r in bucket_results),
             precision=bp, recall=br, f1=bf, map50=bm50,
+            map50_95=bm50_95,
         )
 
     return {

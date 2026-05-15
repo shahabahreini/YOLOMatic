@@ -158,24 +158,47 @@ def _base_layout(fig: go.Figure, *, title: str, height: int = 420) -> go.Figure:
 # ---------------------------------------------------------------------------
 
 def _summary_cards_html(result: Any, names: dict[Path, str]) -> str:
-    best = max(result.models, key=lambda m: m.map50)
-    tp, fp, fn = _model_counts(best)
-    cards = [
-        ("mAP@50:95", _fmt(best.map50_95), "Stricter IoU sweep (Primary)", "primary-card"),
-        ("mAP@50", _fmt(best.map50), "Standard IoU benchmark", ""),
-        ("F1 Score", _fmt(best.f1), "Precision/Recall balance", ""),
-        ("Best Model", escape(_display_name(best, names)), "Ranked by mAP@50", "model-card"),
-    ]
-    rendered = []
-    for title, value, note, extra_class in cards:
-        rendered.append(
-            f'<div class="kpi-card {extra_class}">'
-            f'<div class="kpi-label">{escape(title)}</div>'
-            f'<div class="kpi-value">{value}</div>'
-            f'<div class="kpi-note">{escape(note)}</div>'
-            '</div>'
-        )
-    return '<section class="section kpi-grid">' + "".join(rendered) + "</section>"
+    best_50_95 = max(result.models, key=lambda m: m.map50_95)
+    best_50 = max(result.models, key=lambda m: m.map50)
+    
+    def render_winner(model: Any, metric_name: str, metric_val: float, is_primary: bool = False):
+        m_name = escape(_display_name(model, names))
+        p_class = "winner-primary" if is_primary else ""
+        return f"""
+        <div class="winner-card {p_class}">
+            <div class="winner-badge">{"Champion" if is_primary else "Runner Up"}</div>
+            <div class="winner-content">
+                <div class="winner-metric">
+                    <span class="winner-metric-label">{metric_name}</span>
+                    <span class="winner-metric-value">{_fmt(metric_val)}</span>
+                </div>
+                <div class="winner-model-info">
+                    <div class="winner-label">Best Model</div>
+                    <div class="winner-name">{m_name}</div>
+                </div>
+            </div>
+            <div class="winner-footer">
+                <span>Task: {model.task.capitalize()}</span>
+                <span>F1: {_fmt(model.f1)}</span>
+            </div>
+        </div>
+        """
+
+    winner_50_95 = render_winner(best_50_95, "mAP@50:95", best_50_95.map50_95, True)
+    winner_50 = render_winner(best_50, "mAP@50", best_50.map50, False)
+    
+    return f"""
+    <section class="winners-section">
+        <div class="section-header">
+            <h2 class="section-title">Performance Champions</h2>
+            <p class="section-subtitle">Top models ranked by primary accuracy metrics</p>
+        </div>
+        <div class="winners-grid">
+            {winner_50_95}
+            {winner_50}
+        </div>
+    </section>
+    """
 
 
 def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
@@ -305,10 +328,31 @@ def _precision_recall_chart(result: Any, names: dict[Path, str]) -> go.Figure:
 
 def _size_heatmap(result: Any, names: dict[Path, str]) -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
-    x = ["Small<br>&lt;32²", "Medium<br>32²-96²", "Large<br>&gt;96²"]
+    x = ["Small<br>&lt;32²", "Medium<br>32²-96²", "Large<br>&gt;96²", "<b>Overall</b>"]
     y = [_display_name(m, names) for m in models]
-    z = [[m.small.map50, m.medium.map50, m.large.map50] for m in models]
+    
+    # Use mAP50:95 for the heatmap
+    z = [[m.small.map50_95, m.medium.map50_95, m.large.map50_95, m.map50_95] for m in models]
     text = [[_fmt(v) for v in row] for row in z]
+    
+    # Identify winners for annotation
+    num_models = len(models)
+    annotations = []
+    for col_idx in range(4):
+        col_vals = [z[row_idx][col_idx] for row_idx in range(num_models)]
+        if not col_vals: continue
+        max_val = max(col_vals)
+        for row_idx, val in enumerate(col_vals):
+            if val == max_val and max_val > 0:
+                annotations.append({
+                    "x": x[col_idx],
+                    "y": y[row_idx],
+                    "text": "⭐",
+                    "showarrow": False,
+                    "font": {"size": 14},
+                    "xshift": 25,
+                })
+
     fig = go.Figure(go.Heatmap(
         x=x,
         y=y,
@@ -316,17 +360,26 @@ def _size_heatmap(result: Any, names: dict[Path, str]) -> go.Figure:
         text=text,
         texttemplate="%{text}",
         colorscale=[
-            [0.0, "#fdf2f2"],
-            [0.3, "#fffbeb"],
-            [0.6, "#f0fdf4"],
-            [1.0, "#dcfce7"],
+            [0.0, "#f8fafc"],
+            [0.2, "#e0f2fe"],
+            [0.5, "#7dd3fc"],
+            [0.8, "#0284c7"],
+            [1.0, "#0369a1"],
         ],
         zmin=0,
         zmax=1,
-        showscale=False,
+        showscale=True,
+        colorbar={
+            "title": "mAP@50:95",
+            "titleside": "right",
+            "thickness": 15,
+            "len": 0.8,
+        },
         hovertemplate="<b>%{y}</b><br>%{x}: <b>%{z:.3f}</b><extra></extra>",
     ))
-    return _base_layout(fig, title="Object Size Sensitivity (mAP@50)", height=max(320, 160 + len(models) * 40))
+    
+    fig.update_layout(annotations=annotations)
+    return _base_layout(fig, title="Object Size Sensitivity (mAP@50:95)", height=max(380, 180 + len(models) * 45))
 
 
 def _quality_counts_bar(result: Any, names: dict[Path, str]) -> go.Figure:
@@ -606,23 +659,51 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         f'  --muted: {MUTED};\n'
         f'  --blue: {BLUE};\n'
         f'  --green: {GREEN};\n'
-        '  --bg: #f8fafc;\n'
+        '  --bg: #f3f4f6;\n'
         '  --card-bg: #ffffff;\n'
-        '  --border: #e2e8f0;\n'
-        '  --shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);\n'
-        '  --radius: 8px;\n'
+        '  --border: #e5e7eb;\n'
+        '  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);\n'
+        '  --radius: 12px;\n'
+        '  --primary: #0284c7;\n'
+        '  --primary-dark: #0369a1;\n'
         '}\n'
         '*, *::before, *::after { box-sizing: border-box; }\n'
-        f'body {{ font-family: {FONT_FAMILY}; background: var(--bg); color: var(--ink); margin: 0; line-height: 1.5; }}\n'
-        '.top-bar { background: #0f172a; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }\n'
-        '.top-bar h1 { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px; }\n'
+        f'body {{ font-family: {FONT_FAMILY}; background: var(--bg); color: var(--ink); margin: 0; line-height: 1.5; -webkit-font-smoothing: antialiased; }}\n'
+        '.top-bar { background: #0f172a; color: white; padding: 20px 32px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }\n'
+        '.top-bar h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.03em; display: flex; align-items: center; gap: 8px; }\n'
         '.top-bar h1 span { color: #38bdf8; }\n'
-        '.top-meta { display: flex; gap: 20px; font-size: 13px; color: #94a3b8; align-items: center; }\n'
+        '.top-meta { display: flex; gap: 24px; font-size: 13px; color: #94a3b8; align-items: center; }\n'
         '.top-meta-item { display: flex; align-items: center; gap: 6px; }\n'
         '.top-meta-item strong { color: #f1f5f9; }\n'
-        '.container { max-width: 1400px; margin: 0 auto; padding: 24px 24px 64px; }\n'
-        '.section { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; box-shadow: var(--shadow); overflow: visible; }\n'
-        '.chart-section { padding: 16px 4px; min-height: 200px; overflow: visible; }\n'
+        '.container { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }\n'
+        
+        '.winners-section { margin-bottom: 40px; }\n'
+        '.section-header { margin-bottom: 24px; }\n'
+        '.section-title { font-size: 24px; font-weight: 800; color: #1e293b; margin: 0; letter-spacing: -0.02em; }\n'
+        '.section-subtitle { font-size: 14px; color: #64748b; margin: 4px 0 0; }\n'
+        '.winners-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; }\n'
+        
+        '.winner-card { background: white; border: 1px solid var(--border); border-radius: 16px; padding: 24px; position: relative; overflow: hidden; box-shadow: var(--shadow); transition: transform 0.2s; }\n'
+        '.winner-card:hover { transform: translateY(-4px); }\n'
+        '.winner-primary { border-left: 6px solid var(--primary); background: linear-gradient(to right, #f0f9ff, #ffffff); }\n'
+        '.winner-badge { position: absolute; top: 12px; right: 12px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 800; padding: 4px 8px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.05em; }\n'
+        '.winner-primary .winner-badge { background: #e0f2fe; color: #0369a1; }\n'
+        
+        '.winner-content { display: flex; align-items: flex-start; gap: 32px; }\n'
+        '.winner-metric { display: flex; flex-direction: column; min-width: 120px; }\n'
+        '.winner-metric-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }\n'
+        '.winner-metric-value { font-size: 42px; font-weight: 900; color: #0f172a; line-height: 1; margin: 4px 0; }\n'
+        '.winner-primary .winner-metric-value { color: var(--primary); }\n'
+        
+        '.winner-model-info { display: flex; flex-direction: column; }\n'
+        '.winner-label { font-size: 12px; font-weight: 600; color: #64748b; }\n'
+        '.winner-name { font-size: 20px; font-weight: 800; color: #1e293b; margin-top: 4px; word-break: break-all; }\n'
+        
+        '.winner-footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #f1f5f9; display: flex; gap: 16px; font-size: 12px; color: #94a3b8; font-weight: 600; }\n'
+        '.winner-footer span { display: flex; align-items: center; gap: 4px; }\n'
+
+        '.section { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 32px; box-shadow: var(--shadow); overflow: visible; }\n'
+        '.chart-section { padding: 24px; min-height: 200px; overflow: visible; }\n'
         '.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 32px; }\n'
         '.kpi-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; background: var(--card-bg); box-shadow: var(--shadow); }\n'
         '.primary-card { border-top: 4px solid #0284c7; }\n'
@@ -630,15 +711,16 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.kpi-label { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }\n'
         '.kpi-value { margin-top: 4px; font-size: 24px; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }\n'
         '.kpi-note { margin-top: 8px; color: var(--muted); font-size: 12px; }\n'
-        '.section-title { font-weight: 800; font-size: 16px; margin-bottom: 16px; color: var(--ink); letter-spacing: -0.01em; }\n'
-        '.gallery-panel { max-width: 900px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); }\n'
-        '.gallery-panel img { width: 100%; border-radius: 6px; background: #f8fafc; min-height: 300px; object-fit: contain; border: 1px solid var(--border); }\n'
-        '.gallery-meta { margin-top: 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; border-top: 1px solid var(--border); padding-top: 20px; }\n'
-        '.gallery-name { grid-column: 1 / -1; color: var(--ink); font-weight: 700; font-size: 15px; }\n'
-        '.gallery-item { font-size: 13px; color: var(--muted); }\n'
+        '.section-title { font-weight: 800; font-size: 18px; margin-bottom: 20px; color: #1e293b; letter-spacing: -0.01em; }\n'
+        '.gallery-panel { max-width: 1000px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 32px; box-shadow: var(--shadow); }\n'
+        '.gallery-panel img { width: 100%; border-radius: 12px; background: #f8fafc; min-height: 400px; object-fit: contain; border: 1px solid var(--border); }\n'
+        '.gallery-meta { margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; border-top: 1px solid var(--border); padding-top: 24px; }\n'
+        '.gallery-name { grid-column: 1 / -1; color: var(--ink); font-weight: 800; font-size: 18px; }\n'
+        '.gallery-item { font-size: 14px; color: var(--muted); }\n'
         '.gallery-item strong { color: var(--ink); }\n'
-        '.footer { text-align: center; color: var(--muted); font-size: 12px; padding: 40px; }\n'
-        '@media (max-width: 1000px) { .top-bar { flex-direction: column; align-items: flex-start; gap: 12px; } .top-meta { flex-wrap: wrap; gap: 10px; } }\n'
+        '.footer { text-align: center; color: var(--muted); font-size: 13px; padding: 64px 32px; background: #0f172a; color: #94a3b8; }\n'
+        '.footer strong { color: white; }\n'
+        '@media (max-width: 1000px) { .top-bar { flex-direction: column; align-items: flex-start; gap: 16px; } .top-meta { flex-wrap: wrap; gap: 12px; } .winners-grid { grid-template-columns: 1fr; } }\n'
         '</style>\n'
         '</head>\n'
         '<body>\n'

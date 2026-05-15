@@ -197,7 +197,7 @@ def build_summary_table(fields: dict[str, Any]) -> Table:
 
 def clear_screen() -> None:
     """Clear the terminal screen."""
-    print(TUI_TERM.clear)
+    TUI_CONSOLE.clear()
 
 
 def print_header(text: str) -> None:
