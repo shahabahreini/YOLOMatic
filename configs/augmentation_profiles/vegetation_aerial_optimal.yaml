@@ -1,0 +1,126 @@
+schema_version: 1
+name: vegetation_aerial_optimal
+description: Optimized for QGIS NIR aerial imagery — rotation-invariant single-class
+  vegetation/tree segmentation. D4 symmetry + radiometric variation + atmospheric
+  effects.
+multiplier: 3
+seed: 42
+include_originals: true
+created_at: '2026-05-14T12:00:00'
+modified_at: '2026-05-14T22:44:09'
+transforms:
+- name: D4
+  enabled: true
+  p: 1.0
+- name: Rotate
+  enabled: true
+  p: 0.5
+  limit_low: -15
+  limit_high: 15
+  border_mode: 4
+- name: RandomBrightnessContrast
+  enabled: true
+  p: 0.7
+  brightness_limit_low: -0.2
+  brightness_limit_high: 0.2
+  contrast_limit_low: -0.2
+  contrast_limit_high: 0.2
+- name: CLAHE
+  enabled: true
+  p: 0.4
+  clip_limit_low: 1.0
+  clip_limit_high: 4.0
+- name: GaussNoise
+  enabled: true
+  p: 0.3
+  std_range_low: 0.012
+  std_range_high: 0.028
+- name: GaussianBlur
+  enabled: true
+  p: 0.2
+  blur_limit_low: 3
+  blur_limit_high: 7
+- name: ElasticTransform
+  enabled: true
+  p: 0.3
+  alpha: 1.0
+  sigma: 50.0
+- name: Perspective
+  enabled: true
+  p: 0.3
+  scale_low: 0.05
+  scale_high: 0.1
+- name: RandomShadow
+  enabled: true
+  p: 0.3
+- name: CoarseDropout
+  enabled: true
+  p: 0.2
+  num_holes_low: 1
+  num_holes_high: 8
+  hole_height_low: 8
+  hole_height_high: 32
+  hole_width_low: 8
+  hole_width_high: 32
+- name: ImageCompression
+  enabled: true
+  p: 0.2
+  quality_low: 70
+  quality_high: 95
+- name: HueSaturationValue
+  enabled: false
+  p: 0.5
+- name: MotionBlur
+  enabled: false
+  p: 0.2
+- name: HorizontalFlip
+  enabled: false
+  p: 0.5
+- name: VerticalFlip
+  enabled: false
+  p: 0.5
+- name: RandomSunFlare
+  enabled: false
+  p: 0.1
+- name: RandomFog
+  enabled: false
+  p: 0.1
+- name: ISONoise
+  enabled: false
+  p: 0.2
+- name: Sharpen
+  enabled: false
+  p: 0.2
+- name: GridDistortion
+  enabled: false
+  p: 0.2
+- name: OpticalDistortion
+  enabled: false
+  p: 0.2
+- name: Equalize
+  enabled: false
+  p: 0.2
+- name: Solarize
+  enabled: false
+  p: 0.1
+- name: ToGray
+  enabled: false
+  p: 0.1
+- name: Posterize
+  enabled: false
+  p: 0.1
+- name: RGBShift
+  enabled: false
+  p: 0.2
+- name: MedianBlur
+  enabled: false
+  p: 0.2
+- name: Downscale
+  enabled: false
+  p: 0.1
+- name: Affine
+  enabled: false
+  p: 0.3
+- name: ShiftScaleRotate
+  enabled: false
+  p: 0.3

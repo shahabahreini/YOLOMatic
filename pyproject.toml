@@ -36,6 +36,7 @@ dependencies = [
   "plotly>=5.0",
   "umap-learn>=0.5",
   "Pillow>=9.0",
+  "albumentations>=1.4",
 ]
 description = "Automated object-detection training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and RF-DETR models with an interactive terminal interface."
 keywords = [

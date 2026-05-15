@@ -1,0 +1,31 @@
+schema_version: 1
+name: minimal
+description: 'Safe universal baseline: D4 symmetry only. Applies one of the 8 dihedral
+  symmetry operations per image. Zero risk of annotation corruption.'
+multiplier: 2
+seed: 0
+include_originals: true
+created_at: '2026-05-14T12:00:00'
+modified_at: '2026-05-14T22:44:09'
+transforms:
+- name: D4
+  enabled: true
+  p: 1.0
+- name: HorizontalFlip
+  enabled: false
+  p: 0.5
+- name: VerticalFlip
+  enabled: false
+  p: 0.5
+- name: RandomBrightnessContrast
+  enabled: false
+  p: 0.3
+  brightness_limit_low: -0.1
+  brightness_limit_high: 0.1
+  contrast_limit_low: -0.1
+  contrast_limit_high: 0.1
+- name: GaussNoise
+  enabled: false
+  p: 0.2
+  var_limit_low: 5.0
+  var_limit_high: 20.0

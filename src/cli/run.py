@@ -3479,6 +3479,7 @@ def _main_loop_iteration():
             "SAM Segment",
             "[Datasets & Deployment]",
             "Combine Datasets",
+            "Augment Dataset",
             "Upload to Roboflow",
             "[Maintenance]",
             "Settings",
@@ -3543,6 +3544,12 @@ def _main_loop_iteration():
                     "Merge several YOLO datasets into a unified one — class names are "
                     "deduplicated, labels are remapped, and images are hard-linked where "
                     "possible for near-zero cost."
+                ),
+                "Augment Dataset": (
+                    "Apply Albumentations transforms to a YOLO or COCO dataset. "
+                    "Pools all images across splits, augments using named profiles "
+                    "(create/edit/clone/delete), then redistributes to train/val/test "
+                    "at user-specified ratios. Output format: YOLO Detection, YOLO Segmentation, or COCO."
                 ),
                 "Upload to Roboflow": (
                     "Publish a trained checkpoint to Roboflow. Reads ROBOFLOW_API_KEY / "
@@ -3618,6 +3625,12 @@ def _main_loop_iteration():
             from src.utils.combine_datasets import main as combine_main
 
             _safe_subcommand("Dataset Combiner", combine_main, prog="yolomatic-combine")
+            continue
+
+        elif main_choice == "Augment Dataset":
+            from src.cli.augment import main as augment_main
+
+            _safe_subcommand("Dataset Augmentation", augment_main, prog="yolomatic-augment")
             continue
 
         elif main_choice == "Clone Config":

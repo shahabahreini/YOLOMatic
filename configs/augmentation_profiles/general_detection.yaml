@@ -1,0 +1,89 @@
+schema_version: 1
+name: general_detection
+description: Conservative profile suitable for most object detection datasets. Horizontal
+  flip, brightness/contrast variation, and light Gaussian noise.
+multiplier: 2
+seed: 0
+include_originals: true
+created_at: '2026-05-14T12:00:00'
+modified_at: '2026-05-14T22:44:09'
+transforms:
+- name: HorizontalFlip
+  enabled: true
+  p: 0.5
+- name: VerticalFlip
+  enabled: false
+  p: 0.5
+- name: RandomBrightnessContrast
+  enabled: true
+  p: 0.5
+  brightness_limit_low: -0.15
+  brightness_limit_high: 0.15
+  contrast_limit_low: -0.15
+  contrast_limit_high: 0.15
+- name: GaussNoise
+  enabled: true
+  p: 0.3
+  std_range_low: 0.009
+  std_range_high: 0.022
+- name: GaussianBlur
+  enabled: false
+  p: 0.2
+  blur_limit_low: 3
+  blur_limit_high: 5
+- name: D4
+  enabled: false
+  p: 1.0
+- name: Rotate
+  enabled: false
+  p: 0.3
+  limit_low: -10
+  limit_high: 10
+  border_mode: 4
+- name: CLAHE
+  enabled: false
+  p: 0.3
+  clip_limit_low: 1.0
+  clip_limit_high: 4.0
+- name: ElasticTransform
+  enabled: false
+  p: 0.2
+  alpha: 1.0
+  sigma: 50.0
+- name: CoarseDropout
+  enabled: false
+  p: 0.2
+  num_holes_low: 1
+  num_holes_high: 4
+  hole_height_low: 8
+  hole_height_high: 32
+  hole_width_low: 8
+  hole_width_high: 32
+- name: ImageCompression
+  enabled: false
+  p: 0.2
+  quality_low: 75
+  quality_high: 100
+- name: HueSaturationValue
+  enabled: false
+  p: 0.4
+- name: Perspective
+  enabled: false
+  p: 0.2
+  scale_low: 0.05
+  scale_high: 0.1
+- name: Sharpen
+  enabled: false
+  p: 0.2
+- name: Equalize
+  enabled: false
+  p: 0.2
+- name: RGBShift
+  enabled: false
+  p: 0.2
+- name: MotionBlur
+  enabled: false
+  p: 0.2
+- name: MedianBlur
+  enabled: false
+  p: 0.2
