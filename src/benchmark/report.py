@@ -160,42 +160,35 @@ def _base_layout(fig: go.Figure, *, title: str, height: int = 420) -> go.Figure:
 def _summary_cards_html(result: Any, names: dict[Path, str]) -> str:
     best_50_95 = max(result.models, key=lambda m: m.map50_95)
     best_50 = max(result.models, key=lambda m: m.map50)
+    best_f1 = max(result.models, key=lambda m: m.f1)
     
-    def render_winner(model: Any, metric_name: str, metric_val: float, is_primary: bool = False):
+    def render_stat(model: Any, label: str, value: float):
         m_name = escape(_display_name(model, names))
-        p_class = "winner-primary" if is_primary else ""
         return f"""
-        <div class="winner-card {p_class}">
-            <div class="winner-badge">{"Champion" if is_primary else "Runner Up"}</div>
-            <div class="winner-content">
-                <div class="winner-metric">
-                    <span class="winner-metric-label">{metric_name}</span>
-                    <span class="winner-metric-value">{_fmt(metric_val)}</span>
-                </div>
-                <div class="winner-model-info">
-                    <div class="winner-label">Best Model</div>
-                    <div class="winner-name">{m_name}</div>
-                </div>
-            </div>
-            <div class="winner-footer">
-                <span>Task: {model.task.capitalize()}</span>
-                <span>F1: {_fmt(model.f1)}</span>
+        <div class="stat-item">
+            <div class="stat-label">{label}</div>
+            <div class="stat-value">{_fmt(value)}</div>
+            <div class="stat-model">
+                <span class="stat-model-label">Best Model:</span>
+                <span class="stat-model-name">{m_name}</span>
             </div>
         </div>
         """
 
-    winner_50_95 = render_winner(best_50_95, "mAP@50:95", best_50_95.map50_95, True)
-    winner_50 = render_winner(best_50, "mAP@50", best_50.map50, False)
+    stat_50_95 = render_stat(best_50_95, "Primary mAP@50:95", best_50_95.map50_95)
+    stat_50 = render_stat(best_50, "Secondary mAP@50", best_50.map50)
+    stat_f1 = render_stat(best_f1, "Detection F1", best_f1.f1)
     
     return f"""
-    <section class="winners-section">
+    <section class="summary-section">
         <div class="section-header">
-            <h2 class="section-title">Performance Champions</h2>
-            <p class="section-subtitle">Top models ranked by primary accuracy metrics</p>
+            <h2 class="section-title">Key Performance Summary</h2>
+            <p class="section-subtitle">Validated performance of top models across primary metrics</p>
         </div>
-        <div class="winners-grid">
-            {winner_50_95}
-            {winner_50}
+        <div class="summary-grid">
+            {stat_50_95}
+            {stat_50}
+            {stat_f1}
         </div>
     </section>
     """
@@ -281,76 +274,135 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
     return fig
 
 
-def _ranked_metric_bar(result: Any, names: dict[Path, str]) -> go.Figure:
+def _ranked_metric_bar(result: Any, names: dict[Path, str], group_by: str = "model") -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
-    y = [_display_name(m, names) for m in models][::-1]
     fig = go.Figure()
-    for metric_name, values, color in [
-        ("mAP@50:95", [m.map50_95 for m in models][::-1], BLUE),
-        ("mAP@50", [m.map50 for m in models][::-1], CYAN),
-        ("F1", [m.f1 for m in models][::-1], GREEN),
-    ]:
-        fig.add_trace(go.Bar(
-            name=metric_name,
-            y=y,
-            x=values,
-            orientation="h",
-            marker={"color": color, "line": {"width": 0}},
-            text=[_fmt(v) for v in values],
-            textposition="outside",
-            hovertemplate=f"<b>{metric_name}</b>: %{{x:.3f}}<extra></extra>",
-        ))
+    
+    if group_by == "model":
+        y = [_display_name(m, names) for m in models][::-1]
+        metrics = [
+            ("mAP@50:95", [m.map50_95 for m in models][::-1], BLUE),
+            ("mAP@50", [m.map50 for m in models][::-1], CYAN),
+            ("F1", [m.f1 for m in models][::-1], GREEN),
+        ]
+        for name, vals, color in metrics:
+            fig.add_trace(go.Bar(
+                name=name,
+                y=y,
+                x=vals,
+                orientation="h",
+                marker={"color": color, "line": {"width": 0}},
+                text=[_fmt(v) for v in vals],
+                textposition="outside",
+                hovertemplate=f"<b>{name}</b>: %{{x:.3f}}<extra></extra>",
+            ))
+        height = max(360, 170 + len(models) * 54)
+    else:
+        # Group by Metric
+        metrics_list = ["mAP@50:95", "mAP@50", "F1"]
+        y = metrics_list[::-1]
+        for i, model in enumerate(models):
+            name = _display_name(model, names)
+            vals = [model.map50_95, model.map50, model.f1][::-1]
+            fig.add_trace(go.Bar(
+                name=name,
+                y=y,
+                x=vals,
+                orientation="h",
+                marker={"color": PALETTE[i % len(PALETTE)], "line": {"width": 0}},
+                text=[_fmt(v) for v in vals],
+                textposition="outside",
+                hovertemplate=f"<b>{name}</b><br>Metric: %{{y}}<br>Value: %{{x:.3f}}<extra></extra>",
+            ))
+        height = max(360, 200 + len(models) * 40)
+
     fig.update_layout(barmode="group", xaxis={"range": [0, 1.12], "tickformat": ".0%"}, bargap=0.2, bargroupgap=0.1)
-    return _base_layout(fig, title="Ranked Model Quality", height=max(360, 170 + len(models) * 54))
+    return _base_layout(fig, title="Ranked Model Quality", height=height)
 
 
-def _precision_recall_chart(result: Any, names: dict[Path, str]) -> go.Figure:
+def _precision_recall_chart(result: Any, names: dict[Path, str], group_by: str = "model") -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
-    x = [_display_name(m, names) for m in models]
     fig = go.Figure()
-    for metric_name, values, color in [
-        ("Precision", [m.precision for m in models], BLUE),
-        ("Recall", [m.recall for m in models], AMBER),
-        ("F1 Score", [m.f1 for m in models], GREEN),
-    ]:
-        fig.add_trace(go.Bar(
-            name=metric_name,
-            x=x,
-            y=values,
-            marker={"color": color, "line": {"width": 0}},
-            text=[_fmt(v) for v in values],
-            textposition="outside",
-            hovertemplate=f"<b>{metric_name}</b>: %{{y:.3f}}<extra></extra>",
-        ))
+    
+    if group_by == "model":
+        x = [_display_name(m, names) for m in models]
+        metrics = [
+            ("Precision", [m.precision for m in models], BLUE),
+            ("Recall", [m.recall for m in models], AMBER),
+            ("F1 Score", [m.f1 for m in models], GREEN),
+        ]
+        for name, vals, color in metrics:
+            fig.add_trace(go.Bar(
+                name=name,
+                x=x,
+                y=vals,
+                marker={"color": color, "line": {"width": 0}},
+                text=[_fmt(v) for v in vals],
+                textposition="outside",
+                hovertemplate=f"<b>{name}</b>: %{{y:.3f}}<extra></extra>",
+            ))
+    else:
+        # Group by Metric
+        metrics_list = ["Precision", "Recall", "F1 Score"]
+        for i, model in enumerate(models):
+            name = _display_name(model, names)
+            vals = [model.precision, model.recall, model.f1]
+            fig.add_trace(go.Bar(
+                name=name,
+                x=metrics_list,
+                y=vals,
+                marker={"color": PALETTE[i % len(PALETTE)], "line": {"width": 0}},
+                text=[_fmt(v) for v in vals],
+                textposition="outside",
+                hovertemplate=f"<b>{name}</b><br>Metric: %{{x}}<br>Value: %{{y:.3f}}<extra></extra>",
+            ))
+            
     fig.update_layout(barmode="group", yaxis={"range": [0, 1.12], "tickformat": ".0%"}, bargap=0.2)
     return _base_layout(fig, title="Detection Balance (P, R, F1)", height=440)
 
 
-def _size_sensitivity_bar(result: Any, names: dict[Path, str]) -> go.Figure:
+def _size_sensitivity_bar(result: Any, names: dict[Path, str], group_by: str = "model") -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
-    y = [_display_name(m, names) for m in models][::-1]
-    
     fig = go.Figure()
     
-    # Define size categories and their corresponding data/colors
-    categories = [
-        ("Small (<32²)", [m.small.map50_95 for m in models][::-1], BLUE),
-        ("Medium (32²-96²)", [m.medium.map50_95 for m in models][::-1], CYAN),
-        ("Large (>96²)", [m.large.map50_95 for m in models][::-1], PURPLE),
-        ("Overall", [m.map50_95 for m in models][::-1], GREEN),
-    ]
-    
-    for label, values, color in categories:
-        fig.add_trace(go.Bar(
-            name=label,
-            y=y,
-            x=values,
-            orientation="h",
-            marker={"color": color, "line": {"width": 0}},
-            text=[_fmt(v) for v in values],
-            textposition="outside",
-            hovertemplate=f"<b>{label}</b>: %{{x:.3f}}<extra></extra>",
-        ))
+    if group_by == "model":
+        y = [_display_name(m, names) for m in models][::-1]
+        categories = [
+            ("Small (<32²)", [m.small.map50_95 for m in models][::-1], BLUE),
+            ("Medium (32²-96²)", [m.medium.map50_95 for m in models][::-1], CYAN),
+            ("Large (>96²)", [m.large.map50_95 for m in models][::-1], PURPLE),
+            ("Overall", [m.map50_95 for m in models][::-1], GREEN),
+        ]
+        for label, values, color in categories:
+            fig.add_trace(go.Bar(
+                name=label,
+                y=y,
+                x=values,
+                orientation="h",
+                marker={"color": color, "line": {"width": 0}},
+                text=[_fmt(v) for v in values],
+                textposition="outside",
+                hovertemplate=f"<b>{label}</b>: %{{x:.3f}}<extra></extra>",
+            ))
+        height = max(400, 180 + len(models) * 75)
+    else:
+        # Group by Metric (Size category)
+        categories_list = ["Small (<32²)", "Medium (32²-96²)", "Large (>96²)", "Overall"]
+        y = categories_list[::-1]
+        for i, model in enumerate(models):
+            name = _display_name(model, names)
+            vals = [model.small.map50_95, model.medium.map50_95, model.large.map50_95, model.map50_95][::-1]
+            fig.add_trace(go.Bar(
+                name=name,
+                y=y,
+                x=vals,
+                orientation="h",
+                marker={"color": PALETTE[i % len(PALETTE)], "line": {"width": 0}},
+                text=[_fmt(v) for v in vals],
+                textposition="outside",
+                hovertemplate=f"<b>{name}</b><br>Size: %{{y}}<br>Value: %{{x:.3f}}<extra></extra>",
+            ))
+        height = max(400, 220 + len(models) * 45)
     
     fig.update_layout(
         barmode="group",
@@ -361,28 +413,48 @@ def _size_sensitivity_bar(result: Any, names: dict[Path, str]) -> go.Figure:
     return _base_layout(
         fig, 
         title="Object Size Sensitivity (mAP@50:95)", 
-        height=max(400, 180 + len(models) * 75)
+        height=height
     )
 
 
-def _quality_counts_bar(result: Any, names: dict[Path, str]) -> go.Figure:
+def _quality_counts_bar(result: Any, names: dict[Path, str], group_by: str = "model") -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
-    x = [_display_name(m, names) for m in models]
-    counts = {
-        "TP": [sum(r.tp for r in m.per_image) for m in models],
-        "FP": [sum(r.fp for r in m.per_image) for m in models],
-        "FN": [sum(r.fn for r in m.per_image) for m in models],
-    }
     fig = go.Figure()
-    for label, color in [("TP", GREEN), ("FP", RED), ("FN", AMBER)]:
-        fig.add_trace(go.Bar(
-            name=label,
-            x=x,
-            y=counts[label],
-            marker={"color": color, "line": {"width": 0}},
-            hovertemplate=f"<b>{label}</b>: %{{y}}<extra></extra>",
-        ))
-    fig.update_layout(barmode="stack", yaxis_title="Instance Count", bargap=0.3)
+    
+    if group_by == "model":
+        x = [_display_name(m, names) for m in models]
+        counts = [
+            ("TP", [sum(r.tp for r in m.per_image) for m in models], GREEN),
+            ("FP", [sum(r.fp for r in m.per_image) for m in models], RED),
+            ("FN", [sum(r.fn for r in m.per_image) for m in models], AMBER),
+        ]
+        for label, vals, color in counts:
+            fig.add_trace(go.Bar(
+                name=label,
+                x=x,
+                y=vals,
+                marker={"color": color, "line": {"width": 0}},
+                hovertemplate=f"<b>{label}</b>: %{{y}}<extra></extra>",
+            ))
+        barmode = "stack"
+    else:
+        # Group by Metric (Outcome)
+        outcomes = ["TP", "FP", "FN"]
+        for i, model in enumerate(models):
+            name = _display_name(model, names)
+            tp = sum(r.tp for r in model.per_image)
+            fp = sum(r.fp for r in model.per_image)
+            fn = sum(r.fn for r in model.per_image)
+            fig.add_trace(go.Bar(
+                name=name,
+                x=outcomes,
+                y=[tp, fp, fn],
+                marker={"color": PALETTE[i % len(PALETTE)], "line": {"width": 0}},
+                hovertemplate=f"<b>{name}</b><br>Outcome: %{{x}}<br>Count: %{{y}}<extra></extra>",
+            ))
+        barmode = "group"
+        
+    fig.update_layout(barmode=barmode, yaxis_title="Instance Count", bargap=0.3)
     return _base_layout(fig, title="Detection Outcome Counts", height=410)
 
 
@@ -668,36 +740,69 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
     thumbnail_fn = _thumb_fn if result.config.generate_thumbnails else None
     vector_data = build_vector_data(best, thumbnail_fn=thumbnail_fn)
 
-    figs = {
+    # Charts that support switchable grouping
+    switchable_keys = {"ranked", "prf", "size", "counts"}
+    
+    figs_model = {
         "leaderboard": _comparison_table(result, names),
-        "ranked": _ranked_metric_bar(result, names),
-        "prf": _precision_recall_chart(result, names),
-        "size": _size_sensitivity_bar(result, names),
-        "counts": _quality_counts_bar(result, names),
+        "ranked": _ranked_metric_bar(result, names, group_by="model"),
+        "prf": _precision_recall_chart(result, names, group_by="model"),
+        "size": _size_sensitivity_bar(result, names, group_by="model"),
+        "counts": _quality_counts_bar(result, names, group_by="model"),
         "distribution": _per_image_distribution(result, names),
         "ranking": _per_image_tables(result, names),
         "scatter": _vector_scatter(vector_data, best_name),
     }
+    
+    # Map internal keys to their generator functions
+    metric_generators = {
+        "ranked": _ranked_metric_bar,
+        "prf": _precision_recall_chart,
+        "size": _size_sensitivity_bar,
+        "counts": _quality_counts_bar,
+    }
+
+    figs_metric = {
+        k: metric_generators[k](result, names, group_by="metric")
+        for k in switchable_keys
+    }
 
     sections = [_summary_cards_html(result, names)]
-    for key, fig in figs.items():
-        div_id = "scatter-plot" if key == "scatter" else f"plot-{key}"
-        
-        # Tables don't behave well with 'responsive: True' when their container has no fixed height.
-        # They collapse to 0. We'll disable responsiveness for tables so they use the height set in the layout.
+    
+    all_keys = ["leaderboard", "ranked", "prf", "size", "counts", "distribution", "ranking", "scatter"]
+    for key in all_keys:
+        div_id_base = "scatter-plot" if key == "scatter" else f"plot-{key}"
         is_table = key in ("leaderboard", "ranking")
         
-        html = fig.to_html(
-            full_html=False,
-            include_plotlyjs=False,
-            div_id=div_id,
-            config={
-                "displaylogo": False, 
-                "responsive": not is_table,
-                "displayModeBar": not is_table
-            },
-        )
-        sections.append(f'<section class="section chart-section">{html}</section>')
+        if key in switchable_keys:
+            # Generate BOTH model and metric versions
+            html_model = figs_model[key].to_html(
+                full_html=False, include_plotlyjs=False, div_id=f"{div_id_base}-model",
+                config={"displaylogo": False, "responsive": True}
+            )
+            html_metric = figs_metric[key].to_html(
+                full_html=False, include_plotlyjs=False, div_id=f"{div_id_base}-metric",
+                config={"displaylogo": False, "responsive": True}
+            )
+            sections.append(f"""
+            <section class="section chart-section">
+                <div class="group-by-model">{html_model}</div>
+                <div class="group-by-metric" style="display:none">{html_metric}</div>
+            </section>
+            """)
+        else:
+            fig = figs_model[key]
+            html = fig.to_html(
+                full_html=False,
+                include_plotlyjs=False,
+                div_id=div_id_base,
+                config={
+                    "displaylogo": False, 
+                    "responsive": not is_table,
+                    "displayModeBar": not is_table
+                },
+            )
+            sections.append(f'<section class="section chart-section">{html}</section>')
 
     # Redesigned minimalist header
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -739,31 +844,17 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.top-meta-item { display: flex; align-items: center; gap: 6px; }\n'
         '.top-meta-item strong { color: #f1f5f9; }\n'
         '.container { max-width: 1400px; margin: 0 auto; padding: 32px 24px 64px; }\n'
-        
-        '.winners-section { margin-bottom: 40px; }\n'
-        '.section-header { margin-bottom: 24px; }\n'
-        '.section-title { font-size: 24px; font-weight: 800; color: #1e293b; margin: 0; letter-spacing: -0.02em; }\n'
-        '.section-subtitle { font-size: 14px; color: #64748b; margin: 4px 0 0; }\n'
-        '.winners-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 24px; }\n'
-        
-        '.winner-card { background: white; border: 1px solid var(--border); border-radius: 16px; padding: 24px; position: relative; overflow: hidden; box-shadow: var(--shadow); transition: transform 0.2s; }\n'
-        '.winner-card:hover { transform: translateY(-4px); }\n'
-        '.winner-primary { border-left: 6px solid var(--primary); background: linear-gradient(to right, #f0f9ff, #ffffff); }\n'
-        '.winner-badge { position: absolute; top: 12px; right: 12px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 800; padding: 4px 8px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.05em; }\n'
-        '.winner-primary .winner-badge { background: #e0f2fe; color: #0369a1; }\n'
-        
-        '.winner-content { display: flex; align-items: flex-start; gap: 32px; }\n'
-        '.winner-metric { display: flex; flex-direction: column; min-width: 120px; }\n'
-        '.winner-metric-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }\n'
-        '.winner-metric-value { font-size: 42px; font-weight: 900; color: #0f172a; line-height: 1; margin: 4px 0; }\n'
-        '.winner-primary .winner-metric-value { color: var(--primary); }\n'
-        
-        '.winner-model-info { display: flex; flex-direction: column; }\n'
-        '.winner-label { font-size: 12px; font-weight: 600; color: #64748b; }\n'
-        '.winner-name { font-size: 20px; font-weight: 800; color: #1e293b; margin-top: 4px; word-break: break-all; }\n'
-        
-        '.winner-footer { margin-top: 24px; padding-top: 16px; border-top: 1px solid #f1f5f9; display: flex; gap: 16px; font-size: 12px; color: #94a3b8; font-weight: 600; }\n'
-        '.winner-footer span { display: flex; align-items: center; gap: 4px; }\n'
+         '.summary-section { margin-bottom: 32px; }\n'
+        '.section-header { margin-bottom: 16px; }\n'
+        '.section-title { font-size: 20px; font-weight: 800; color: #1e293b; margin: 0; letter-spacing: -0.02em; }\n'
+        '.section-subtitle { font-size: 13px; color: #64748b; margin: 2px 0 0; }\n'
+        '.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }\n'
+        '.stat-item { background: white; padding: 24px; display: flex; flex-direction: column; justify-content: center; }\n'
+        '.stat-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }\n'
+        '.stat-value { font-size: 36px; font-weight: 900; color: var(--primary); line-height: 1; margin: 4px 0; }\n'
+        '.stat-model { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 13px; }\n'
+        '.stat-model-label { color: var(--muted); font-weight: 500; }\n'
+        '.stat-model-name { color: var(--ink); font-weight: 700; }\n'
 
         '.section { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 32px; box-shadow: var(--shadow); overflow: visible; }\n'
         '.chart-section { padding: 24px; min-height: 200px; overflow: visible; }\n'
@@ -774,7 +865,6 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.kpi-label { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }\n'
         '.kpi-value { margin-top: 4px; font-size: 24px; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }\n'
         '.kpi-note { margin-top: 8px; color: var(--muted); font-size: 12px; }\n'
-        '.section-title { font-weight: 800; font-size: 18px; margin-bottom: 20px; color: #1e293b; letter-spacing: -0.01em; }\n'
         '.footer strong { color: white; } \n'
         '.gallery-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }\n'
         '.gallery-controls { display: flex; align-items: center; gap: 24px; }\n'
@@ -788,7 +878,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.gallery-viewer { position: relative; width: 100%; display: flex; justify-content: center; background: #f8fafc; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }\n'
         '.gallery-viewer img { width: 100%; max-height: 600px; object-fit: contain; }\n'
         '.gallery-viewer canvas { position: absolute; top: 0; left: 0; pointer-events: none; }\n'
-        '@media (max-width: 1000px) { .top-bar { flex-direction: column; align-items: flex-start; gap: 16px; } .top-meta { flex-wrap: wrap; gap: 12px; } .winners-grid { grid-template-columns: 1fr; } }\n'
+        '@media (max-width: 1000px) { .top-bar { flex-direction: column; align-items: flex-start; gap: 16px; } .top-meta { flex-wrap: wrap; gap: 12px; } .summary-grid { grid-template-columns: 1fr; } }\n'
         '</style>\n'
         '</head>\n'
         '<body>\n'
@@ -800,6 +890,10 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         f'<div class="top-meta-item"><strong>Models:</strong> {len(result.models)}</div>\n'
         f'<div class="top-meta-item"><strong>Best:</strong> {escape(best_name)}</div>\n'
         f'<div class="top-meta-item"><strong>Thresholds:</strong> {conf} / {iou}</div>\n'
+        '  <div class="group-toggle" style="display: flex; background: #1e293b; border-radius: 99px; padding: 2px; border: 1px solid #334155; margin-left: 12px;">\n'
+        '    <button id="btn-group-model" onclick="setGrouping(\'model\')" style="border: 0; background: #38bdf8; color: #0f172a; padding: 4px 12px; border-radius: 99px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s;">BY MODEL</button>\n'
+        '    <button id="btn-group-metric" onclick="setGrouping(\'metric\')" style="border: 0; background: transparent; color: #94a3b8; padding: 4px 12px; border-radius: 99px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all 0.2s;">BY METRIC</button>\n'
+        '  </div>\n'
         '</div>\n'
         '</header>\n'
         '<main class="container">\n'
@@ -807,6 +901,26 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         + _GALLERY_HTML + "\n"
         '</main>\n'
         '<div class="footer">Generated by <strong>YOLOMatic</strong> &middot; Benchmark System</div>\n'
+        '<script>\n'
+        'function setGrouping(mode) {\n'
+        '  const modelEls = document.querySelectorAll(".group-by-model");\n'
+        '  const metricEls = document.querySelectorAll(".group-by-metric");\n'
+        '  const btnModel = document.getElementById("btn-group-model");\n'
+        '  const btnMetric = document.getElementById("btn-group-metric");\n'
+        '  if (mode === "model") {\n'
+        '    modelEls.forEach(el => el.style.display = "block");\n'
+        '    metricEls.forEach(el => el.style.display = "none");\n'
+        '    btnModel.style.background = "#38bdf8"; btnModel.style.color = "#0f172a";\n'
+        '    btnMetric.style.background = "transparent"; btnMetric.style.color = "#94a3b8";\n'
+        '  } else {\n'
+        '    modelEls.forEach(el => el.style.display = "none");\n'
+        '    metricEls.forEach(el => el.style.display = "block");\n'
+        '    btnMetric.style.background = "#38bdf8"; btnMetric.style.color = "#0f172a";\n'
+        '    btnModel.style.background = "transparent"; btnModel.style.color = "#94a3b8";\n'
+        '  }\n'
+        '  window.dispatchEvent(new Event("resize"));\n'
+        '}\n'
+        '</script>\n'
         + _GALLERY_JS
         + '\n</body>\n</html>'
     )
