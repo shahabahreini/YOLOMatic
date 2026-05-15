@@ -326,59 +326,43 @@ def _precision_recall_chart(result: Any, names: dict[Path, str]) -> go.Figure:
     return _base_layout(fig, title="Detection Balance (P, R, F1)", height=440)
 
 
-def _size_heatmap(result: Any, names: dict[Path, str]) -> go.Figure:
+def _size_sensitivity_bar(result: Any, names: dict[Path, str]) -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
-    x = ["Small<br>&lt;32²", "Medium<br>32²-96²", "Large<br>&gt;96²", "<b>Overall</b>"]
-    y = [_display_name(m, names) for m in models]
+    y = [_display_name(m, names) for m in models][::-1]
     
-    # Use mAP50:95 for the heatmap
-    z = [[m.small.map50_95, m.medium.map50_95, m.large.map50_95, m.map50_95] for m in models]
-    text = [[_fmt(v) for v in row] for row in z]
+    fig = go.Figure()
     
-    # Identify winners for annotation
-    num_models = len(models)
-    annotations = []
-    for col_idx in range(4):
-        col_vals = [z[row_idx][col_idx] for row_idx in range(num_models)]
-        if not col_vals: continue
-        max_val = max(col_vals)
-        for row_idx, val in enumerate(col_vals):
-            if val == max_val and max_val > 0:
-                annotations.append({
-                    "x": x[col_idx],
-                    "y": y[row_idx],
-                    "text": "⭐",
-                    "showarrow": False,
-                    "font": {"size": 14},
-                    "xshift": 25,
-                })
-
-    fig = go.Figure(go.Heatmap(
-        x=x,
-        y=y,
-        z=z,
-        text=text,
-        texttemplate="%{text}",
-        colorscale=[
-            [0.0, "#f8fafc"],
-            [0.2, "#e0f2fe"],
-            [0.5, "#7dd3fc"],
-            [0.8, "#0284c7"],
-            [1.0, "#0369a1"],
-        ],
-        zmin=0,
-        zmax=1,
-        showscale=True,
-        colorbar={
-            "title": {"text": "mAP@50:95", "side": "right"},
-            "thickness": 15,
-            "len": 0.8,
-        },
-        hovertemplate="<b>%{y}</b><br>%{x}: <b>%{z:.3f}</b><extra></extra>",
-    ))
+    # Define size categories and their corresponding data/colors
+    categories = [
+        ("Small (<32²)", [m.small.map50_95 for m in models][::-1], BLUE),
+        ("Medium (32²-96²)", [m.medium.map50_95 for m in models][::-1], CYAN),
+        ("Large (>96²)", [m.large.map50_95 for m in models][::-1], PURPLE),
+        ("Overall", [m.map50_95 for m in models][::-1], GREEN),
+    ]
     
-    fig.update_layout(annotations=annotations)
-    return _base_layout(fig, title="Object Size Sensitivity (mAP@50:95)", height=max(380, 180 + len(models) * 45))
+    for label, values, color in categories:
+        fig.add_trace(go.Bar(
+            name=label,
+            y=y,
+            x=values,
+            orientation="h",
+            marker={"color": color, "line": {"width": 0}},
+            text=[_fmt(v) for v in values],
+            textposition="outside",
+            hovertemplate=f"<b>{label}</b>: %{{x:.3f}}<extra></extra>",
+        ))
+    
+    fig.update_layout(
+        barmode="group",
+        xaxis={"range": [0, 1.15], "tickformat": ".0%"},
+        bargap=0.2,
+        bargroupgap=0.05
+    )
+    return _base_layout(
+        fig, 
+        title="Object Size Sensitivity (mAP@50:95)", 
+        height=max(400, 180 + len(models) * 75)
+    )
 
 
 def _quality_counts_bar(result: Any, names: dict[Path, str]) -> go.Figure:
@@ -688,7 +672,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         "leaderboard": _comparison_table(result, names),
         "ranked": _ranked_metric_bar(result, names),
         "prf": _precision_recall_chart(result, names),
-        "size": _size_heatmap(result, names),
+        "size": _size_sensitivity_bar(result, names),
         "counts": _quality_counts_bar(result, names),
         "distribution": _per_image_distribution(result, names),
         "ranking": _per_image_tables(result, names),

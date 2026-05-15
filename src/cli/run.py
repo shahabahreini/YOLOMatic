@@ -3132,11 +3132,11 @@ def main():
         except KeyboardInterrupt:
             # Ctrl+C at the main menu exits cleanly instead of dumping a trace.
             clear_screen()
-            console.print("\n[bold cyan]\U0001f44b Goodbye![/bold cyan]", end="\n", flush=True)
+            console.print("\n[bold cyan]\U0001f44b Goodbye![/bold cyan]", end="\n")
             return
         except _ExitTUI:
             clear_screen()
-            console.print("Goodbye!", style="bold cyan", end="\n", flush=True)
+            console.print("Goodbye!", style="bold cyan", end="\n")
             return
         except Exception as error:
             # Last-resort safety net — report and re-enter the menu rather than
