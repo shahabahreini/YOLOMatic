@@ -370,8 +370,7 @@ def _size_heatmap(result: Any, names: dict[Path, str]) -> go.Figure:
         zmax=1,
         showscale=True,
         colorbar={
-            "title": "mAP@50:95",
-            "titleside": "right",
+            "title": {"text": "mAP@50:95", "side": "right"},
             "thickness": 15,
             "len": 0.8,
         },
@@ -479,6 +478,7 @@ def _vector_scatter(vector_data: dict, model_name: str) -> go.Figure:
             vector_data["fn"][i],
             vector_data["mean_iou"][i],
             vector_data["thumbnails"][i] if has_thumbnails else "",
+            vector_data["preds"][i] if "preds" in vector_data else [],
         ])
 
     gt_counts = vector_data["gt_count"]
@@ -531,6 +531,11 @@ _GALLERY_JS = """
   var scatter = document.getElementById('scatter-plot');
   var gallery = document.getElementById('gallery-panel');
   var galleryImg = document.getElementById('gallery-img');
+  var canvas = document.getElementById('gallery-canvas');
+  var ctx = canvas.getContext('2d');
+  var toggleConf = document.getElementById('toggle-conf');
+  
+  var currentPreds = [];
   if (!scatter) return;
 
   function _setText(id, text) {
@@ -538,16 +543,76 @@ _GALLERY_JS = """
     if (el) el.innerHTML = text;
   }
 
+  function drawConfidences() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!toggleConf.checked || !currentPreds || currentPreds.length === 0) return;
+
+    var iw = galleryImg.naturalWidth;
+    var ih = galleryImg.naturalHeight;
+    var cw = galleryImg.clientWidth;
+    var ch = galleryImg.clientHeight;
+    
+    // Calculate actual displayed image dimensions (letterbox aware)
+    var imgRatio = iw / ih;
+    var containerRatio = cw / ch;
+    var displayW, displayH, offsetX, offsetY;
+    
+    if (imgRatio > containerRatio) {
+      displayW = cw;
+      displayH = cw / imgRatio;
+      offsetX = 0;
+      offsetY = (ch - displayH) / 2;
+    } else {
+      displayH = ch;
+      displayW = ch * imgRatio;
+      offsetY = 0;
+      offsetX = (cw - displayW) / 2;
+    }
+
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textBaseline = 'top';
+
+    currentPreds.forEach(function(p) {
+      var x1 = p[0] * displayW + offsetX;
+      var y1 = p[1] * displayH + offsetY;
+      var conf = p[4];
+      
+      var text = (conf * 100).toFixed(0) + '%';
+      var tw = ctx.measureText(text).width;
+      
+      ctx.fillStyle = 'rgba(220, 0, 0, 0.8)';
+      ctx.fillRect(x1, y1 - 12, tw + 4, 12);
+      ctx.fillStyle = 'white';
+      ctx.fillText(text, x1 + 2, y1 - 11);
+    });
+  }
+
+  galleryImg.onload = function() {
+    canvas.width = galleryImg.clientWidth;
+    canvas.height = galleryImg.clientHeight;
+    drawConfidences();
+  };
+
+  toggleConf.onchange = drawConfidences;
+  window.addEventListener('resize', function() {
+    canvas.width = galleryImg.clientWidth;
+    canvas.height = galleryImg.clientHeight;
+    drawConfidences();
+  });
+
   scatter.on('plotly_click', function(data) {
     var pt = data.points[0];
     var cd = pt.customdata;
     var thumb = cd[8];
+    currentPreds = cd[9] || [];
+
     if (thumb && thumb.length > 0) {
       galleryImg.src = 'data:image/png;base64,' + thumb;
       galleryImg.alt = cd[0];
     } else {
       galleryImg.removeAttribute('src');
       galleryImg.alt = 'No thumbnail available';
+      currentPreds = [];
     }
     _setText('gc-name', cd[0]);
     _setText('gc-f1', '<strong>F1:</strong> ' + parseFloat(cd[1]).toFixed(3));
@@ -562,15 +627,29 @@ _GALLERY_JS = """
 """
 
 _GALLERY_HTML = """
-<section id="gallery-panel" class="gallery-panel" style="display:none;">
-  <div class="section-title">Visual Inspector</div>
-  <img id="gallery-img" alt="Click a scatter point" />
-  <div class="gallery-meta">
-    <div id="gc-name" class="gallery-name"></div>
-    <div id="gc-f1" class="gallery-item"></div>
-    <div id="gc-pr" class="gallery-item"></div>
-    <div id="gc-counts" class="gallery-item"></div>
-    <div id="gc-iou" class="gallery-item"></div>
+<section id="gallery-panel" class="gallery-panel" style="display:none; max-width: 1000px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 32px; box-shadow: var(--shadow);">
+  <div class="gallery-header">
+    <div class="section-title" style="margin:0;">Visual Inspector</div>
+    <div class="gallery-controls">
+      <div class="gallery-legend">
+        <div class="legend-item"><div class="legend-color gt"></div> Ground Truth</div>
+        <div class="legend-item"><div class="legend-color pred"></div> Prediction</div>
+      </div>
+      <label class="toggle-container">
+        <input type="checkbox" id="toggle-conf" checked> Show Confidence
+      </label>
+    </div>
+  </div>
+  <div class="gallery-viewer">
+    <img id="gallery-img" alt="Click a scatter point" />
+    <canvas id="gallery-canvas"></canvas>
+  </div>
+  <div class="gallery-meta" style="margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; border-top: 1px solid var(--border); padding-top: 24px;">
+    <div id="gc-name" style="grid-column: 1 / -1; color: var(--ink); font-weight: 800; font-size: 18px;"></div>
+    <div id="gc-f1" class="gallery-item" style="font-size: 14px; color: var(--muted);"></div>
+    <div id="gc-pr" class="gallery-item" style="font-size: 14px; color: var(--muted);"></div>
+    <div id="gc-counts" class="gallery-item" style="font-size: 14px; color: var(--muted);"></div>
+    <div id="gc-iou" class="gallery-item" style="font-size: 14px; color: var(--muted);"></div>
   </div>
 </section>
 """
@@ -712,14 +791,19 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.kpi-value { margin-top: 4px; font-size: 24px; font-weight: 800; color: var(--ink); letter-spacing: -0.02em; }\n'
         '.kpi-note { margin-top: 8px; color: var(--muted); font-size: 12px; }\n'
         '.section-title { font-weight: 800; font-size: 18px; margin-bottom: 20px; color: #1e293b; letter-spacing: -0.01em; }\n'
-        '.gallery-panel { max-width: 1000px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 32px; box-shadow: var(--shadow); }\n'
-        '.gallery-panel img { width: 100%; border-radius: 12px; background: #f8fafc; min-height: 400px; object-fit: contain; border: 1px solid var(--border); }\n'
-        '.gallery-meta { margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; border-top: 1px solid var(--border); padding-top: 24px; }\n'
-        '.gallery-name { grid-column: 1 / -1; color: var(--ink); font-weight: 800; font-size: 18px; }\n'
-        '.gallery-item { font-size: 14px; color: var(--muted); }\n'
-        '.gallery-item strong { color: var(--ink); }\n'
-        '.footer { text-align: center; color: var(--muted); font-size: 13px; padding: 64px 32px; background: #0f172a; color: #94a3b8; }\n'
-        '.footer strong { color: white; }\n'
+        '.footer strong { color: white; } \n'
+        '.gallery-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }\n'
+        '.gallery-controls { display: flex; align-items: center; gap: 24px; }\n'
+        '.gallery-legend { display: flex; gap: 16px; font-size: 13px; font-weight: 600; }\n'
+        '.legend-item { display: flex; align-items: center; gap: 6px; }\n'
+        '.legend-color { width: 12px; height: 12px; border-radius: 2px; }\n'
+        '.legend-color.gt { border: 2px solid #10b981; }\n'
+        '.legend-color.pred { border: 2px solid #ef4444; }\n'
+        '.toggle-container { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }\n'
+        '.toggle-container input { cursor: pointer; }\n'
+        '.gallery-viewer { position: relative; width: 100%; display: flex; justify-content: center; background: #f8fafc; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }\n'
+        '.gallery-viewer img { width: 100%; max-height: 600px; object-fit: contain; }\n'
+        '.gallery-viewer canvas { position: absolute; top: 0; left: 0; pointer-events: none; }\n'
         '@media (max-width: 1000px) { .top-bar { flex-direction: column; align-items: flex-start; gap: 16px; } .top-meta { flex-wrap: wrap; gap: 12px; } .winners-grid { grid-template-columns: 1fr; } }\n'
         '</style>\n'
         '</head>\n'

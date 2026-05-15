@@ -103,12 +103,12 @@ def shorten_middle(value: str, max_chars: int = 44) -> str:
     return f"{value[:front]}{marker}{value[-back:]}"
 
 
-def format_label(value: Any, max_chars: int = 44) -> str:
+def format_label(value: Any, max_chars: int = 64) -> str:
     """Render a compact user-facing label while preserving useful suffixes."""
     return shorten_middle(str(value), max_chars=max_chars)
 
 
-def format_path(value: Any, max_chars: int = 58) -> str:
+def format_path(value: Any, max_chars: int = 80) -> str:
     """Render a compact path with the filename or suffix kept visible."""
     text = str(value)
     if len(text) <= max_chars:
@@ -256,7 +256,8 @@ class MenuRenderer:
 
     def _sidebar_label_width(self) -> int:
         """Estimate available label width in the left navigation column."""
-        return max(12, min(44, (TUI_TERM.width // 4) - 6))
+        # Using ~40% of width (ratio 2:3)
+        return max(12, min(64, (TUI_TERM.width * 2 // 5) - 8))
 
     def _render_sidebar(self) -> Panel:
         """Render the list of options in a sidebar with grouping support."""
@@ -508,7 +509,7 @@ class MenuRenderer:
 
         # Body - Split into Sidebar and Content
         layout["body"].split_row(
-            Layout(name="sidebar", ratio=1),
+            Layout(name="sidebar", ratio=2),
             Layout(name="content", ratio=3),
         )
 
@@ -577,8 +578,8 @@ class MenuRenderer:
             main_group.append(model_table)
         elif family_charts:
             split_table = Table.grid(expand=True)
-            split_table.add_column(ratio=5)
-            split_table.add_column(ratio=4)
+            split_table.add_column(ratio=1)
+            split_table.add_column(ratio=1)
             split_table.add_row(
                 Text.from_markup(description),
                 family_charts,
@@ -1108,7 +1109,7 @@ class MultiSelectRenderer:
 
         layout["body"].split_row(
             Layout(name="sidebar", ratio=1),
-            Layout(name="content", ratio=2),
+            Layout(name="content", ratio=1),
         )
 
         layout["body"]["sidebar"].update(self._render_sidebar())

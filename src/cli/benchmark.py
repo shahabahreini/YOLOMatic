@@ -644,8 +644,8 @@ def _render_benchmark_progress(
 
     dashboard = Table.grid(expand=True)
     if two_column:
-        dashboard.add_column(ratio=3)
-        dashboard.add_column(ratio=2)
+        dashboard.add_column(ratio=1)
+        dashboard.add_column(ratio=1)
         dashboard.add_row(log_panel, summary_panel)
     else:
         dashboard.add_column(ratio=1)

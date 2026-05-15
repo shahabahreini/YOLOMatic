@@ -117,8 +117,22 @@ def build_vector_data(model_metrics, thumbnail_fn=None) -> dict:
         "pred_count": [r.pred_count for r in results],
         "image_name": [r.image_path.name for r in results],
         "image_id": [r.image_id for r in results],
+        "preds": [],
         "thumbnails": [],
     }
+
+    from PIL import Image
+    for r in results:
+        try:
+            with Image.open(r.image_path) as img:
+                w, h = img.size
+            p_list = []
+            for p in r.raw_preds:
+                x1, y1, x2, y2 = p.box_xyxy
+                p_list.append([x1/w, y1/h, x2/w, y2/h, p.conf])
+            data["preds"].append(p_list)
+        except Exception:
+            data["preds"].append([])
 
     if thumbnail_fn is not None:
         from concurrent.futures import ThreadPoolExecutor
