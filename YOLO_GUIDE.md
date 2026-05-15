@@ -1,5 +1,31 @@
 # YOLOmatic Integration Guide
 
+> Practical workflow guide — model selection, deployment scenarios, training configuration, export options, and operational reference.
+
+**YOLOmatic Version:** 4.3.0  
+**Last Updated:** May 14, 2026  
+**Status:** ✅ Fully Supported and Integrated
+
+---
+
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [CLI Commands](#cli-commands)
+3. [Model Selection Guide](#model-selection-guide)
+4. [Feature Comparison](#feature-comparison)
+5. [Training Configuration](#training-configuration)
+6. [Performance Benchmarks](#performance-benchmarks)
+7. [Deployment Scenarios](#deployment-scenarios)
+8. [Export Options](#export-options)
+9. [SAM 3.1 Workflows](#sam-31-workflows)
+10. [Offline Augmentation](#offline-augmentation)
+11. [Troubleshooting](#troubleshooting)
+12. [Summary Table](#summary-table)
+13. [Additional Resources](#additional-resources)
+
+---
+
 ## Quick Start
 
 ### Installation
@@ -9,30 +35,23 @@
 git clone https://github.com/shahabahreini/YOLOMatic.git
 cd YOLOMatic
 
-# Sync the existing project environment with uv
+# Sync the project environment with uv
 uv sync
 ```
 
 After installation you can run the CLI via the `yolomatic` entrypoints managed by `uv`.
 
-Platform notes:
+**Platform notes:**
 
-- **Windows**: prefer `\.venv\Scripts\python.exe -m pip ...` for manual PyTorch/CUDA repairs instead of `uv run pip ...`.
-- **Linux**: YOLOmatic prepares CUDA/cuDNN runtime library paths from the active `.venv` when needed.
-- **macOS**: use CPU or MPS-capable PyTorch builds; NVIDIA CUDA is not expected.
+- **Windows:** prefer `.venv\Scripts\python.exe -m pip ...` for manual PyTorch/CUDA repairs instead of `uv run pip ...`.
+- **Linux:** YOLOmatic prepares CUDA/cuDNN runtime library paths from the active `.venv` when needed.
+- **macOS:** use CPU or MPS-capable PyTorch builds; NVIDIA CUDA is not expected.
 
 ### Optional Roboflow Setup
 
-If you plan to upload trained checkpoints to Roboflow, create a local `.env` file:
-
 ```bash
-cp .env.example .env
-```
-
-On Windows PowerShell:
-
-```powershell
-Copy-Item .env.example .env
+cp .env.example .env       # Linux / macOS
+# Copy-Item .env.example .env   # Windows PowerShell
 ```
 
 Then fill in:
@@ -45,18 +64,20 @@ ROBOFLOW_PROJECT_IDS=
 
 Use your Roboflow **workspace slug** for `ROBOFLOW_WORKSPACE`, not a project name or display label.
 
-## Versioning
+---
 
-Project versions are managed with the `bump` command. It updates both `src/__version__.py` and `pyproject.toml`.
+## CLI Commands
 
-```bash
-uv run bump patch
-uv run bump minor
-uv run bump major
-uv run bump 2.1.0
-
-uv sync
-```
+| Command | Purpose |
+|---|---|
+| `uv run yolomatic` | Launch the main interactive TUI |
+| `uv run yolomatic-train` | Train from a saved config (YOLO, RF-DETR, SAM, or Detectron2) |
+| `uv run yolomatic-predict` | Run YOLO/RF-DETR prediction workflows |
+| `uv run yolomatic-sam` | Run SAM 3.1 segmentation inference |
+| `uv run yolomatic-benchmark` | Benchmark trained checkpoints with interactive HTML report |
+| `uv run yolomatic-upload` | Upload or deploy trained checkpoints to Roboflow |
+| `uv run yolomatic-tensorboard` | Launch TensorBoard for discovered runs |
+| `uv run bump patch\|minor\|major\|VERSION` | Update the package version |
 
 ### First Run
 
@@ -76,7 +97,7 @@ uv run yolomatic-train
 # Run predictions with the TUI
 uv run yolomatic-predict
 
-# Or run single-image prediction directly with explicit arguments
+# Or run single-image prediction directly
 uv run yolomatic-predict --mode single --weight runs/segment/train/weights/best.pt --source /path/to/image.jpg
 
 # Or run batch folder prediction using multiprocessing
@@ -85,46 +106,52 @@ uv run yolomatic-predict --mode folder --weight runs/segment/train/weights/best.
 # Upload a trained checkpoint to Roboflow
 uv run yolomatic-upload
 
-# (Note: You can also enable automatic upload by adding this block to your training YAML)
-# roboflow:
-#   upload: true
-#   weight: "best.pt"
-
 # Or upload directly with explicit arguments
 uv run yolomatic-upload --weight runs/segment/train2/weights/best.pt --workspace your-workspace-slug --project-ids vegmask --model-type yolo26l --model-name train2-best
 
 # Monitor training logs
 uv run yolomatic-tensorboard
+
+# Benchmark trained models
+uv run yolomatic-benchmark
+
+# Run SAM 3.1 segmentation
+uv run yolomatic-sam
 ```
 
-On Windows, if `uv run` tries to re-sync the environment and fails with an access-denied error on a locked `torch` file, launch the TensorBoard selector through the existing virtual environment instead:
-
-```powershell
-.\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
-```
-
-Training runtime notes:
+### Training Runtime Notes
 
 - If multiple YAML configs exist in `configs/`, `yolomatic-train` opens a TUI selector.
 - If ClearML is not configured, training prompts whether to continue without ClearML or cancel.
 - If CUDA is requested but PyTorch cannot use it, training prompts whether to repair the environment, continue on CPU, or cancel.
+- The smart training router automatically dispatches configs to the correct trainer (YOLO, RF-DETR, SAM 3.1, or Detectron2).
 
-Upload tips:
+### Upload Tips
 
 - Choose a full checkpoint such as `best.pt` or `last.pt`.
 - Generated artifacts like `state_dict.pt` are not uploadable checkpoints.
 - YOLO26 uploads require a size-specific Roboflow type such as `yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`.
-- YOLO-NAS configs no longer train in this build because SuperGradients conflicts with RF-DETR's modern training dependency stack.
+- YOLO-NAS configs no longer train because SuperGradients conflicts with RF-DETR's modern training dependency stack.
+
+### Automatic Post-Training Upload
+
+Add this block to your training YAML:
+
+```yaml
+roboflow:
+  upload: true
+  weight: "best.pt"
+```
 
 ---
 
 ## Model Selection Guide
 
-### YOLO26 - Latest Edge Optimizer 🚀
+### YOLO26 — Latest Edge Optimizer 🚀
 
-**Best For**: Edge devices, CPU inference, real-time mobile apps
+**Best For:** Edge devices, CPU inference, real-time mobile apps
 
-**Advantages**:
+**Advantages:**
 
 - ⚡ 43% faster CPU inference
 - 🎯 Higher accuracy on small objects
@@ -132,16 +159,17 @@ Upload tips:
 - 🚀 NMS-free end-to-end inference
 - 🔋 Perfect for IoT and robotics
 
-**Performance**:
-| Size | mAP | Params | Speed (CPU) |
-|------|-----|--------|------------|
-| Nano | 40.9 | 2.4M | Fastest |
-| Small | 48.6 | 9.5M | Very Fast |
-| Medium | 53.1 | 20.4M | Fast |
-| Large | 55.0 | 24.8M | Moderate |
-| XLarge | 57.5 | 55.7M | High Quality |
+**Performance:**
 
-**When to Choose**:
+| Size | mAP | Params | Speed (GPU T4) |
+|---|---|---|---|
+| Nano | 40.9 | 2.4M | 1.7ms |
+| Small | 48.6 | 9.5M | 2.5ms |
+| Medium | 53.1 | 20.4M | 4.7ms |
+| Large | 55.0 | 24.8M | 6.2ms |
+| XLarge | 57.5 | 55.7M | 11.8ms |
+
+**When to Choose:**
 
 - ✅ Deploying on edge devices
 - ✅ Need fast CPU inference
@@ -150,48 +178,41 @@ Upload tips:
 
 ---
 
-### YOLO12 - Attention-Centric Research Model
+### YOLOv12 — Attention-Centric Research Model
 
-**Best For**: Research, benchmarking, attention mechanism studies
+**Best For:** Research, benchmarking, attention mechanism studies
 
-**Key Features**:
+**Key Features:**
 
 - 🧠 Area Attention Mechanism
 - 🔗 R-ELAN architecture
 - 💡 FlashAttention support (optional)
-- 📊 Highest accuracy potential
+- 📊 Highest YOLO accuracy potential
 
-**Performance**:
-| Size | mAP | Params | Speed |
-|------|-----|--------|-------|
-| Nano | 40.6 | 2.6M | Moderate |
-| Small | 48.0 | 9.3M | Moderate |
-| Medium | 52.5 | 20.2M | Moderate |
-| Large | 53.7 | 26.4M | Slower |
-| XLarge | 55.2 | 59.1M | Slower |
+**Performance:**
 
-⚠️ **Warnings**:
+| Size | mAP | Params | Speed (GPU T4) |
+|---|---|---|---|
+| Nano | 40.6 | 2.6M | 1.64ms |
+| Small | 48.0 | 9.3M | 2.61ms |
+| Medium | 52.5 | 20.2M | 4.86ms |
+| Large | 53.7 | 26.4M | 6.77ms |
+| XLarge | 55.2 | 59.1M | 11.79ms |
+
+⚠️ **Warnings:**
 
 - ❌ Training instability
 - ❌ Higher memory consumption
 - ❌ Slower CPU throughput
 - ❌ Not recommended for production
 
-**When to Choose**:
-
-- ✅ Research purposes
-- ✅ Academic benchmarking
-- ✅ GPU-rich environments
-- ✅ Attention mechanism studies
-- ❌ Production deployments
-
 ---
 
-### YOLO11 - Production-Ready Standard
+### YOLO11 — Production-Ready Standard
 
-**Best For**: Production systems, enterprise deployments, balanced performance
+**Best For:** Production systems, enterprise deployments, balanced performance
 
-**Advantages**:
+**Advantages:**
 
 - ✅ Proven stability
 - ✅ 22% fewer params than YOLOv8m (with higher accuracy)
@@ -199,22 +220,50 @@ Upload tips:
 - ✅ All task types supported
 - ✅ Excellent documentation
 
-**Performance**:
-| Size | mAP | Params | Speed (CPU) | Speed (GPU) |
-|------|-----|--------|------------|------------|
+**Performance:**
+
+| Size | mAP | Params | Speed (CPU) | Speed (GPU T4) |
+|---|---|---|---|---|
 | Nano | 39.5 | 2.6M | 56ms | 1.5ms |
 | Small | 47.0 | 9.4M | 90ms | 2.5ms |
 | Medium | 51.5 | 20.1M | 183ms | 4.7ms |
 | Large | 53.4 | 25.3M | 239ms | 6.2ms |
 | XLarge | 54.7 | 56.9M | 463ms | 11.3ms |
 
-**When to Choose**:
+---
 
-- ✅ Production deployments
-- ✅ Enterprise systems
-- ✅ Mission-critical applications
-- ✅ Need proven stability
-- ✅ Mixed CPU/GPU environments
+### RF-DETR — Transformer Detection Leader
+
+**Best For:** Maximum accuracy, high-resolution inputs, server-side deployment
+
+**Advantages:**
+
+- 🏆 Highest mAP (60.1 with 2XLarge)
+- 🔬 Real-time transformer detection
+- 📐 Variable resolution support (384–880px)
+- 🔄 Both detection and segmentation variants
+
+**Performance:**
+
+| Size | mAP | Params | Latency (T4) |
+|---|---|---|---|
+| Nano | 48.4 | 30.5M | 2.3ms |
+| Small | 53.0 | 32.1M | 3.5ms |
+| Large | 56.5 | 33.9M | 6.8ms |
+| 2XLarge | 60.1 | 126.9M | 17.2ms |
+
+---
+
+### SAM 3.1 — Open-Vocabulary Segmentation
+
+**Best For:** Annotation, pseudo-label generation, concept-based segmentation
+
+**Key Features:**
+
+- 🔤 Text-prompted segmentation (no predefined classes)
+- 🤖 Auto-segment everything mode
+- 📦 Box-prompted from YOLO detections
+- 🧬 Fine-tunable on custom datasets
 
 ---
 
@@ -222,107 +271,101 @@ Upload tips:
 
 ### Computer Vision Tasks
 
-Core YOLO families in this repository support:
-
-- ✅ **Object Detection**: Identify and locate objects
-- ✅ **Instance Segmentation**: Detect and delineate boundaries
-- ✅ **Image Classification**: Categorize images
-- ✅ **Pose Estimation**: Detect keypoints
-- ✅ **OBB**: Oriented object detection (rotated)
-
-### Operational Modes
-
-Core YOLO families in this repository support:
-
-- ✅ **Inference**: Run predictions
-- ✅ **Validation**: Evaluate performance
-- ✅ **Training**: Fine-tune on custom data
-- ✅ **Export**: Deploy to production formats
-
----
-
-## Detailed Specifications
+| Task | YOLO26 | YOLO12 | YOLO11 | RF-DETR | SAM 3.1 | Detectron2 |
+|---|---|---|---|---|---|---|
+| Detection | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Segmentation | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Classification | ✅ | ✅ | ✅ | — | — | — |
+| Pose Estimation | ✅ | ✅ | ✅ | — | — | — |
+| OBB | ✅ | ✅ | ✅ | — | — | — |
+| Open-Vocab Seg | — | — | — | — | ✅ | — |
 
 ### Architecture Comparison
 
-| Aspect                 | YOLO26            | YOLO12            | YOLO11      |
-| ---------------------- | ----------------- | ----------------- | ----------- |
-| **Base Architecture**  | End-to-end        | Attention-centric | CNN-based   |
-| **NMS**                | None (end-to-end) | Traditional       | Traditional |
-| **Optimization**       | Edge-focused      | Attention-focused | Balanced    |
-| **CPU Performance**    | ⭐⭐⭐⭐⭐        | ⭐⭐              | ⭐⭐⭐      |
-| **GPU Performance**    | ⭐⭐⭐⭐          | ⭐⭐⭐⭐          | ⭐⭐⭐⭐    |
-| **Training Stability** | Excellent         | Variable          | Excellent   |
-| **Memory Usage**       | Low               | High              | Moderate    |
+| Aspect | YOLO26 | YOLO12 | YOLO11 | RF-DETR |
+|---|---|---|---|---|
+| **Base Architecture** | End-to-end | Attention-centric | CNN-based | Transformer |
+| **NMS** | None (end-to-end) | Traditional | Traditional | None |
+| **CPU Performance** | ⭐⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
+| **GPU Performance** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Training Stability** | Excellent | Variable | Excellent | Excellent |
+| **Memory Usage** | Low | High | Moderate | High |
 
 ### Feature Set
 
-| Feature                           | YOLO26  | YOLO12        | YOLO11  |
-| --------------------------------- | ------- | ------------- | ------- |
-| **DFL (Distribution Focal Loss)** | Removed | Present       | Present |
-| **NMS-Free Inference**            | ✅      | ❌            | ❌      |
-| **MuSGD Optimizer**               | ✅      | ❌            | ❌      |
-| **Area Attention**                | ❌      | ✅            | ❌      |
-| **R-ELAN**                        | ❌      | ✅            | ❌      |
-| **FlashAttention**                | ❌      | ✅ (optional) | ❌      |
-| **Multi-scale Proto**             | ✅      | ❌            | ❌      |
-| **RLE for Pose**                  | ✅      | ❌            | ❌      |
+| Feature | YOLO26 | YOLO12 | YOLO11 | RF-DETR |
+|---|---|---|---|---|
+| **DFL** | Removed | Present | Present | — |
+| **NMS-Free Inference** | ✅ | ❌ | ❌ | ✅ |
+| **MuSGD Optimizer** | ✅ | ❌ | ❌ | ❌ |
+| **Area Attention** | ❌ | ✅ | ❌ | ❌ |
+| **R-ELAN** | ❌ | ✅ | ❌ | ❌ |
+| **FlashAttention** | ❌ | ✅ (optional) | ❌ | ❌ |
+| **Multi-scale Proto** | ✅ | ❌ | ❌ | ❌ |
+| **RLE for Pose** | ✅ | ❌ | ❌ | ❌ |
 
 ---
 
 ## Training Configuration
 
-### Default Training Parameters (applies to all models)
+### Default Training Parameters (applies to all YOLO models)
 
 ```yaml
 training:
-  epochs: 150 # Number of training epochs
-  imgsz: 640 # Input image size
-  batch: 16 # Batch size
-  cache: true # Cache dataset
-  workers: 8 # Data loading workers
-  label_smoothing: 0.1 # Label smoothing
-  close_mosaic: 50 # Disable mosaic augmentation
+  epochs: 150
+  imgsz: 640
+  batch: 16
+  cache: true
+  workers: 8
+  label_smoothing: 0.1
+  close_mosaic: 50
 
   # Augmentation
-  hsv_h: 0.015 # HSV-Hue augmentation
-  hsv_s: 0.7 # HSV-Saturation augmentation
-  hsv_v: 0.4 # HSV-Value augmentation
-  fliplr: 0.5 # Flip left-right probability
-  device: auto # Device (cuda/mps/cpu)
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  fliplr: 0.5
+  device: auto
 ```
 
 ### Model-Specific Recommendations
 
-**YOLO26**:
+**YOLO26** — Edge deployment:
 
-```python
-# Optimize for edge deployment
-batch: 8-16 (reduce for edge)
+```yaml
+batch: 8-16        # Reduce for edge
 epochs: 100-150
-imgsz: 480-640 (smaller for edge)
-device: "cpu"  # Test on CPU
+imgsz: 480-640      # Smaller for edge
+device: "cpu"       # Test on CPU
 ```
 
-**YOLO12**:
+**YOLOv12** — Research configuration:
 
-```python
-# Research configuration
-batch: 32-64 (larger for attention)
+```yaml
+batch: 32-64        # Larger for attention
 epochs: 150-200
 imgsz: 640
-device: "cuda"  # Requires GPU
+device: "cuda"      # Requires GPU
 # Note: May have training instability
 ```
 
-**YOLO11**:
+**YOLO11** — Production configuration:
 
-```python
-# Production configuration
+```yaml
 batch: 16-32
 epochs: 100-150
 imgsz: 640
-device: "auto"  # Use best available
+device: "auto"      # Use best available
+```
+
+**RF-DETR** — High-accuracy configuration:
+
+```yaml
+# RF-DETR uses its own trainer with different parameters
+epochs: 50-100
+batch_size: 4-8     # Transformer models need more memory
+lr: 1e-4
+grad_accum_steps: 4
 ```
 
 ---
@@ -331,39 +374,40 @@ device: "auto"  # Use best available
 
 ### Accuracy (mAP on COCO val2017)
 
-**Best Overall**:
+**Best Overall:**
 
-- 🥇 YOLO26x: 57.5 mAP
-- 🥈 YOLO12x: 55.2 mAP
-- 🥉 YOLO11x: 54.7 mAP
+- 🥇 RF-DETR-2XLarge: 60.1 mAP
+- 🥈 YOLO26x: 57.5 mAP
+- 🥉 YOLOv9e: 55.6 mAP
 
-**Best Nano Model**:
+**Best Nano Model:**
 
 - 🥇 YOLO26n: 40.9 mAP
 - 🥈 YOLO12n: 40.6 mAP
 - 🥉 YOLO11n: 39.5 mAP
 
-### Speed (CPU ONNX)
+### Speed (T4 TensorRT)
 
-**Fastest**:
+**Fastest:**
 
-1. YOLO26n (CPU ONNX not yet published; T4 TensorRT: ~1.7ms)
-2. YOLO11n (56.1 ± 0.8ms CPU ONNX)
-3. YOLO12n (CPU ONNX not published; T4 TensorRT: ~1.64ms)
+1. YOLO11n: 1.5ms
+2. YOLO12n: 1.64ms
+3. YOLO26n: 1.7ms
+4. RF-DETR-Nano: 2.3ms
 
 ### Parameter Efficiency
 
-**Smallest Model**:
+**Smallest Model:**
 
+- YOLOv9t: 2.0M params
 - YOLO26n: 2.4M params
-- YOLO12n: 2.6M params
-- YOLO11n: 2.6M params
+- YOLO11n / YOLO12n: 2.6M params
 
-**Largest Model**:
+**Largest Model:**
 
-- YOLO26x: 55.7M params
-- YOLO12x: 59.1M params
-- YOLO11x: 56.9M params
+- RF-DETR-2XLarge: 126.9M params
+- YOLOX-X: 99.1M params
+- YOLOv8x: 68.2M params
 
 ---
 
@@ -371,51 +415,70 @@ device: "auto"  # Use best available
 
 ### Scenario 1: Mobile App (Phone/Tablet)
 
-**Recommended**: YOLO26n or YOLO26s
+**Recommended:** YOLO26n or YOLO26s
 
 ```python
-# Use tiny model for fast inference
+from ultralytics import YOLO
 model = YOLO("yolo26n.pt")
 # Expected: 40-50ms per frame on modern phones
 ```
 
 ### Scenario 2: Edge Device (RPi, Jetson)
 
-**Recommended**: YOLO26s or YOLO26m
+**Recommended:** YOLO26s or YOLO26m
 
 ```python
-# Medium model for balance
 model = YOLO("yolo26s.pt")
 # CPU inference optimized
 ```
 
 ### Scenario 3: Enterprise Server
 
-**Recommended**: YOLO11l or YOLO11x
+**Recommended:** YOLO11l or YOLO11x
 
 ```python
-# Larger model for accuracy
 model = YOLO("yolo11l.pt")
 # GPU-accelerated inference
 ```
 
-### Scenario 4: Research Lab
+### Scenario 4: Maximum Accuracy Server
 
-**Recommended**: YOLO12m or YOLO12l
+**Recommended:** RF-DETR-Large or RF-DETR-2XLarge
 
 ```python
-# Attention-based for study
+from rfdetr import RFDETRLarge
+model = RFDETRLarge()
+# Transformer-based, highest mAP
+```
+
+### Scenario 5: Research Lab
+
+**Recommended:** YOLO12m or YOLO12l
+
+```python
 model = YOLO("yolo12m.pt")
-# High accuracy with GPU
+# Attention-based for study
+```
+
+### Scenario 6: Annotation Pipeline
+
+**Recommended:** SAM 3.1
+
+```bash
+uv run yolomatic-sam
+# Auto-segment or text-prompted segmentation
 ```
 
 ---
 
 ## Export Options
 
-All models support export to multiple formats:
+All YOLO models support export to multiple formats:
 
 ```python
+from ultralytics import YOLO
+model = YOLO("yolo26n.pt")
+
 # ONNX (universal, recommended)
 model.export(format="onnx")
 
@@ -434,78 +497,117 @@ model.export(format="openvino")
 
 ---
 
+## SAM 3.1 Workflows
+
+### Inference Modes
+
+```bash
+uv run yolomatic-sam
+```
+
+| Mode | Use Case |
+|---|---|
+| **Auto** | Exploratory annotation, pseudo-label generation, quality inspection |
+| **Text-prompted** | Targeted extraction of specific object classes across image batches |
+| **Box-prompted** | Upgrading existing YOLO detection datasets to segmentation masks |
+
+### Fine-Tuning
+
+Configure SAM 3.1 fine-tuning through the TUI:
+
+1. Select **Configure Model** → **SAM 3.1**
+2. Choose base model (SAM 3.1 or SAM 3)
+3. Select COCO-format dataset
+4. Configure fine-tuning strategy (decoder-only recommended)
+
+The trainer freezes the ViT image encoder and trains only the mask decoder and prompt encoder using the HuggingFace Trainer API.
+
+---
+
+## Offline Augmentation
+
+Access from the TUI under **Augment Dataset**:
+
+| Feature | Description |
+|---|---|
+| **Reusable profiles** | Create, edit, clone, delete — stored as YAML in `configs/augmentation_profiles/` |
+| **20+ transforms** | Geometric, color, blur, noise, weather — each with per-transform probability and parameters |
+| **Multiplier** | Generate N augmented copies per source image |
+| **Split redistribution** | Pool all images, then redistribute into train/val/test with configurable ratios |
+| **Output formats** | YOLO Detection, YOLO Segmentation, COCO JSON |
+
+---
+
 ## Troubleshooting
 
-### CUDA requested but PyTorch cannot use the GPU
+### CUDA Requested but PyTorch Cannot Use the GPU
 
-If `nvidia-smi` works but `torch.cuda.is_available()` is `False`, YOLOmatic can now offer an automatic CUDA repair flow during training.
-
-Manual Windows repair fallback:
+YOLOmatic offers an automatic CUDA repair flow during training. Manual Windows repair:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip uninstall -y torch torchvision torchaudio
 .\.venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall torch torchvision torchaudio "numpy>=1.24.4" --index-url https://download.pytorch.org/whl/cu128
 ```
 
-### YOLO-NAS deprecation
+### YOLO-NAS Deprecation
 
-YOLO-NAS is deprecated in this build because SuperGradients conflicts with RF-DETR's modern training dependency stack. Use YOLO26, YOLO11, or RF-DETR for new training runs.
+YOLO-NAS is deprecated because SuperGradients conflicts with RF-DETR's modern training dependency stack. Use YOLO26, YOLO11, RF-DETR, or Detectron2 for new training runs.
 
 ### YOLO26 Issues
 
-**"Model not found"**
+| Issue | Solution |
+|---|---|
+| "Model not found" | Ensure internet connection — Ultralytics auto-downloads from hub |
+| "Slow on CPU" | Try smaller variant (n or s), increase batch size if memory allows |
+| "Memory exceeded" | Reduce `imgsz`, reduce batch size, use smaller model variant |
 
-```bash
-# Ultralytics will auto-download from hub
-# Ensure internet connection is active
-```
+### YOLOv12 Issues
 
-**"Slow on CPU"**
-
-- Try smaller variant (n or s)
-- Increase batch size if memory allows
-- Check CPU load
-
-**"Memory exceeded"**
-
-- Reduce image size (imgsz)
-- Reduce batch size
-- Use smaller model variant
-
-### YOLO12 Issues
-
-**"Training instability"**
-
-- Normal for YOLO12
-- Reduce learning rate
-- Use gradient clipping
-- Consider YOLO11 or YOLO26 instead
-
-**"High memory usage"**
-
-- Expected with attention layers
-- Reduce batch size significantly
-- Use smaller variant
-- Ensure sufficient GPU VRAM
-
-**"FlashAttention compilation fails"**
-
-- Not required - fallback is automatic
-- Optional optimization only
+| Issue | Solution |
+|---|---|
+| "Training instability" | Normal — reduce learning rate, use gradient clipping, or switch to YOLO11/YOLO26 |
+| "High memory usage" | Expected with attention layers — reduce batch size significantly |
+| "FlashAttention fails" | Not required — fallback is automatic |
 
 ### YOLO11 Issues
 
-**"Inference slow"**
+| Issue | Solution |
+|---|---|
+| "Inference slow" | Use TensorRT export for GPU, reduce image size |
+| "Training convergence" | Adjust learning rate, verify dataset format, check class balance |
 
-- Use TensorRT export for GPU
-- Reduce image size
-- Check GPU utilization
+### SAM 3.1 Issues
 
-**"Training convergence issues"**
+| Issue | Solution |
+|---|---|
+| "HF token required" | Set `HF_TOKEN` env var or run `huggingface-cli login` |
+| "Model download fails" | Accept Meta's terms at [huggingface.co/facebook/sam3.1](https://huggingface.co/facebook/sam3.1) |
+| "Out of memory" | SAM 3.1 requires ~4GB VRAM; use CPU fallback if needed |
 
-- Adjust learning rate
-- Verify dataset format
-- Check class balance
+### Windows TensorBoard Issues
+
+If `uv run` fails with an access-denied error on a locked `torch` file:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
+```
+
+---
+
+## Summary Table
+
+| Use Case | Recommended | Why |
+|---|---|---|
+| Mobile App | YOLO26n/s | Fastest, smallest |
+| Edge Device | YOLO26m | Balanced speed/accuracy |
+| IoT/Robotics | YOLO26 (any) | CPU optimized, 43% faster |
+| Production Web | YOLO11l | Stable, proven, accurate |
+| Enterprise | YOLO11x | Best YOLO accuracy, robust |
+| Maximum Accuracy | RF-DETR-2XLarge | Highest mAP (60.1) |
+| Research | YOLO12 | Cutting-edge attention architecture |
+| Annotation | SAM 3.1 | Open-vocabulary segmentation |
+| Legacy Compat | YOLOv8/v9 | Proven, well-documented |
+| Benchmarking | YOLO26 vs YOLO11 | Compare edge vs traditional |
 
 ---
 
@@ -516,36 +618,19 @@ YOLO-NAS is deprecated in this build because SuperGradients conflicts with RF-DE
 - [YOLO26 Official Docs](https://docs.ultralytics.com/models/yolo26/)
 - [YOLO12 Official Docs](https://docs.ultralytics.com/models/yolo12/)
 - [YOLO11 Official Docs](https://docs.ultralytics.com/models/yolo11/)
+- [YOLOv8 Official Docs](https://docs.ultralytics.com/models/yolov8/)
+- [RF-DETR GitHub](https://github.com/roboflow/rf-detr)
+- [SAM 3.1 HuggingFace](https://huggingface.co/facebook/sam3.1)
 - [Ultralytics Hub](https://hub.ultralytics.com/)
 
 ### Community
 
-- [GitHub Issues](https://github.com/ultralytics/ultralytics/issues)
-- [Discussions](https://github.com/ultralytics/ultralytics/discussions)
+- [Ultralytics GitHub Issues](https://github.com/ultralytics/ultralytics/issues)
+- [Ultralytics Discussions](https://github.com/ultralytics/ultralytics/discussions)
 - [Discord Community](https://discord.com/invite/ultralytics)
 
 ### Related Files
 
-- See `README.md` for installation instructions
-- See `MODELS.md` for detailed model comparison
-
----
-
-## Summary Table
-
-| Use Case       | Recommended      | Why                         |
-| -------------- | ---------------- | --------------------------- |
-| Mobile App     | YOLO26n/s        | Fastest, smallest           |
-| Edge Device    | YOLO26m          | Balanced speed/accuracy     |
-| IoT/Robotics   | YOLO26 (any)     | CPU optimized, 43% faster   |
-| Production Web | YOLO11l          | Stable, proven, accurate    |
-| Enterprise     | YOLO11x          | Best accuracy, robust       |
-| Research       | YOLO12           | Cutting-edge architecture   |
-| Benchmarking   | YOLO26 vs YOLO11 | Compare edge vs traditional |
-| Learning       | Any              | All well-documented         |
-
----
-
-**Last Updated**: May 8, 2026  
-**YOLOMatic Version**: 4.1.0  
-**Status**: ✅ Fully Supported and Integrated
+- See [`README.md`](README.md) for installation and quick start
+- See [`MODELS.md`](MODELS.md) for detailed model benchmarks and architecture reference
+- See [`llms.txt`](llms.txt) for AI-readable repository map
