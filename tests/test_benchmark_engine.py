@@ -152,7 +152,7 @@ class TestEvaluateModelWorker(unittest.TestCase):
     def test_logs_model_name_on_load_failure(self):
         """Worker must log 'Loading model: <name>' even when YOLO load fails."""
         from src.benchmark.engine import _evaluate_model_worker
-        import tempfile, os
+        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             fake_weights = Path(tmp) / "my_model.pt"
             fake_weights.touch()
