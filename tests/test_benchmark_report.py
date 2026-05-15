@@ -91,7 +91,7 @@ class TestWriteReport(unittest.TestCase):
             # Check structural markers
             self.assertIn("scatter-plot", content)
             self.assertIn("gallery-panel", content)
-            self.assertIn("Benchmark Report", content)
+            self.assertIn("YOLOMatic", content)
 
     def test_multi_model_report(self):
         result = _make_result(tasks=("detection", "segmentation"))
@@ -121,8 +121,17 @@ class TestWriteReport(unittest.TestCase):
             path = write_benchmark_report(result, Path(tmp))
             content = path.read_text()
 
-        self.assertIn("train_a / best.pt", content)
-        self.assertIn("train_a / last.pt", content)
+        # Plotly JSON-encodes "/" as \u002f in chart data, so check for
+        # either the literal form (used in the header bar) or the escaped
+        # form (used inside Plotly traces).
+        self.assertTrue(
+            "train_a / best.pt" in content or "train_a \\u002f best.pt" in content,
+            "Expected distinguishable name for best.pt in report",
+        )
+        self.assertTrue(
+            "train_a / last.pt" in content or "train_a \\u002f last.pt" in content,
+            "Expected distinguishable name for last.pt in report",
+        )
 
     def test_report_is_self_contained(self):
         result = _make_result()

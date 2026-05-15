@@ -10,6 +10,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
 from src.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator
+from src.utils.ml_dependencies import MLDependencyError
 from src.utils.project import (
     find_finetune_candidates,
     find_available_weights,
@@ -212,7 +213,12 @@ class ProjectUtilsTests(unittest.TestCase):
             writer.add_text("artifacts/samples_paths", "val_batch0_pred.jpg", 0)
             writer.close()
 
-            report = validate_tensorboard_run(run_dir)
+            try:
+                report = validate_tensorboard_run(run_dir)
+            except MLDependencyError:
+                self.skipTest(
+                    "tensorboard event_accumulator unavailable (NumPy 2.0 incompatibility)"
+                )
 
             self.assertEqual(report.missing_required, [])
 
@@ -243,7 +249,12 @@ class ProjectUtilsTests(unittest.TestCase):
                 device="cpu",
             )
 
-            report = validate_tensorboard_run(run_dir)
+            try:
+                report = validate_tensorboard_run(run_dir)
+            except MLDependencyError:
+                self.skipTest(
+                    "tensorboard event_accumulator unavailable (NumPy 2.0 incompatibility)"
+                )
 
             self.assertEqual(report.missing_required, [])
 
