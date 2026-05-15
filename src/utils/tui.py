@@ -509,8 +509,8 @@ class MenuRenderer:
 
         # Body - Split into Sidebar and Content
         layout["body"].split_row(
-            Layout(name="sidebar", ratio=1),
-            Layout(name="content", ratio=1),
+            Layout(name="sidebar", ratio=2),
+            Layout(name="content", ratio=3),
         )
 
         # Sidebar
