@@ -3425,6 +3425,7 @@ def settings_reset_page() -> None:
 
 
 def settings_menu() -> None:
+    last_choice: str | None = None
     while True:
         choice = get_user_choice(
             [
@@ -3438,7 +3439,9 @@ def settings_menu() -> None:
             ],
             title="Settings",
             text="Configure global integration defaults:",
+            initial_selection=last_choice,
         )
+        last_choice = choice
         if choice == "Back":
             return
         if choice == "Customize All Settings":
@@ -3456,6 +3459,7 @@ def settings_menu() -> None:
 
 
 def _main_loop_iteration():
+    last_choice: str | None = None
     while True:
         clear_screen()
         print_stylized_header("YOLOmatic Model Selector")
@@ -3489,6 +3493,7 @@ def _main_loop_iteration():
             main_menu_options,
             title="Main Menu",
             text="Pick a task to begin:",
+            initial_selection=last_choice,
             descriptions={
                 "Configure Model": (
                     "Walk through the YOLOmatic wizard to pick a YOLO or RF-DETR family, choose a "
@@ -3559,7 +3564,7 @@ def _main_loop_iteration():
             },
             breadcrumbs=["YOLOmatic"],
         )
-
+        last_choice = main_choice
         if main_choice == "Exit":
             raise _ExitTUI()
 

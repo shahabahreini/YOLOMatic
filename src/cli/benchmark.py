@@ -171,7 +171,7 @@ def _select_weights() -> list[Path] | str:
         return NAV_BACK
 
     selected_indices: set[int] = set()
-
+    last_choice: str | None = None
     while True:
         options: list[str] = []
         descriptions: dict[str, str] = {}
@@ -225,7 +225,9 @@ def _select_weights() -> list[Path] | str:
             breadcrumbs=["YOLOmatic", "Benchmark", "Weight Selection"],
             tip=tip,
             finish_options={confirm_label} if selected_indices else set(),
+            initial_selection=last_choice,
         )
+        last_choice = choice
 
         if choice in (NAV_BACK, "Back"):
             return NAV_BACK

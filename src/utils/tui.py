@@ -509,8 +509,8 @@ class MenuRenderer:
 
         # Body - Split into Sidebar and Content
         layout["body"].split_row(
-            Layout(name="sidebar", ratio=2),
-            Layout(name="content", ratio=3),
+            Layout(name="sidebar", ratio=1),
+            Layout(name="content", ratio=1),
         )
 
         # Sidebar
@@ -624,6 +624,7 @@ def get_user_choice(
     tip: str | None = None,
     status_fields: dict[str, str] | None = None,
     finish_options: set[str] | None = None,
+    initial_selection: int | str | None = None,
 ) -> str:
     """
     Highly refined interactive menu with grouped options and breadcrumbs.
@@ -649,6 +650,34 @@ def get_user_choice(
 
     # Map current_selection (index in navigable_indices) to actual index in selectable_options
     current_nav_idx = 0
+    if initial_selection is not None:
+        if isinstance(initial_selection, int):
+            if 0 <= initial_selection < len(navigable_indices):
+                current_nav_idx = initial_selection
+        elif isinstance(initial_selection, str):
+            # Try exact match first
+            actual_idx = -1
+            if initial_selection in selectable_options:
+                actual_idx = selectable_options.index(initial_selection)
+            else:
+                # Try matching by stripping common TUI marks
+                stripped_initial = initial_selection.lstrip("✓ ").strip()
+                for i, opt in enumerate(selectable_options):
+                    if opt.lstrip("✓ ").strip() == stripped_initial:
+                        actual_idx = i
+                        break
+
+            if actual_idx != -1:
+                # Find the closest navigable index
+                closest_nav = 0
+                min_dist = float("inf")
+                for i, nav_idx in enumerate(navigable_indices):
+                    dist = abs(nav_idx - actual_idx)
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_nav = i
+                current_nav_idx = closest_nav
+
     current_selection = navigable_indices[current_nav_idx]
 
     with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
@@ -1108,8 +1137,8 @@ class MultiSelectRenderer:
         )
 
         layout["body"].split_row(
-            Layout(name="sidebar", ratio=1),
-            Layout(name="content", ratio=1),
+            Layout(name="sidebar", ratio=11),
+            Layout(name="content", ratio=9),
         )
 
         layout["body"]["sidebar"].update(self._render_sidebar())
