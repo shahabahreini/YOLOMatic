@@ -10,9 +10,7 @@ Supports:
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 import random
 import shutil
 import time
@@ -496,14 +494,8 @@ def run_augmentation(
     # We store encoded bytes to avoid holding all images in RAM simultaneously.
     # Instead, write immediately to disk to keep memory bounded.
 
-    # We generate into a flat staging area, then redistribute.
-    staging: list[tuple[bytes, list, list]] = []
     skipped = 0
     discarded = 0
-    lock_data: list = []  # collected in thread-safe manner
-
-    # Original staging (added before augmented)
-    originals_staging: list[tuple[bytes, list, list]] = []
 
     def _process(pair: tuple[Path, Path | None]) -> tuple[
         list[tuple[bytes, list, list]],   # augmented
@@ -576,7 +568,6 @@ def run_augmentation(
     total_out = len(final_pool)
     n_train = int(total_out * split_config.train_ratio)
     n_val = int(total_out * split_config.val_ratio)
-    n_test = total_out - n_train - n_val
 
     split_data = {
         "train": final_pool[:n_train],
@@ -606,7 +597,7 @@ def run_augmentation(
         lbl_dir = tmp_root / split_name / "labels"
         img_dir.mkdir(parents=True, exist_ok=True)
         lbl_dir.mkdir(parents=True, exist_ok=True)
-        for idx, (img_bytes, annotations, cls_ids) in enumerate(items):
+        for idx, (img_bytes, anns, cls_ids) in enumerate(items):
             stem = f"aug_{split_name}_{idx:06d}"
             img_path = img_dir / f"{stem}.jpg"
             img_path.write_bytes(img_bytes)
@@ -614,16 +605,16 @@ def run_augmentation(
             if write_as_seg:
                 # Output wants polygons
                 if ann_format == "yolo_bbox":
-                    polys = [bbox_to_polygon(bb) for bb in annotations]
+                    polys = [bbox_to_polygon(bb) for bb in anns]
                 else:
-                    polys = annotations
+                    polys = anns
                 write_yolo_seg(lbl_path, polys, cls_ids)
             else:
                 # Output wants bboxes
                 if ann_format == "yolo_seg":
-                    bboxes = [polygon_to_bbox(poly) for poly in annotations]
+                    bboxes = [polygon_to_bbox(poly) for poly in anns]
                 else:
-                    bboxes = annotations
+                    bboxes = anns
                 write_yolo_bbox(lbl_path, bboxes, cls_ids)
         split_counts[split_name] = len(items)
 

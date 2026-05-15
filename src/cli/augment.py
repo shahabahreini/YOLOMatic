@@ -539,7 +539,6 @@ def _profile_manager_menu() -> None:
         print_stylized_header("Augmentation Profile Manager")
 
         all_names = _all_profile_names()
-        saved_on_disk = set(list_profiles(PROFILES_DIR))
         descriptions: dict[str, str] = {n: _profile_description(n) for n in all_names}
         descriptions.update({
             "Create New Profile": (
