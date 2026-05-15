@@ -10,7 +10,8 @@ class UpdateFlowTest(unittest.TestCase):
         from src.cli import run
 
         completed = Mock(returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=completed) as run_mock:
+        with patch.dict("os.environ", clear=True), \
+             patch("subprocess.run", return_value=completed) as run_mock:
             self.assertTrue(run._run_pip_upgrade(["ultralytics"]))
 
         command = run_mock.call_args.args[0]
