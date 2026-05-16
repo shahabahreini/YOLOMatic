@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,11 @@ from src.augmentation.profiles import (
     load_profile,
     save_profile,
 )
-from src.augmentation.transforms import TRANSFORM_GROUPS, get_params_for_transform
+from src.augmentation.transforms import (
+    TRANSFORM_GROUPS,
+    get_params_for_transform,
+    get_transform_guidance,
+)
 from src.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
@@ -98,250 +103,282 @@ def _select_profile_name(title: str, *, breadcrumb_action: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Transform group editor  (Level 2 of the two-level editor)
+# Unified profile editor helpers
 # ---------------------------------------------------------------------------
 
-def _edit_transform_group(
-    group_name: str,
-    members: list[str],
-    transform_by_name: dict[str, dict],
-) -> None:
-    """
-    Two-level group editor.
-    Level 1: get_user_choice showing all transforms with enabled status.
-    Level 2: per-transform get_user_multi_select for enable, p, and all specific params.
-    """
-    while True:
-        clear_screen()
-        print_stylized_header(f"{group_name} Transforms")
+def _copy_profile(profile: AugmentationProfile) -> AugmentationProfile:
+    """Return a detached profile copy so editing built-ins is non-mutating until save."""
+    return AugmentationProfile(
+        name=profile.name,
+        description=profile.description,
+        multiplier=profile.multiplier,
+        seed=profile.seed,
+        include_originals=profile.include_originals,
+        transforms=[dict(t) for t in profile.transforms],
+        created_at=profile.created_at,
+        modified_at=profile.modified_at,
+        schema_version=profile.schema_version,
+    )
 
-        descriptions: dict[str, str] = {}
-        for t_name in members:
-            cfg = transform_by_name.get(t_name, {})
-            enabled = cfg.get("enabled", False)
-            p = cfg.get("p", 0.5)
-            specific = get_params_for_transform(t_name)[1:]  # skip p
-            status = "[green]✓ Enabled[/green]" if enabled else "[dim]○ Disabled[/dim]"
-            param_lines = []
-            for pd in specific:
-                val = cfg.get(pd.name, pd.default)
-                param_lines.append(f"  [dim]{pd.description}:[/dim] [yellow]{val}[/yellow]")
-            param_block = "\n".join(param_lines) if param_lines else "  [dim]No additional parameters[/dim]"
-            descriptions[t_name] = (
-                f"[bold cyan]{t_name}[/bold cyan]  {status}\n\n"
-                f"p (probability): [yellow]{p}[/yellow]\n\n"
-                f"{param_block}"
+
+def _ensure_transform_entries(profile: AugmentationProfile) -> dict[str, dict]:
+    """Build a complete transform config map from the profile and catalog."""
+    transform_by_name: dict[str, dict] = {t["name"]: dict(t) for t in profile.transforms}
+    for group_members in TRANSFORM_GROUPS.values():
+        for t_name in group_members:
+            transform_by_name.setdefault(
+                t_name,
+                {"name": t_name, "enabled": False, "p": 0.5},
             )
-
-        active_count = sum(
-            1 for t in members if transform_by_name.get(t, {}).get("enabled", False)
-        )
-        choice = get_user_choice(
-            members,
-            allow_back=True,
-            title=f"{group_name} — Select Transform",
-            text=(
-                f"Active: [bold yellow]{active_count}/{len(members)}[/bold yellow]  |  "
-                "Select a transform to configure its parameters."
-            ),
-            descriptions=descriptions,
-            breadcrumbs=["YOLOmatic", "Augment Dataset", "Profiles", group_name],
-        )
-
-        if choice in (NAV_BACK, "Back"):
-            return
-        if choice in members:
-            _edit_single_transform(choice, transform_by_name, group_name)
+    return transform_by_name
 
 
-def _edit_single_transform(
-    t_name: str,
-    transform_by_name: dict[str, dict],
-    group_name: str,
-) -> None:
-    """Edit enable toggle, probability, and all specific params for one transform."""
-    cfg = transform_by_name.get(t_name, {"name": t_name, "enabled": False, "p": 0.5})
-    specific_params = get_params_for_transform(t_name)[1:]  # skip shared p param
+def _transform_param_key(t_name: str, param_name: str) -> str:
+    return f"{t_name}.{param_name}"
 
-    parameters: list[ParameterDefinition] = [
+
+def _profile_setting_definitions(profile: AugmentationProfile) -> list[ParameterDefinition]:
+    return [
         ParameterDefinition(
-            name="enabled",
-            category=group_name,
-            default=False,
-            value_type="bool",
-            description=f"Enable {t_name}",
+            name="multiplier",
+            category="Profile Settings",
+            default=profile.multiplier,
+            value_type="int",
+            description="Augmented copies per source image",
             help_text=(
-                f"Toggle [bold]{t_name}[/bold] on or off.\n\n"
-                "[Space] toggles  [Enter/→] opens value editor"
+                "Each source image produces this many randomized augmented variants. "
+                "Start with 2-5 for most datasets; higher values increase disk usage and can "
+                "over-represent synthetic variation."
             ),
+            min_value=1,
+            max_value=20,
+            affects="Controls output dataset size before originals are optionally added.",
+            config_section="augmentation.profile",
         ),
         ParameterDefinition(
-            name="p",
-            category=group_name,
-            default=0.5,
-            value_type="float",
-            description="Probability",
-            help_text="Probability of applying this transform to each image. 0.0 = never, 1.0 = always.",
-            min_value=0.0,
-            max_value=1.0,
+            name="seed",
+            category="Profile Settings",
+            default=profile.seed,
+            value_type="int",
+            description="Random seed for reproducible redistribution",
+            help_text=(
+                "Using the same seed keeps train/val/test redistribution stable across runs. "
+                "Change it when you intentionally want a different split shuffle."
+            ),
+            min_value=0,
+            max_value=9999,
+            affects="Controls deterministic split shuffling, not the visual strength of transforms.",
+            config_section="augmentation.profile",
         ),
-        *specific_params,
+        ParameterDefinition(
+            name="include_originals",
+            category="Profile Settings",
+            default=profile.include_originals,
+            value_type="bool",
+            description="Include clean source images in the output",
+            help_text=(
+                "True is recommended: the model sees both clean images and augmented variants. "
+                "Set False only when the source dataset is already large or disk space is tight."
+            ),
+            affects="Controls whether output contains original images alongside augmented copies.",
+            config_section="augmentation.profile",
+        ),
     ]
 
-    pre_selected: set[str] = {"enabled"} if cfg.get("enabled", False) else set()
-    pre_values: dict[str, Any] = {
-        "enabled": cfg.get("enabled", False),
-        "p": cfg.get("p", 0.5),
-        **{pd.name: cfg.get(pd.name, pd.default) for pd in specific_params},
+
+def _build_profile_editor_state(
+    profile: AugmentationProfile,
+    transform_by_name: dict[str, dict],
+) -> tuple[list[ParameterDefinition], set[str], dict[str, Any], dict[str, tuple[str, str]]]:
+    """
+    Build the flat parameter editor state.
+
+    field_map maps editor parameter names to (transform_name, transform_field). Profile
+    settings are not included because their editor names map directly to profile fields.
+    """
+    parameters = _profile_setting_definitions(profile)
+    selected: set[str] = {"multiplier", "seed", "include_originals"}
+    values: dict[str, Any] = {
+        "multiplier": profile.multiplier,
+        "seed": profile.seed,
+        "include_originals": profile.include_originals,
     }
+    field_map: dict[str, tuple[str, str]] = {}
 
-    result = get_user_multi_select(
-        parameters=parameters,
-        title=f"Configure: {t_name}",
-        instruction="[Space] Toggle Enable  [Enter/→] Edit Value  [F] Finish & Return",
-        pre_selected=pre_selected,
-        pre_values=pre_values,
+    for group_name, members in TRANSFORM_GROUPS.items():
+        for t_name in members:
+            cfg = transform_by_name[t_name]
+            guidance = get_transform_guidance(t_name)
+            enabled_key = _transform_param_key(t_name, "enabled")
+            p_key = _transform_param_key(t_name, "p")
+            is_enabled = bool(cfg.get("enabled", False))
+
+            parameters.append(
+                ParameterDefinition(
+                    name=enabled_key,
+                    category=group_name,
+                    default=False,
+                    value_type="bool",
+                    description=f"{t_name}: enable transform",
+                    help_text=(
+                        f"{guidance['summary']}\n\n"
+                        f"When to use: {guidance['use']}\n\n"
+                        f"Watch out: {guidance['caution']}"
+                    ),
+                    affects=guidance["summary"],
+                    config_section=f"augmentation.{t_name}",
+                )
+            )
+            field_map[enabled_key] = (t_name, "enabled")
+            values[enabled_key] = is_enabled
+            if is_enabled:
+                selected.add(enabled_key)
+
+            p_def = get_params_for_transform(t_name)[0]
+            parameters.append(
+                replace(
+                    p_def,
+                    name=p_key,
+                    category=group_name,
+                    description=f"{t_name}: probability",
+                    help_text=(
+                        f"{p_def.help_text}\n\n"
+                        f"{guidance['summary']}\n\n"
+                        "Practical starting points: 0.1-0.2 for aggressive or weather effects, "
+                        "0.3-0.5 for common geometric/color variation, 1.0 only for safe symmetry."
+                    ),
+                    affects=f"Controls how often {t_name} is considered during augmentation.",
+                    config_section=f"augmentation.{t_name}",
+                )
+            )
+            field_map[p_key] = (t_name, "p")
+            values[p_key] = cfg.get("p", p_def.default)
+            if is_enabled:
+                selected.add(p_key)
+
+            for param in get_params_for_transform(t_name)[1:]:
+                key = _transform_param_key(t_name, param.name)
+                parameters.append(
+                    replace(
+                        param,
+                        name=key,
+                        category=group_name,
+                        description=f"{t_name}: {param.description}",
+                        help_text=(
+                            f"{param.help_text}\n\n"
+                            f"Transform effect: {guidance['summary']}\n"
+                            f"Use when: {guidance['use']}"
+                        ),
+                        affects=param.affects or guidance["summary"],
+                        config_section=f"augmentation.{t_name}",
+                    )
+                )
+                field_map[key] = (t_name, param.name)
+                values[key] = cfg.get(param.name, param.default)
+                if is_enabled:
+                    selected.add(key)
+
+    return parameters, selected, values, field_map
+
+
+def _apply_profile_editor_result(
+    profile: AugmentationProfile,
+    transform_by_name: dict[str, dict],
+    selected_names: set[str],
+    updated_values: dict[str, Any],
+    field_map: dict[str, tuple[str, str]],
+) -> AugmentationProfile:
+    profile.multiplier = int(updated_values.get("multiplier", profile.multiplier))
+    profile.seed = int(updated_values.get("seed", profile.seed))
+    profile.include_originals = bool(
+        updated_values.get("include_originals", profile.include_originals)
     )
-    if result is None:
-        return
 
-    selected_names, updated_values = result
+    for editor_name, (t_name, field_name) in field_map.items():
+        cfg = transform_by_name.setdefault(
+            t_name,
+            {"name": t_name, "enabled": False, "p": 0.5},
+        )
+        if field_name == "enabled":
+            cfg["enabled"] = editor_name in selected_names
+        else:
+            cfg[field_name] = updated_values.get(editor_name, cfg.get(field_name))
 
-    new_cfg: dict[str, Any] = {"name": t_name}
-    new_cfg["enabled"] = "enabled" in selected_names
-    new_cfg["p"] = float(updated_values.get("p", 0.5))
-    for pd in specific_params:
-        if pd.name in updated_values:
-            new_cfg[pd.name] = updated_values[pd.name]
-    transform_by_name[t_name] = new_cfg
+    profile.transforms = [
+        transform_by_name[t_name]
+        for members in TRANSFORM_GROUPS.values()
+        for t_name in members
+    ]
+    profile.modified_at = datetime.now().isoformat(timespec="seconds")
+    return profile
 
 
 # ---------------------------------------------------------------------------
-# Transform editor  (Level 1: group menu)
+# Transform editor
 # ---------------------------------------------------------------------------
 
 def _edit_profile_transforms(profile: AugmentationProfile) -> AugmentationProfile | None:
     """
-    Two-level transform editor.
-    Level 1: group selection menu.
-    Level 2: per-group get_user_multi_select.
+    Flat profile editor modeled after the fully customized training config flow.
+
+    The editor keeps profile settings, transform enable toggles, probabilities,
+    and transform-specific parameters in one navigable list grouped by transform
+    family. This avoids the old group -> transform -> parameter page stack.
+
     Returns modified profile, or None if user discards.
     """
-    # Fast lookup: transform_name → current config dict
-    transform_by_name: dict[str, dict] = {t["name"]: dict(t) for t in profile.transforms}
-    # Ensure every known transform has an entry
-    for group_members in TRANSFORM_GROUPS.values():
-        for t_name in group_members:
-            if t_name not in transform_by_name:
-                transform_by_name[t_name] = {"name": t_name, "enabled": False, "p": 0.5}
+    working_profile = _copy_profile(profile)
+    transform_by_name = _ensure_transform_entries(working_profile)
+    parameters, selected, values, field_map = _build_profile_editor_state(
+        working_profile,
+        transform_by_name,
+    )
 
-    while True:
-        clear_screen()
-        print_stylized_header(f"Edit Transforms: {profile.name}")
+    result = get_user_multi_select(
+        parameters=parameters,
+        title=f"Augmentation Profile — {working_profile.name}",
+        instruction=(
+            "Use Space on a *.enabled row to enable/disable transforms. "
+            "Press Enter/Right to edit profile values, probabilities, and parameters. "
+            "Press F when done."
+        ),
+        pre_selected=selected,
+        pre_values=values,
+    )
+    if result is None:
+        return None
 
-        enabled_count = sum(1 for cfg in transform_by_name.values() if cfg.get("enabled", False))
+    selected_names, updated_values = result
+    updated_profile = _apply_profile_editor_result(
+        working_profile,
+        transform_by_name,
+        selected_names,
+        updated_values,
+        field_map,
+    )
 
-        group_descriptions: dict[str, str] = {}
-        for gname, members in TRANSFORM_GROUPS.items():
-            active = [m for m in members if transform_by_name.get(m, {}).get("enabled", False)]
-            lines = "\n".join(
-                f"  {'[green]✓[/green]' if m in active else '[dim]○[/dim]'} {m}"
-                for m in members
-            )
-            group_descriptions[gname] = (
-                f"[bold cyan]{gname}[/bold cyan]\n\n"
-                f"Total: {len(members)}  |  Active: [yellow]{len(active)}[/yellow]\n\n"
-                f"{lines}"
-            )
-
-        group_descriptions.update({
-            "Set Multiplier":    f"Currently [yellow]{profile.multiplier}[/yellow] augmented copies per source image.",
-            "Set Seed":          f"Currently [yellow]{profile.seed}[/yellow] — controls shuffle for split redistribution.",
-            "Include Originals": f"Currently [yellow]{profile.include_originals}[/yellow] — include source images in output.",
-            "Save & Back":       "Save all changes and return to the profile manager.",
-            "Discard & Back":    "Discard all changes and return without saving.",
-        })
-
-        choice = get_user_choice(
-            [
-                "[Transform Groups]",
-                *list(TRANSFORM_GROUPS.keys()),
-                "[Profile Settings]",
-                "Set Multiplier",
-                "Set Seed",
-                "Include Originals",
-                "[Actions]",
-                "Save & Back",
-                "Discard & Back",
-            ],
-            title=f"Transforms — {profile.name}",
-            text=(
-                f"Active transforms: [bold yellow]{enabled_count}[/bold yellow]  |  "
-                f"Multiplier: [bold yellow]{profile.multiplier}[/bold yellow]  |  "
-                f"Seed: [bold yellow]{profile.seed}[/bold yellow]\n\n"
-                "Select a group to configure its transforms, or adjust profile settings."
-            ),
-            descriptions=group_descriptions,
-            breadcrumbs=["YOLOmatic", "Augment Dataset", "Profiles", profile.name],
-        )
-
-        if choice == "Save & Back":
-            profile.transforms = list(transform_by_name.values())
-            profile.modified_at = datetime.now().isoformat(timespec="seconds")
-            return profile
-
-        elif choice == "Discard & Back":
-            return None
-
-        elif choice == "Set Multiplier":
-            param = ParameterDefinition(
-                name="multiplier", category="profile",
-                default=profile.multiplier, value_type="int",
-                description="Augmented copies per source image (1–20)",
-                help_text=(
-                    "Each source image produces this many augmented variants.\n"
-                    "multiplier=3 triples your dataset size (plus originals if enabled).\n\n"
-                    "[bold yellow]Tip:[/bold yellow] 3–5 is a good starting point for most datasets."
-                ),
-                min_value=1, max_value=20,
-            )
-            raw = get_parameter_value_input(param, profile.multiplier)
-            if raw not in (None, NAV_BACK):
-                profile.multiplier = int(raw)
-
-        elif choice == "Set Seed":
-            param = ParameterDefinition(
-                name="seed", category="profile",
-                default=profile.seed, value_type="int",
-                description="Random seed (0–9999)",
-                help_text=(
-                    "Controls the shuffle order when redistributing images to train/val/test splits.\n"
-                    "Using the same seed produces identical splits every run."
-                ),
-                min_value=0, max_value=9999,
-            )
-            raw = get_parameter_value_input(param, profile.seed)
-            if raw not in (None, NAV_BACK):
-                profile.seed = int(raw)
-
-        elif choice == "Include Originals":
-            param = ParameterDefinition(
-                name="include_originals", category="profile",
-                default=profile.include_originals, value_type="bool",
-                description="Include original (non-augmented) images in the output?",
-                help_text=(
-                    "[bold]True (recommended):[/bold] output contains both the original images "
-                    "and all augmented copies. Models benefit from seeing clean examples.\n\n"
-                    "[bold]False:[/bold] output contains only augmented copies. "
-                    "Use when the source dataset is very large and you want to cap disk usage."
-                ),
-            )
-            raw = get_parameter_value_input(param, profile.include_originals)
-            if raw not in (None, NAV_BACK):
-                profile.include_originals = bool(raw)
-
-        elif choice in TRANSFORM_GROUPS:
-            _edit_transform_group(choice, TRANSFORM_GROUPS[choice], transform_by_name)
+    active_count = sum(1 for t in updated_profile.transforms if t.get("enabled", False))
+    choice = get_user_choice(
+        ["Save & Back", "Review Again", "Discard & Back"],
+        title=f"Save Profile — {updated_profile.name}",
+        text=(
+            f"Active transforms: [bold yellow]{active_count}[/bold yellow]\n"
+            f"Multiplier: [bold yellow]{updated_profile.multiplier}[/bold yellow]\n"
+            f"Seed: [bold yellow]{updated_profile.seed}[/bold yellow]\n"
+            f"Include originals: [bold yellow]{updated_profile.include_originals}[/bold yellow]"
+        ),
+        descriptions={
+            "Save & Back": "Persist this profile and return to the profile manager.",
+            "Review Again": "Return to the unified editor with the current changes loaded.",
+            "Discard & Back": "Discard these edits and return without saving.",
+        },
+        breadcrumbs=["YOLOmatic", "Augment Dataset", "Profiles", updated_profile.name],
+    )
+    if choice == "Review Again":
+        return _edit_profile_transforms(updated_profile)
+    if choice == "Save & Back":
+        return updated_profile
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -352,64 +389,95 @@ def _create_profile_flow() -> None:
     clear_screen()
     print_stylized_header("Create Augmentation Profile")
 
-    # Name
-    name_param = ParameterDefinition(
-        name="profile_name", category="profile", default="my_profile",
-        value_type="str",
-        description="Profile name (no spaces — use underscores)",
-        help_text="Used as the YAML filename under configs/augmentation_profiles/.\nExample: vegetation_aerial, general_det, my_custom_profile",
-    )
-    raw_name = get_parameter_value_input(name_param, "my_profile")
-    if raw_name in (None, NAV_BACK):
-        return
-    name = str(raw_name).strip().replace(" ", "_")
-
-    # Description
-    desc_param = ParameterDefinition(
-        name="description", category="profile", default="Custom augmentation profile",
-        value_type="str",
-        description="Short description of this profile's purpose",
-        help_text="Shown in the profile selector.\nExample: 'Optimized for aerial vegetation detection'",
-    )
-    raw_desc = get_parameter_value_input(desc_param, "Custom augmentation profile")
-    if raw_desc in (None, NAV_BACK):
-        return
-
-    # Multiplier
-    mult_param = ParameterDefinition(
-        name="multiplier", category="profile", default=3,
-        value_type="int",
-        description="Augmented copies per source image (1–20)",
-        help_text=(
-            "3 means each source image produces 3 augmented variants.\n"
-            "multiplier=1 applies one random transform per image.\n\n"
-            "[bold yellow]Tip:[/bold yellow] 3–5 is a good starting point."
+    basics = [
+        ParameterDefinition(
+            name="profile_name",
+            category="Profile Basics",
+            default="my_profile",
+            value_type="str",
+            description="Profile name used as the YAML filename",
+            help_text=(
+                "Use a short unique name. Spaces are converted to underscores.\n"
+                "Examples: vegetation_aerial, general_det, my_custom_profile"
+            ),
+            config_section="augmentation.profile",
         ),
-        min_value=1, max_value=20,
+        ParameterDefinition(
+            name="description",
+            category="Profile Basics",
+            default="Custom augmentation profile",
+            value_type="str",
+            description="Short purpose shown in the profile selector",
+            help_text=(
+                "Describe the deployment condition or dataset this profile is designed for. "
+                "Example: Optimized for aerial vegetation detection."
+            ),
+            config_section="augmentation.profile",
+        ),
+        ParameterDefinition(
+            name="multiplier",
+            category="Profile Basics",
+            default=3,
+            value_type="int",
+            description="Augmented copies per source image",
+            help_text=(
+                "3 means each source image produces 3 randomized augmented variants. "
+                "Start with 2-5 for most datasets."
+            ),
+            min_value=1,
+            max_value=20,
+            affects="Controls output dataset size before originals are optionally added.",
+            config_section="augmentation.profile",
+        ),
+        ParameterDefinition(
+            name="seed",
+            category="Profile Basics",
+            default=42,
+            value_type="int",
+            description="Random seed for reproducible redistribution",
+            help_text="Use the same seed to keep split redistribution repeatable.",
+            min_value=0,
+            max_value=9999,
+            config_section="augmentation.profile",
+        ),
+        ParameterDefinition(
+            name="include_originals",
+            category="Profile Basics",
+            default=True,
+            value_type="bool",
+            description="Include clean source images in the output",
+            help_text="True is recommended so the model sees clean images and augmented variants.",
+            affects="Controls whether originals are copied into the augmented output dataset.",
+            config_section="augmentation.profile",
+        ),
+    ]
+    result = get_user_multi_select(
+        parameters=basics,
+        title="Create Augmentation Profile",
+        instruction="Set the profile basics, then press F to configure transforms.",
+        pre_selected={p.name for p in basics},
+        pre_values={
+            "profile_name": "my_profile",
+            "description": "Custom augmentation profile",
+            "multiplier": 3,
+            "seed": 42,
+            "include_originals": True,
+        },
     )
-    raw_mult = get_parameter_value_input(mult_param, 3)
-    if raw_mult in (None, NAV_BACK):
+    if result is None:
         return
-
-    # Include originals
-    orig_param = ParameterDefinition(
-        name="include_originals", category="profile", default=True,
-        value_type="bool",
-        description="Include original (non-augmented) images in the output?",
-        help_text="[bold]True (recommended):[/bold] model sees both clean and augmented images.",
-    )
-    raw_orig = get_parameter_value_input(orig_param, True)
-    if raw_orig in (None, NAV_BACK):
-        return
+    _, values = result
+    name = str(values.get("profile_name", "my_profile")).strip().replace(" ", "_")
+    raw_desc = values.get("description", "Custom augmentation profile")
 
     # Build initial profile with all transforms disabled
     now = datetime.now().isoformat(timespec="seconds")
     profile = AugmentationProfile(
         name=name,
         description=str(raw_desc),
-        multiplier=int(raw_mult),
-        seed=42,
-        include_originals=bool(raw_orig),
+        multiplier=int(values.get("multiplier", 3)),
+        seed=int(values.get("seed", 42)),
+        include_originals=bool(values.get("include_originals", True)),
         transforms=[
             {"name": t_name, "enabled": False, "p": 0.5}
             for group_members in TRANSFORM_GROUPS.values()

@@ -911,7 +911,7 @@ class MultiSelectRenderer:
 
         text = Text()
         text.append(f"{checked} ", style="bold cyan" if param.name in self.selected else "dim")
-        text.append(param.name, style="bold" if is_active and self.focus == "list" else "")
+        text.append(format_label(param.name, max_chars=34), style="bold" if is_active and self.focus == "list" else "")
         if param.name in self.selected:
             text.append(": ", style="dim")
             text.append(str(current_val), style="yellow")

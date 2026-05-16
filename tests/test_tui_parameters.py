@@ -205,6 +205,35 @@ class TUIParameterValidationTest(unittest.TestCase):
         self.assertIn("F Continue", output)
         self.assertIn("Confirm Selection", output)
 
+    def test_multiselect_renderer_shortens_long_parameter_names(self) -> None:
+        from rich.console import Console
+
+        long_name = "RandomBrightnessContrast.brightness_limit_low"
+        param = ParameterDefinition(
+            name=long_name,
+            category="Color",
+            default=0.1,
+            value_type="float",
+            description="Brightness lower bound",
+            help_text="Controls the lower brightness range.",
+        )
+        console = Console(record=True, width=80, height=24, color_system=None)
+        renderer = MultiSelectRenderer(
+            parameters=[param],
+            selected={long_name},
+            values={long_name: 0.1},
+            current_index=0,
+            title="Augmentation Profile",
+            instruction="Edit values.",
+        )
+
+        console.print(renderer)
+        output = console.export_text()
+
+        self.assertIn("RandomBrightness", output)
+        self.assertIn("...", output)
+        self.assertIn("htness_limit_low", output)
+
     def test_parameter_editor_render_shows_validation_and_allowed_values(self) -> None:
         from rich.console import Console
 

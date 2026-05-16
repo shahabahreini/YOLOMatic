@@ -37,6 +37,222 @@ TRANSFORM_GROUPS: dict[str, list[str]] = {
     "Misc":         ["ShotNoise"],
 }
 
+TRANSFORM_GUIDANCE: dict[str, dict[str, str]] = {
+    "HorizontalFlip": {
+        "summary": "Mirror images left-to-right.",
+        "use": "Good when object meaning does not depend on left/right orientation.",
+        "caution": "Avoid for asymmetric labels, text, road-side rules, or medical laterality.",
+    },
+    "VerticalFlip": {
+        "summary": "Mirror images top-to-bottom.",
+        "use": "Useful for aerial, microscopy, and other views where gravity is not meaningful.",
+        "caution": "Avoid for normal ground-level scenes where upside-down images are unrealistic.",
+    },
+    "D4": {
+        "summary": "Randomly apply one of the eight square symmetries: rotations and flips.",
+        "use": "Best for aerial, satellite, microscopy, tiles, and rotation-invariant object layouts.",
+        "caution": "Can create unrealistic training samples when upright orientation matters.",
+    },
+    "RandomRotate90": {
+        "summary": "Randomly rotate by 0, 90, 180, or 270 degrees.",
+        "use": "Use for domains where right-angle orientation is arbitrary.",
+        "caution": "Even with p=1.0, one sampled outcome is the identity rotation.",
+    },
+    "Transpose": {
+        "summary": "Swap image rows and columns, equivalent to reflecting across the diagonal.",
+        "use": "Useful for square tiles when diagonal symmetry is plausible.",
+        "caution": "Changes orientation strongly; avoid when image axes have semantic meaning.",
+    },
+    "Rotate": {
+        "summary": "Rotate by a sampled angle while updating masks, boxes, and keypoints.",
+        "use": "Small ranges improve robustness to camera tilt and annotation orientation variance.",
+        "caution": "Large rotations can add border fill and clip objects unless that matches reality.",
+    },
+    "Affine": {
+        "summary": "Apply scale, shear, translation, and rotation-style geometric changes.",
+        "use": "Good for viewpoint and camera placement variation.",
+        "caution": "Aggressive values can distort object shape and reduce label quality.",
+    },
+    "RandomScale": {
+        "summary": "Randomly zoom in or out while preserving the image canvas workflow.",
+        "use": "Helps models handle object scale variation.",
+        "caution": "Too much scaling can remove small objects or create unrealistic context.",
+    },
+    "RandomCrop": {
+        "summary": "Crop a fixed-size region from the image and matching annotations.",
+        "use": "Useful when training on large images or forcing local context.",
+        "caution": "Can remove objects; use carefully with sparse detection datasets.",
+    },
+    "Pad": {
+        "summary": "Add pixels around image borders.",
+        "use": "Helpful before crops or geometric transforms that need extra canvas.",
+        "caution": "Large constant padding can teach the model artificial borders.",
+    },
+    "Perspective": {
+        "summary": "Move image corners to simulate perspective/viewpoint change.",
+        "use": "Good for camera angle variation and planar scenes.",
+        "caution": "High scale values can bend boxes/masks into unrealistic supervision.",
+    },
+    "ElasticTransform": {
+        "summary": "Apply smooth local deformation to the image and spatial targets.",
+        "use": "Useful for organic shapes, vegetation, biomedical, and soft deformable objects.",
+        "caution": "Often wrong for rigid objects, text, manufactured parts, and precise geometry.",
+    },
+    "GridDistortion": {
+        "summary": "Warp the image on a coarse grid.",
+        "use": "Can model lens or surface deformation.",
+        "caution": "Use low probability; strong grid warps can damage annotation geometry.",
+    },
+    "OpticalDistortion": {
+        "summary": "Simulate camera lens distortion.",
+        "use": "Useful when deployment cameras have barrel or pincushion distortion.",
+        "caution": "Avoid if source and target cameras are already calibrated similarly.",
+    },
+    "RandomBrightnessContrast": {
+        "summary": "Randomly adjust image brightness and contrast.",
+        "use": "A strong baseline for lighting variation in detection and segmentation.",
+        "caution": "Very wide ranges can hide objects or shift imagery away from deployment data.",
+    },
+    "ColorJitter": {
+        "summary": "Randomly vary brightness, contrast, saturation, and hue.",
+        "use": "Good for natural color variation and camera/color balance differences.",
+        "caution": "Hue/saturation changes can hurt tasks where color is the class signal.",
+    },
+    "Solarize": {
+        "summary": "Invert pixels above a sampled threshold.",
+        "use": "Regularizes against unusual tone response and high-contrast corruption.",
+        "caution": "Usually aggressive; keep probability low for detection datasets.",
+    },
+    "Posterize": {
+        "summary": "Reduce channel bit depth.",
+        "use": "Models low-quality capture, compression, or limited color depth.",
+        "caution": "Low bit counts can destroy subtle visual cues.",
+    },
+    "Equalize": {
+        "summary": "Equalize image histogram to redistribute contrast.",
+        "use": "Useful for variable exposure and contrast conditions.",
+        "caution": "Can exaggerate noise and create unnatural textures.",
+    },
+    "ToGray": {
+        "summary": "Convert image to grayscale.",
+        "use": "Helps when color should not be required for recognition.",
+        "caution": "Avoid when class identity depends on color.",
+    },
+    "HueSaturationValue": {
+        "summary": "Shift hue, saturation, and value channels independently.",
+        "use": "Good for camera white balance, vegetation tone, and lighting variation.",
+        "caution": "Large hue shifts can change class semantics for color-coded targets.",
+    },
+    "RGBShift": {
+        "summary": "Shift red, green, and blue channels independently.",
+        "use": "Models sensor/channel bias and white balance differences.",
+        "caution": "Strong shifts can make images unrealistic.",
+    },
+    "GaussNoise": {
+        "summary": "Add Gaussian noise sampled from a configured standard deviation range.",
+        "use": "Improves robustness to sensor noise, low light, and compression artifacts.",
+        "caution": "Too much noise hides small objects and fine masks.",
+    },
+    "ISONoise": {
+        "summary": "Add camera-like luminance noise and color shift.",
+        "use": "Good for low-light or high-ISO camera imagery.",
+        "caution": "Less appropriate for synthetic, scanned, or aerial data without sensor noise.",
+    },
+    "MultiplicativeNoise": {
+        "summary": "Multiply pixel values by sampled factors.",
+        "use": "Models uneven gain, exposure, or illumination changes.",
+        "caution": "Large multipliers can wash out or black out visual evidence.",
+    },
+    "GaussianBlur": {
+        "summary": "Blur with a Gaussian kernel.",
+        "use": "Models mild defocus, resizing blur, and motion-independent softness.",
+        "caution": "Large kernels can erase small objects.",
+    },
+    "MedianBlur": {
+        "summary": "Apply median filtering.",
+        "use": "Models denoising and salt-and-pepper robustness.",
+        "caution": "Can remove thin structures and fine boundaries.",
+    },
+    "MotionBlur": {
+        "summary": "Blur along a sampled line direction.",
+        "use": "Good for moving cameras, moving objects, drones, and vehicle footage.",
+        "caution": "Keep moderate for static imagery; heavy blur harms small labels.",
+    },
+    "AdvancedBlur": {
+        "summary": "Apply a richer randomized blur kernel with anisotropy and sigma variation.",
+        "use": "Useful when blur shape varies across cameras or acquisition conditions.",
+        "caution": "More aggressive than GaussianBlur; start with low probability.",
+    },
+    "CLAHE": {
+        "summary": "Apply contrast-limited adaptive histogram equalization.",
+        "use": "Helps local contrast in low-contrast or unevenly lit imagery.",
+        "caution": "High clip limits can amplify noise and halos.",
+    },
+    "Sharpen": {
+        "summary": "Blend sharpened detail back into the image.",
+        "use": "Models camera sharpening and helps robustness to crisp imagery.",
+        "caution": "Can amplify noise and create edge artifacts.",
+    },
+    "UnsharpMask": {
+        "summary": "Sharpen using a blurred image subtraction mask.",
+        "use": "Useful for camera post-processing variation.",
+        "caution": "Large blur or alpha values can create halos around object boundaries.",
+    },
+    "RandomFog": {
+        "summary": "Overlay fog-like brightness and haze.",
+        "use": "Useful for outdoor deployment under fog, haze, or atmospheric scattering.",
+        "caution": "Usually unrealistic for indoor, close-range, or controlled imagery.",
+    },
+    "RandomRain": {
+        "summary": "Add rain streaks with sampled slant and size.",
+        "use": "Good for outdoor camera datasets exposed to weather.",
+        "caution": "Avoid unless rain is plausible at deployment time.",
+    },
+    "RandomShadow": {
+        "summary": "Add polygonal shadow regions.",
+        "use": "Helps outdoor models handle clouds, trees, buildings, and object shadows.",
+        "caution": "Strong shadows can hide labels; keep probabilities moderate.",
+    },
+    "RandomSunFlare": {
+        "summary": "Add lens flare artifacts.",
+        "use": "Useful for cameras facing sun or bright point light sources.",
+        "caution": "Very domain-specific; use low probability.",
+    },
+    "ImageCompression": {
+        "summary": "Re-encode images with JPEG or WebP quality loss.",
+        "use": "Improves robustness to camera, upload, and web compression.",
+        "caution": "Low quality values damage small objects and thin masks.",
+    },
+    "Downscale": {
+        "summary": "Downscale then upscale to simulate resolution loss.",
+        "use": "Good when deployment images may be lower quality than training data.",
+        "caution": "Too much downscaling removes small targets.",
+    },
+    "CoarseDropout": {
+        "summary": "Erase random rectangular regions.",
+        "use": "Regularizes against occlusion and missing visual evidence.",
+        "caution": "Large holes can erase complete objects; use small sizes for detection.",
+    },
+    "ShotNoise": {
+        "summary": "Add signal-dependent shot noise.",
+        "use": "Models photon noise in low-light or sensor-limited imaging.",
+        "caution": "Use only when this noise resembles deployment data.",
+    },
+}
+
+
+def get_transform_guidance(name: str) -> dict[str, str]:
+    """Return user-facing guidance for a transform."""
+    return TRANSFORM_GUIDANCE.get(
+        name,
+        {
+            "summary": f"Configure the Albumentations {name} transform.",
+            "use": "Enable when this visual variation is realistic for deployment data.",
+            "caution": "Start with a low probability and inspect samples before training.",
+        },
+    )
+
+
 # Probability param shared by every transform
 _P_PARAM = ParameterDefinition(
     name="p",
@@ -45,11 +261,13 @@ _P_PARAM = ParameterDefinition(
     value_type="float",
     description="Probability",
     help_text=(
-        "Probability of applying this transform to each image.\n"
-        "0.0 = never applied, 1.0 = always applied."
+        "Albumentations checks this probability independently each time the transform is called.\n"
+        "0.0 = never considered, 0.5 = about half of calls, 1.0 = always considered.\n"
+        "Some transforms can still sample an identity/no-change result even when p=1.0."
     ),
     min_value=0.0,
     max_value=1.0,
+    affects="Controls how often this transform contributes augmented samples.",
 )
 
 # ---------------------------------------------------------------------------
