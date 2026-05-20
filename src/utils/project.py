@@ -146,7 +146,11 @@ def format_size(size_in_bytes: int | float) -> str:
     return f"{size:.2f} PB"
 
 
-def list_dataset_directories(datasets_root: str | Path = "datasets") -> list[dict[str, Any]]:
+def list_dataset_directories(
+    datasets_root: str | Path = "datasets",
+    *,
+    include_size: bool = True,
+) -> list[dict[str, Any]]:
     root = Path(datasets_root)
     if not root.exists():
         return []
@@ -155,13 +159,13 @@ def list_dataset_directories(datasets_root: str | Path = "datasets") -> list[dic
     for folder in sorted(root.iterdir()):
         if not folder.is_dir():
             continue
-        datasets.append(
-            {
-                "name": folder.name,
-                "path": folder.resolve(),
-                "size": format_size(calculate_folder_size(folder)),
-            }
-        )
+        dataset = {
+            "name": folder.name,
+            "path": folder.resolve(),
+        }
+        if include_size:
+            dataset["size"] = format_size(calculate_folder_size(folder))
+        datasets.append(dataset)
     return datasets
 
 

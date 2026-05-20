@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from src.trainers.yolo_trainer import (
     disable_ultralytics_clearml_callbacks,
+    normalize_class_names,
+    print_config_summary,
     upload_to_roboflow_if_configured,
 )
 
@@ -40,6 +42,41 @@ class YoloTrainerTests(unittest.TestCase):
         self.assertEqual(model.callbacks["on_fit_epoch_end"], [])
         self.assertEqual(model.callbacks["on_val_end"], [local_callback])
 
+    def test_normalize_class_names_handles_mapping_and_non_string_values(self) -> None:
+        self.assertEqual(
+            normalize_class_names({1: "tree", 0: "vegetation", 2: 7}),
+            ["vegetation", "tree", "7"],
+        )
+
+    @patch("src.trainers.yolo_trainer.console")
+    def test_print_config_summary_accepts_yolo_names_mapping(self, mock_console) -> None:
+        config = {
+            "settings": {"model_type": "yolo11l", "dataset": "dataset-v12"},
+            "clearml": {"project_name": "YOLOmatic"},
+            "training": {"batch": 4, "epochs": 1, "imgsz": 640},
+        }
+        dataset_config = {
+            "names": {0: "vegetation"},
+        }
+
+        print_config_summary(config, dataset_config)
+
+        self.assertGreaterEqual(mock_console.print.call_count, 2)
+
+    @patch("src.trainers.yolo_trainer.console")
+    def test_print_config_summary_accepts_yolo_names_integer_list(self, mock_console) -> None:
+        config = {
+            "settings": {"model_type": "yolo11l", "dataset": "dataset-v12"},
+            "clearml": {"project_name": "YOLOmatic"},
+            "training": {"batch": 4, "epochs": 1, "imgsz": 640},
+        }
+        dataset_config = {
+            "names": [0, 1],
+        }
+
+        print_config_summary(config, dataset_config)
+
+        self.assertGreaterEqual(mock_console.print.call_count, 2)
 
 
 
@@ -81,4 +118,3 @@ class TestRoboflowUpload(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

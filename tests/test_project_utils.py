@@ -154,6 +154,21 @@ class ProjectUtilsTests(unittest.TestCase):
             self.assertEqual(len(datasets), 1)
             self.assertEqual(datasets[0]["name"], "demo")
             self.assertEqual(datasets[0]["path"], dataset_dir.resolve())
+            self.assertEqual(datasets[0]["size"], "5.00 B")
+
+    def test_list_dataset_directories_can_skip_size_scan(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            datasets_root = Path(temp_dir) / "datasets"
+            dataset_dir = datasets_root / "demo"
+            dataset_dir.mkdir(parents=True)
+            (dataset_dir / "sample.txt").write_text("hello", encoding="utf-8")
+
+            datasets = list_dataset_directories(datasets_root, include_size=False)
+
+            self.assertEqual(len(datasets), 1)
+            self.assertEqual(datasets[0]["name"], "demo")
+            self.assertEqual(datasets[0]["path"], dataset_dir.resolve())
+            self.assertNotIn("size", datasets[0])
 
     def test_load_dataset_config_resolves_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -11,6 +11,7 @@ Supports:
 from __future__ import annotations
 
 import logging
+import os
 import random
 import shutil
 import time
@@ -271,6 +272,7 @@ def mask_to_polygon(
 
 def _import_albumentations():
     try:
+        os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
         import albumentations as A
         return A
     except ImportError as exc:

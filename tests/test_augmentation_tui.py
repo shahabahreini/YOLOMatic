@@ -1,10 +1,13 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from src.augmentation.profiles import AugmentationProfile
 from src.cli.augment import (
     _apply_profile_editor_result,
     _build_profile_editor_state,
     _ensure_transform_entries,
+    _quick_dataset_description,
 )
 
 
@@ -91,6 +94,27 @@ class AugmentationTUIEditorTest(unittest.TestCase):
         self.assertTrue(by_name["RandomBrightnessContrast"]["enabled"])
         self.assertEqual(by_name["RandomBrightnessContrast"]["p"], 0.7)
         self.assertEqual(by_name["RandomBrightnessContrast"]["brightness_limit_low"], -0.2)
+
+    def test_quick_dataset_description_uses_yaml_without_full_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = Path(temp_dir) / "dataset-82c47944"
+            dataset.mkdir()
+            (dataset / "data.yaml").write_text(
+                "task: segment\n"
+                "names:\n"
+                "  0: vegetation\n"
+                "train: images/train\n"
+                "val: images/val\n"
+                "test: images/test\n",
+                encoding="utf-8",
+            )
+
+            description = _quick_dataset_description(dataset.name, dataset)
+
+            self.assertIn("Format: [yellow]yolo[/yellow]", description)
+            self.assertIn("Task: [yellow]segment[/yellow]", description)
+            self.assertIn("Classes: [yellow]1[/yellow]", description)
+            self.assertIn("vegetation", description)
 
 
 if __name__ == "__main__":

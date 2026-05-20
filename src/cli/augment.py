@@ -8,10 +8,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
 from rich.live import Live
 from rich.panel import Panel
 
-from src.augmentation.engine import AugmentationStats, SplitConfig, run_augmentation
+from src.augmentation.engine import (
+    AugmentationStats,
+    SplitConfig,
+    collect_all_images,
+    run_augmentation,
+)
 from src.augmentation.profiles import (
     BUILT_IN_PROFILES,
     PROFILES_DIR,
@@ -41,10 +47,8 @@ from src.utils.cli import (
 )
 
 try:
-    from src.datasets.core import summarize_dataset
     from src.utils.project import list_dataset_directories
 except ImportError:
-    from datasets.core import summarize_dataset  # type: ignore[no-redef]
     from utils.project import list_dataset_directories  # type: ignore[no-redef]
 
 
@@ -680,7 +684,7 @@ def _select_dataset() -> Path | None:
     print_stylized_header("Select Source Dataset")
 
     try:
-        datasets = list_dataset_directories()
+        datasets = list_dataset_directories(include_size=False)
     except Exception:
         datasets = []
 
@@ -699,21 +703,7 @@ def _select_dataset() -> Path | None:
         ds_path = Path(ds["path"])
         name = ds["name"]
         path_by_name[name] = ds_path
-        try:
-            summary = summarize_dataset(str(ds_path))
-            class_preview = ", ".join(summary.classes[:6])
-            if len(summary.classes) > 6:
-                class_preview += "…"
-            descriptions[name] = (
-                f"[bold cyan]{name}[/bold cyan]\n\n"
-                f"Format: [yellow]{summary.format}[/yellow]  |  "
-                f"Images: [yellow]{summary.image_count}[/yellow]  |  "
-                f"Classes: [yellow]{len(summary.classes)}[/yellow]  |  "
-                f"Size: [yellow]{ds.get('size', '?')}[/yellow]\n\n"
-                f"[dim]{class_preview}[/dim]"
-            )
-        except Exception:
-            descriptions[name] = f"[dim]{ds_path}[/dim]"
+        descriptions[name] = _quick_dataset_description(name, ds_path)
 
     options = list(path_by_name.keys())
     choice = get_user_choice(
@@ -730,6 +720,58 @@ def _select_dataset() -> Path | None:
     if choice in (NAV_BACK, "Back"):
         return None
     return path_by_name.get(choice)
+
+
+def _quick_dataset_description(name: str, ds_path: Path) -> str:
+    """Build a selector description without recursively scanning large datasets."""
+    metadata: dict[str, Any] = {}
+    yaml_name = ""
+    for candidate in ("data.yaml", "dataset.yaml"):
+        yaml_path = ds_path / candidate
+        if not yaml_path.exists():
+            continue
+        try:
+            loaded = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            metadata = loaded if isinstance(loaded, dict) else {}
+            yaml_name = candidate
+        except Exception:
+            metadata = {}
+        break
+
+    if metadata:
+        raw_names = metadata.get("names", [])
+        if isinstance(raw_names, dict):
+            def _sort_key(value: Any) -> tuple[int, Any]:
+                text = str(value)
+                return (0, int(text)) if text.isdigit() else (1, text)
+
+            classes = [str(raw_names[key]) for key in sorted(raw_names, key=_sort_key)]
+        elif isinstance(raw_names, list):
+            classes = [str(item) for item in raw_names]
+        else:
+            classes = []
+        class_preview = ", ".join(classes[:6])
+        if len(classes) > 6:
+            class_preview += "…"
+        if not class_preview:
+            class_preview = "No classes listed"
+        task = str(metadata.get("task", "unknown"))
+        return (
+            f"[bold cyan]{name}[/bold cyan]\n\n"
+            f"Format: [yellow]yolo[/yellow]  |  "
+            f"Task: [yellow]{task}[/yellow]  |  "
+            f"Classes: [yellow]{len(classes)}[/yellow]\n"
+            f"Config: [dim]{yaml_name}[/dim]\n\n"
+            f"[dim]{class_preview}[/dim]"
+        )
+
+    if (ds_path / "annotations").exists():
+        return (
+            f"[bold cyan]{name}[/bold cyan]\n\n"
+            "Format: [yellow]coco[/yellow]\n"
+            f"[dim]{ds_path}[/dim]"
+        )
+    return f"[bold cyan]{name}[/bold cyan]\n\n[dim]{ds_path}[/dim]"
 
 
 def _select_output_format() -> str | None:
@@ -1004,8 +1046,7 @@ def _run_augmentation_flow() -> None:
 
     # Estimate output size
     try:
-        summary = summarize_dataset(str(dataset_path))
-        source_count: int | str = summary.image_count
+        source_count: int | str = len(collect_all_images(dataset_path))
     except Exception:
         source_count = "unknown"
 

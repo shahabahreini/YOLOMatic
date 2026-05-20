@@ -266,12 +266,26 @@ def upload_clearml_final_model(task, run_dir, clearml_settings):
             return
 
 
+def normalize_class_names(names):
+    """Return YOLO class names as display-safe strings for list or dict data.yaml forms."""
+    if isinstance(names, dict):
+        def _sort_key(value):
+            text = str(value)
+            return (0, int(text)) if text.isdigit() else (1, text)
+
+        return [str(names[key]) for key in sorted(names, key=_sort_key)]
+    if isinstance(names, list):
+        return [str(name) for name in names]
+    return []
+
+
 def print_config_summary(config, dataset_config):
     """Print a summary of the loaded configurations."""
     console.print(Panel.fit("[bold]Configuration Summary[/bold]", style="bold blue"))
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Category", style="dim", width=20)
     table.add_column("Details")
+    class_names = normalize_class_names(dataset_config.get("names", []))
 
     # Check if it's a YOLO NAS config
     if "experiment" in config:
@@ -283,8 +297,8 @@ def print_config_summary(config, dataset_config):
         table.add_row("Batch Size", str(config["training"]["batch_size"]))
         table.add_row("Max Epochs", str(config["training"]["max_epochs"]))
         table.add_row("Pretrained Weights", str(config["model"]["pretrained_weights"]))
-        table.add_row("Number of Classes", str(len(dataset_config["names"])))
-        table.add_row("Classes", ", ".join(dataset_config["names"]))
+        table.add_row("Number of Classes", str(len(class_names)))
+        table.add_row("Classes", ", ".join(class_names))
 
         # Add experiment info
         table.add_row("Experiment Name", str(config["experiment"]["name_prefix"]))
@@ -298,8 +312,8 @@ def print_config_summary(config, dataset_config):
         table.add_row("Batch Size", str(config["training"]["batch"]))
         table.add_row("Epochs", str(config["training"]["epochs"]))
         table.add_row("Image Size", str(config["training"]["imgsz"]))
-        table.add_row("Number of Classes", str(len(dataset_config["names"])))
-        table.add_row("Classes", ", ".join(dataset_config["names"]))
+        table.add_row("Number of Classes", str(len(class_names)))
+        table.add_row("Classes", ", ".join(class_names))
 
         # Add device info if available
         if "device" in config["training"]:
