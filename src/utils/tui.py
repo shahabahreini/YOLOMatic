@@ -221,6 +221,8 @@ class MenuRenderer:
         tip: str | None = None,
         status_fields: dict[str, str] | None = None,
         finish_option: str | None = None,
+        wizard_steps: list[str] | None = None,
+        wizard_current_step: int | None = None,
     ):
         self.options = options
         self.current_selection = current_selection
@@ -232,6 +234,8 @@ class MenuRenderer:
         self.tip = tip
         self.status_fields = status_fields or {}
         self.finish_option = finish_option
+        self.wizard_steps = wizard_steps
+        self.wizard_current_step = wizard_current_step
 
     def _is_header(self, option: str) -> bool:
         """Check if an option is a header (non-selectable)."""
@@ -492,20 +496,53 @@ class MenuRenderer:
 
     def __rich__(self) -> Layout:
         layout = Layout()
+        show_stepper = self.wizard_steps and self.wizard_current_step is not None
+        header_size = 5 if show_stepper else 3
         layout.split_column(
-            Layout(name="header", size=3),
+            Layout(name="header", size=header_size),
             Layout(name="body"),
             Layout(name="footer", size=3),
         )
 
         # Header
-        layout["header"].update(
-            make_panel(
-                Text(self.title, style="bold cyan", justify="center"),
-                state=TUIState.INFO,
-                padding=(0, 1),
+        if show_stepper:
+            header_text = Text()
+            header_text.append(self.title + "\n", style="bold cyan")
+            header_text.append("Wizard Progress:  ", style="dim white")
+            for i, step in enumerate(self.wizard_steps):
+                is_active = i == self.wizard_current_step
+                is_completed = i < self.wizard_current_step
+                
+                if is_active:
+                    bullet = "●"
+                    style = "bold yellow"
+                elif is_completed:
+                    bullet = "✓"
+                    style = "bold green"
+                else:
+                    bullet = "○"
+                    style = "dim white"
+                
+                header_text.append(f"{bullet} {step}", style=style)
+                if i < len(self.wizard_steps) - 1:
+                    line_style = "green" if is_completed else "dim"
+                    header_text.append(" ── ", style=line_style)
+            
+            layout["header"].update(
+                make_panel(
+                    header_text,
+                    state=TUIState.INFO,
+                    padding=(0, 1),
+                )
             )
-        )
+        else:
+            layout["header"].update(
+                make_panel(
+                    Text(self.title, style="bold cyan", justify="center"),
+                    state=TUIState.INFO,
+                    padding=(0, 1),
+                )
+            )
 
         # Body - Split into Sidebar and Content
         layout["body"].split_row(
@@ -625,6 +662,8 @@ def get_user_choice(
     status_fields: dict[str, str] | None = None,
     finish_options: set[str] | None = None,
     initial_selection: int | str | None = None,
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
 ) -> str:
     """
     Highly refined interactive menu with grouped options and breadcrumbs.
@@ -692,6 +731,8 @@ def get_user_choice(
             tip=tip,
             status_fields=status_fields,
             finish_option=finish_option,
+            wizard_steps=wizard_steps,
+            wizard_current_step=wizard_current_step,
         )
 
         with Live(
@@ -704,6 +745,16 @@ def get_user_choice(
                     current_nav_idx = (current_nav_idx - 1) % len(navigable_indices)
                 elif key.name == "KEY_DOWN" or key.lower() == "j":
                     current_nav_idx = (current_nav_idx + 1) % len(navigable_indices)
+                elif key.name == "KEY_PGUP":
+                    visible_items = max(3, min(len(selectable_options), TUI_TERM.height - 15))
+                    current_nav_idx = max(0, current_nav_idx - visible_items)
+                elif key.name == "KEY_PGDN":
+                    visible_items = max(3, min(len(selectable_options), TUI_TERM.height - 15))
+                    current_nav_idx = min(len(navigable_indices) - 1, current_nav_idx + visible_items)
+                elif key.name == "KEY_HOME":
+                    current_nav_idx = 0
+                elif key.name == "KEY_END":
+                    current_nav_idx = len(navigable_indices) - 1
                 elif is_enter_key(key):
                     return selectable_options[navigable_indices[current_nav_idx]]
                 elif key.lower() == "f" and finish_option is not None:
@@ -893,6 +944,8 @@ class MultiSelectRenderer:
         focus: str = "list",  # "list" or "input"
         input_buffer: str = "",
         validation_error: str | None = None,
+        wizard_steps: list[str] | None = None,
+        wizard_current_step: int | None = None,
     ):
         self.parameters = parameters
         self.selected = selected
@@ -904,6 +957,8 @@ class MultiSelectRenderer:
         self.input_buffer = input_buffer
         self.validation_error = validation_error
         self.filtered_params = parameters
+        self.wizard_steps = wizard_steps
+        self.wizard_current_step = wizard_current_step
 
     def _render_checkbox(self, param: ParameterDefinition, is_active: bool) -> Text:
         checked = "[x]" if param.name in self.selected else "[ ]"
@@ -1122,19 +1177,53 @@ class MultiSelectRenderer:
 
     def __rich__(self) -> Layout:
         layout = Layout()
+        show_stepper = self.wizard_steps and self.wizard_current_step is not None
+        header_size = 5 if show_stepper else 3
         layout.split_column(
-            Layout(name="header", size=3),
+            Layout(name="header", size=header_size),
             Layout(name="body"),
             Layout(name="footer", size=3),
         )
 
-        layout["header"].update(
-            make_panel(
-                Text(self.title, style="bold cyan", justify="center"),
-                state=TUIState.INFO,
-                padding=(0, 1),
+        # Header
+        if show_stepper:
+            header_text = Text()
+            header_text.append(self.title + "\n", style="bold cyan")
+            header_text.append("Wizard Progress:  ", style="dim white")
+            for i, step in enumerate(self.wizard_steps):
+                is_active = i == self.wizard_current_step
+                is_completed = i < self.wizard_current_step
+                
+                if is_active:
+                    bullet = "●"
+                    style = "bold yellow"
+                elif is_completed:
+                    bullet = "✓"
+                    style = "bold green"
+                else:
+                    bullet = "○"
+                    style = "dim white"
+                
+                header_text.append(f"{bullet} {step}", style=style)
+                if i < len(self.wizard_steps) - 1:
+                    line_style = "green" if is_completed else "dim"
+                    header_text.append(" ── ", style=line_style)
+            
+            layout["header"].update(
+                make_panel(
+                    header_text,
+                    state=TUIState.INFO,
+                    padding=(0, 1),
+                )
             )
-        )
+        else:
+            layout["header"].update(
+                make_panel(
+                    Text(self.title, style="bold cyan", justify="center"),
+                    state=TUIState.INFO,
+                    padding=(0, 1),
+                )
+            )
 
         layout["body"].split_row(
             Layout(name="sidebar", ratio=11),
@@ -1154,6 +1243,8 @@ def get_user_multi_select(
     instruction: str = "Use Space to toggle parameters, Enter to edit values:",
     pre_selected: set[str] | None = None,
     pre_values: dict[str, Any] | None = None,
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
 ) -> tuple[set[str], dict[str, Any]] | None:
     """
     Interactive unified interface for parameter selection and value editing.
@@ -1215,6 +1306,8 @@ def get_user_multi_select(
             focus=focus,
             input_buffer=input_buffer,
             validation_error=validation_error,
+            wizard_steps=wizard_steps,
+            wizard_current_step=wizard_current_step,
         )
 
         with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
@@ -1228,6 +1321,20 @@ def get_user_multi_select(
                         validation_error = None
                     elif key.name == "KEY_DOWN" or key.lower() == "j":
                         current_index = (current_index + 1) % len(parameters)
+                        validation_error = None
+                    elif key.name == "KEY_PGUP":
+                        visible_items = max(4, min(len(parameters), TUI_TERM.height - 12))
+                        current_index = max(0, current_index - visible_items)
+                        validation_error = None
+                    elif key.name == "KEY_PGDN":
+                        visible_items = max(4, min(len(parameters), TUI_TERM.height - 12))
+                        current_index = min(len(parameters) - 1, current_index + visible_items)
+                        validation_error = None
+                    elif key.name == "KEY_HOME":
+                        current_index = 0
+                        validation_error = None
+                    elif key.name == "KEY_END":
+                        current_index = len(parameters) - 1
                         validation_error = None
                     elif key == " ":
                         if param.name in selected:
@@ -1252,7 +1359,13 @@ def get_user_multi_select(
                         return None
                 
                 elif focus == "input":
-                    if key.name == "KEY_LEFT" or key.name == "KEY_ESCAPE" or key.lower() == "b":
+                    is_string_param = param.value_type in {"str", "optional_str", "bool_or_str"}
+                    should_exit_input = (
+                        key.name == "KEY_ESCAPE"
+                        or key.name == "KEY_LEFT"
+                        or (not is_string_param and key.lower() == "b")
+                    )
+                    if should_exit_input:
                         focus = "list"
                         validation_error = None
                     elif param.value_type == "bool":
@@ -1398,12 +1511,19 @@ def get_parameter_value_input(
         console.print(f"[bold magenta]{range_str}[/bold magenta]")
 
     console.print(f"\nCurrent value: [bold yellow]{value_to_edit}[/bold yellow]")
-    console.print(
-        "\n[dim]Commands: [bold yellow]Enter[/bold yellow] (keep current)  •  "
-        "[bold yellow]B[/bold yellow] (back)  •  "
-        "[bold yellow]L[/bold yellow] (list)  •  "
-        "[bold yellow]Esc[/bold yellow] (cancel/back)[/dim]"
-    )
+    if param.value_type in {"str", "optional_str", "bool_or_str"}:
+        console.print(
+            "\n[dim]Commands: [bold yellow]Enter[/bold yellow] (keep current)  •  "
+            "[bold yellow]:b[/bold yellow] (back)  •  "
+            "[bold yellow]:l[/bold yellow] (list)[/dim]"
+        )
+    else:
+        console.print(
+            "\n[dim]Commands: [bold yellow]Enter[/bold yellow] (keep current)  •  "
+            "[bold yellow]B[/bold yellow] (back)  •  "
+            "[bold yellow]L[/bold yellow] (list)  •  "
+            "[bold yellow]Esc[/bold yellow] (cancel/back)[/dim]"
+        )
 
     while True:
         try:
@@ -1414,10 +1534,16 @@ def get_parameter_value_input(
         if not user_input:
             return value_to_edit
 
-        if user_input.lower() == "b":
+        if user_input.lower() == ":b" or user_input.lower() == ":back":
             return NAV_BACK
-        if user_input.lower() == "l":
+        if user_input.lower() == ":l" or user_input.lower() == ":list":
             return NAV_LIST
+
+        if param.value_type not in {"str", "optional_str", "bool_or_str"}:
+            if user_input.lower() == "b":
+                return NAV_BACK
+            if user_input.lower() == "l":
+                return NAV_LIST
 
         try:
             if param.value_type == "int":

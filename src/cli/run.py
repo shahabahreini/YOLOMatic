@@ -1815,7 +1815,7 @@ def display_paths_info(dataset_info):
     console.print(paths_table)
 
 
-def list_datasets():
+def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: int | None = None):
     datasets_folder = "datasets"
     if not os.path.exists(datasets_folder):
         os.makedirs(datasets_folder)
@@ -1892,12 +1892,18 @@ def list_datasets():
         title="Select Dataset",
         text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
         descriptions=dataset_descriptions,
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
 
     return name_to_path.get(choice) if choice != "Back" else choice
 
 
-def select_saved_config_file(title: str = "Clone Saved Config") -> Path | None:
+def select_saved_config_file(
+    title: str = "Clone Saved Config",
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
+) -> Path | None:
     config_dir = Path("configs")
     yaml_files = list_config_files(config_dir)
     if not yaml_files:
@@ -1942,6 +1948,8 @@ def select_saved_config_file(title: str = "Clone Saved Config") -> Path | None:
         ),
         descriptions=descriptions,
         breadcrumbs=["YOLOmatic", "Clone Config"],
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
     if choice == "Back":
         return None
@@ -1998,7 +2006,8 @@ def clone_config_filename(source_path: Path, dataset_name: str) -> str:
 
 
 def clone_saved_config_flow() -> bool:
-    source_path = select_saved_config_file()
+    steps = ["Select Source YAML", "Select Target Dataset"]
+    source_path = select_saved_config_file(wizard_steps=steps, wizard_current_step=0)
     if source_path is None:
         return False
 
@@ -2044,7 +2053,7 @@ def clone_saved_config_flow() -> bool:
         return False
 
     try:
-        dataset_choice = list_datasets()
+        dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=1)
     except Exception as error:
         console.print(
             Panel(
@@ -2142,7 +2151,10 @@ def clone_saved_config_flow() -> bool:
     return True
 
 
-def select_finetune_candidate() -> FineTuneCandidate | None:
+def select_finetune_candidate(
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
+) -> FineTuneCandidate | None:
     root = project_root()
     candidates = find_finetune_candidates(root)
     if not candidates:
@@ -2184,13 +2196,19 @@ def select_finetune_candidate() -> FineTuneCandidate | None:
             "weights. For deployment-quality transfer, best.pt is usually the "
             "better start."
         ),
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
     if selected == "Back":
         return None
     return candidates[options.index(selected)]
 
 
-def select_finetune_strategy(candidate: FineTuneCandidate) -> str | None:
+def select_finetune_strategy(
+    candidate: FineTuneCandidate,
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
+) -> str | None:
     selected = get_user_choice(
         ["Recommended", "Freeze Backbone", "Fully Customized"],
         allow_back=True,
@@ -2223,6 +2241,8 @@ def select_finetune_strategy(candidate: FineTuneCandidate) -> str | None:
             ),
         },
         breadcrumbs=["YOLOmatic", "Fine-Tune", "Strategy"],
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
     if selected == "Back":
         return None
@@ -2297,6 +2317,8 @@ def update_config(
     dataset_choice,
     finetune_source: str | None = None,
     finetune_strategy: str | None = None,
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
 ):
     """Update the configuration file with the selected model and dataset."""
     yaml = YAML()
@@ -2562,6 +2584,8 @@ def update_config(
             dataset_name,
             profile_context,
             model_choice,
+            wizard_steps=wizard_steps,
+            wizard_current_step=wizard_current_step,
         )
         if profile_selection is None:
             return False
@@ -2569,7 +2593,11 @@ def update_config(
         # Handle fully customized mode
         if profile_selection.get("mode") == "fully_customized":
             result = run_fully_customized_config_flow(
-                dataset_name, model_choice, profile_context
+                dataset_name,
+                model_choice,
+                profile_context,
+                wizard_steps=wizard_steps,
+                wizard_current_step=wizard_current_step,
             )
             if result is None:
                 return False
@@ -2722,6 +2750,8 @@ def select_profile_option(
     option_descriptions: dict[str, str],
     recommended_key: str,
     hint_lines: list[str] | None = None,
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
 ) -> str | None:
     option_map: dict[str, str] = {}
     option_labels: list[str] = []
@@ -2747,6 +2777,8 @@ def select_profile_option(
         title=title,
         text=f"{prompt_text}{hint_block}",
         descriptions=descriptions,
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
     if choice == "Back":
         return None
@@ -2837,6 +2869,8 @@ def choose_regular_yolo_profiles(
     dataset_name: str,
     profile_context: dict[str, Any],
     model_choice: str,
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
 ) -> dict[str, str] | None:
     summary_text = build_regular_yolo_profile_summary_text(
         dataset_name,
@@ -2876,6 +2910,8 @@ def choose_regular_yolo_profiles(
             f"Pick customize if you want to review each area manually.\n\n{hint_block}"
         ),
         descriptions=start_descriptions,
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
 
     if initial_choice == "Back":
@@ -2910,6 +2946,8 @@ def choose_regular_yolo_profiles(
             "Low adds only basic robustness improvements.",
             "Medium adds more color and geometric changes, which can improve generalization but also change training behavior more.",
         ],
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
     if augmentation_choice is None:
         return None
@@ -2924,6 +2962,8 @@ def choose_regular_yolo_profiles(
             "Conservative is better when GPU memory is tight or the model is heavy.",
             "Aggressive is best only when your RAM, GPU memory, and dataset pressure all look healthy.",
         ],
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
     if compute_choice is None:
         return None
@@ -2938,6 +2978,8 @@ def choose_regular_yolo_profiles(
             "Too many workers can reduce training quality indirectly by causing CPU contention, RAM pressure, disk thrashing, and less stable batch preparation.",
             "If you are unsure, keep the recommended worker profile and only raise it when the GPU is starved and the machine still has clear headroom.",
         ],
+        wizard_steps=wizard_steps,
+        wizard_current_step=wizard_current_step,
     )
     if worker_choice is None:
         return None
@@ -2956,6 +2998,8 @@ def run_fully_customized_config_flow(
     initial_sections: dict[str, dict[str, Any]] | None = None,
     title: str = "Fully Customized Configuration",
     intro_text: str | None = None,
+    wizard_steps: list[str] | None = None,
+    wizard_current_step: int | None = None,
 ) -> dict[str, Any] | None:
     """
     Interactive flow for fully customized parameter selection.
@@ -3013,6 +3057,8 @@ def run_fully_customized_config_flow(
             instruction="[Space] Toggle  [Enter/→] Edit Value  [F] Finish",
             pre_selected=current_selected_names,
             pre_values=custom_values,
+            wizard_steps=wizard_steps,
+            wizard_current_step=wizard_current_step,
         )
 
         if result is None:
@@ -3670,16 +3716,17 @@ def _main_loop_iteration():
             continue
 
         elif main_choice == "Configure Fine-Tune":
-            candidate = select_finetune_candidate()
+            steps = ["Checkpoint Weights", "Strategy Selection", "Dataset Selection", "Profile Settings"]
+            candidate = select_finetune_candidate(wizard_steps=steps, wizard_current_step=0)
             if candidate is None:
                 continue
 
-            strategy = select_finetune_strategy(candidate)
+            strategy = select_finetune_strategy(candidate, wizard_steps=steps, wizard_current_step=1)
             if strategy is None:
                 continue
 
             try:
-                dataset_choice = list_datasets()
+                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
             except Exception as error:
                 console.print(
                     Panel(
@@ -3701,6 +3748,8 @@ def _main_loop_iteration():
                     dataset_choice,
                     finetune_source=candidate.source,
                     finetune_strategy=strategy,
+                    wizard_steps=steps,
+                    wizard_current_step=3,
                 ):
                     continue
             except KeyboardInterrupt:
@@ -3758,6 +3807,7 @@ def _main_loop_iteration():
             continue
 
         elif main_choice == "Configure Model":
+            steps = ["Model Family", "Model Size", "Dataset Selection", "Profile Settings"]
             # Get model choice
             model_types = get_model_menu()
             model_choice = get_user_choice(
@@ -3972,6 +4022,8 @@ def _main_loop_iteration():
                     ),
                 },
                 breadcrumbs=["YOLOmatic", "Model Selection"],
+                wizard_steps=steps,
+                wizard_current_step=0,
             )
 
             if model_choice == "Back":
@@ -3985,6 +4037,8 @@ def _main_loop_iteration():
                 text="Choose the model size that fits your hardware:",
                 model_data=model_data_dict[model_choice],
                 breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
+                wizard_steps=steps,
+                wizard_current_step=1,
             )
 
             if model_variant == "Back":
@@ -3994,7 +4048,7 @@ def _main_loop_iteration():
 
             # Continue with dataset selection...
             try:
-                dataset_choice = list_datasets()
+                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
             except Exception as error:
                 console.print(
                     Panel(
@@ -4014,7 +4068,7 @@ def _main_loop_iteration():
             # generation must not tear down the TUI — report and return.
             print_summary(model_choice, dataset_choice)
             try:
-                if not update_config(model_choice, dataset_choice):
+                if not update_config(model_choice, dataset_choice, wizard_steps=steps, wizard_current_step=3):
                     continue
             except KeyboardInterrupt:
                 console.print(

@@ -26,6 +26,11 @@ import yaml
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+SPLIT_ALIASES = {
+    "train": ("train", "training"),
+    "val": ("val", "valid", "validation"),
+    "test": ("test", "testing"),
+}
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -398,34 +403,123 @@ def _augment_bbox(
 # Image collection
 # ---------------------------------------------------------------------------
 
+def _read_dataset_yaml(dataset_path: Path) -> dict[str, Any]:
+    for name in ("data.yaml", "dataset.yaml"):
+        yaml_path = dataset_path / name
+        if yaml_path.exists():
+            try:
+                with open(yaml_path, encoding="utf-8") as handle:
+                    loaded = yaml.safe_load(handle) or {}
+                return loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                return {}
+    return {}
+
+
+def _resolve_dataset_path(dataset_path: Path, value: Any) -> Path | None:
+    if value is None:
+        return None
+    path = Path(str(value))
+    if path.is_absolute():
+        return path
+    resolved = (dataset_path / path).resolve()
+    if resolved.exists():
+        return resolved
+    normalized = str(path).replace("\\", "/")
+    if normalized.startswith("../"):
+        roboflow_resolved = (dataset_path / normalized[3:]).resolve()
+        if roboflow_resolved.exists():
+            return roboflow_resolved
+    return resolved
+
+
+def _iter_split_image_dirs(dataset_path: Path) -> list[tuple[str, Path]]:
+    data = _read_dataset_yaml(dataset_path)
+    dirs: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+
+    def add(split_name: str, path: Path | None) -> None:
+        if path is None or not path.exists():
+            return
+        resolved = path.resolve()
+        if resolved in seen:
+            return
+        seen.add(resolved)
+        dirs.append((split_name, resolved))
+
+    for canonical, aliases in SPLIT_ALIASES.items():
+        value = next((data.get(alias) for alias in aliases if data.get(alias)), None)
+        add(canonical, _resolve_dataset_path(dataset_path, value))
+
+    for split_name in ("train", "valid", "val", "test"):
+        canonical = "val" if split_name == "valid" else split_name
+        add(canonical, dataset_path / split_name / "images")
+        add(canonical, dataset_path / "images" / split_name)
+        add(canonical, dataset_path / split_name)
+
+    return dirs
+
+
+def _label_candidates(
+    dataset_path: Path,
+    image_dir: Path,
+    img_path: Path,
+    split_name: str,
+) -> list[Path]:
+    stem = img_path.stem + ".txt"
+    candidates: list[Path] = []
+    image_dir_text = str(image_dir).replace("\\", "/")
+
+    if "/images/" in image_dir_text:
+        candidates.append(Path(image_dir_text.replace("/images/", "/labels/")) / stem)
+    if image_dir.name == "images":
+        candidates.append(image_dir.parent / "labels" / stem)
+    candidates.append(dataset_path / split_name / "labels" / stem)
+    candidates.append(dataset_path / "labels" / split_name / stem)
+
+    if split_name == "val":
+        candidates.append(dataset_path / "valid" / "labels" / stem)
+        candidates.append(dataset_path / "labels" / "valid" / stem)
+    elif split_name == "valid":
+        candidates.append(dataset_path / "val" / "labels" / stem)
+        candidates.append(dataset_path / "labels" / "val" / stem)
+
+    candidates.append(dataset_path / "labels" / stem)
+    return list(dict.fromkeys(candidates))
+
+
+def _find_label_path(
+    dataset_path: Path,
+    image_dir: Path,
+    img_path: Path,
+    split_name: str,
+) -> Path | None:
+    for candidate in _label_candidates(dataset_path, image_dir, img_path, split_name):
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def collect_all_images(dataset_path: Path) -> list[tuple[Path, Path | None]]:
     """
     Walk all known splits and return a flat list of (image_path, label_path | None).
-    Handles YOLO (split/images + split/labels) and flat split-dir structures.
+    Handles YOLO split/images, images/split, and flat split-dir structures.
     label_path is None for COCO datasets or images without a label file.
     """
     pairs: list[tuple[Path, Path | None]] = []
-    for split in ("train", "valid", "val", "test"):
-        split_dir = dataset_path / split
-        if not split_dir.exists():
-            continue
-
-        img_dir = split_dir / "images"
-        lbl_dir = split_dir / "labels"
-
-        if img_dir.exists():
-            # Standard YOLO: split/images/ + split/labels/
-            for img_path in sorted(img_dir.iterdir()):
-                if img_path.suffix.lower() not in IMAGE_EXTENSIONS:
-                    continue
-                lbl_path = lbl_dir / (img_path.stem + ".txt")
-                pairs.append((img_path, lbl_path if lbl_path.exists() else None))
-        else:
-            # Flat structure: images sit directly in split_dir (COCO-style)
-            for img_path in sorted(split_dir.iterdir()):
-                if img_path.suffix.lower() not in IMAGE_EXTENSIONS:
-                    continue
-                pairs.append((img_path, None))
+    seen_images: set[Path] = set()
+    for split_name, img_dir in _iter_split_image_dirs(dataset_path):
+        for img_path in sorted(img_dir.iterdir()):
+            if img_path.suffix.lower() not in IMAGE_EXTENSIONS:
+                continue
+            resolved_img = img_path.resolve()
+            if resolved_img in seen_images:
+                continue
+            seen_images.add(resolved_img)
+            pairs.append((
+                img_path,
+                _find_label_path(dataset_path, img_dir, img_path, split_name),
+            ))
     return pairs
 
 
@@ -621,9 +715,9 @@ def run_augmentation(
     # Write data.yaml (include task field so future detection is instant)
     task_field = "segment" if write_as_seg else "detect"
     data_yaml_content = {
-        "train": "../train/images",
-        "val":   "../valid/images",
-        "test":  "../test/images",
+        "train": "train/images",
+        "val":   "valid/images",
+        "test":  "test/images",
         "nc":    len(class_names),
         "names": class_names,
         "task":  task_field,
