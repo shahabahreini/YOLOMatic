@@ -1,5 +1,4 @@
 import json
-import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import urlparse
@@ -179,7 +178,7 @@ def convert_ndjson_to_format(ndjson_path: Path, output_format: str, output_dir: 
         }
         (output_dir / "annotations.json").write_text(json.dumps(coco_data, indent=2))
 
-    console.print(f"[bold green]Conversion completed![/bold green]")
+    console.print("[bold green]Conversion completed![/bold green]")
     console.print(f"Output saved to: [cyan]{output_dir.absolute()}[/cyan]")
 
 

@@ -3,8 +3,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
-from PIL import Image
 
 from src.cli.convert_ndjson import convert_ndjson_to_format
 
