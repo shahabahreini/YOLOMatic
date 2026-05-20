@@ -19,6 +19,20 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("0 0.500000 0.500000 0.250000 0.250000\n", encoding="utf-8")
 
+    def _write_image(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        image = np.full((12, 12, 3), 120, dtype=np.uint8)
+        cv2.imwrite(str(path), image)
+
+    def _noop_profile(self, *, multiplier: int = 1, include_originals: bool = True) -> SimpleNamespace:
+        return SimpleNamespace(
+            name="noop",
+            multiplier=multiplier,
+            include_originals=include_originals,
+            seed=7,
+            transforms=[],
+        )
+
     def test_collects_standard_split_images_and_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -67,6 +81,61 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             self.assertEqual(len(pairs), 1)
             self.assertEqual(pairs[0][0], root / "images" / "val" / "background.jpg")
             self.assertIsNone(pairs[0][1])
+
+    def test_collects_yaml_path_base_without_duplicate_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "path: assets\n"
+                "task: detect\n"
+                "names: [item]\n"
+                "train: images/train\n",
+                encoding="utf-8",
+            )
+            self._touch(root / "assets" / "images" / "train" / "a.jpg")
+            self._write_label(root / "assets" / "labels" / "train" / "a.txt")
+
+            pairs = collect_all_images(root)
+
+            self.assertEqual(len(pairs), 1)
+            self.assertEqual(pairs[0][0], (root / "assets" / "images" / "train" / "a.jpg").resolve())
+            self.assertEqual(pairs[0][1], root / "assets" / "labels" / "train" / "a.txt")
+
+    def test_collects_split_root_as_nested_images_dir_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "data.yaml").write_text(
+                "task: detect\n"
+                "names: [item]\n"
+                "train: train\n",
+                encoding="utf-8",
+            )
+            self._touch(root / "train" / "images" / "a.jpg")
+            self._write_label(root / "train" / "labels" / "a.txt")
+
+            pairs = collect_all_images(root)
+
+            self.assertEqual(len(pairs), 1)
+            self.assertEqual(pairs[0][0], (root / "train" / "images" / "a.jpg").resolve())
+            self.assertEqual(pairs[0][1], root / "train" / "labels" / "a.txt")
+
+    def test_collects_valid_alias_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "data.yaml").write_text(
+                "task: detect\n"
+                "names: [item]\n"
+                "val: valid/images\n",
+                encoding="utf-8",
+            )
+            self._touch(root / "valid" / "images" / "a.jpg")
+            self._write_label(root / "valid" / "labels" / "a.txt")
+
+            pairs = collect_all_images(root)
+
+            self.assertEqual(len(pairs), 1)
+            self.assertEqual(pairs[0][1], root / "valid" / "labels" / "a.txt")
 
     def test_run_augmentation_pools_all_source_splits_then_redistributes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -125,6 +194,73 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             self.assertEqual(data_yaml["train"], "train/images")
             self.assertEqual(data_yaml["val"], "valid/images")
             self.assertEqual(data_yaml["test"], "test/images")
+
+    def test_run_augmentation_removes_stale_output_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: detect\nnames: [item]\ntrain: train/images\n",
+                encoding="utf-8",
+            )
+            self._write_image(root / "train" / "images" / "a.jpg")
+            self._write_label(root / "train" / "labels" / "a.txt")
+
+            stale_label = root.parent / "augmented" / "train" / "labels" / "stale.txt"
+            stale_label.parent.mkdir(parents=True, exist_ok=True)
+            stale_label.write_text("0 0.1 0.1 0.1 0.1\n", encoding="utf-8")
+
+            stats = run_augmentation(
+                root,
+                "augmented",
+                self._noop_profile(multiplier=0, include_originals=True),
+                SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0),
+                output_format="YOLO Detection",
+                max_workers=1,
+            )
+
+            out_root = root.parent / "augmented"
+            self.assertEqual(stats.total_output_images, 1)
+            self.assertFalse(stale_label.exists())
+            self.assertEqual(
+                len(list((out_root / "train" / "labels").glob("*.txt"))),
+                1,
+            )
+
+    def test_run_augmentation_deduplicates_identical_label_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: detect\nnames: [item]\ntrain: train/images\n",
+                encoding="utf-8",
+            )
+            self._write_image(root / "train" / "images" / "a.jpg")
+            label_path = root / "train" / "labels" / "a.txt"
+            label_path.parent.mkdir(parents=True, exist_ok=True)
+            label_path.write_text(
+                "0 0.500000 0.500000 0.250000 0.250000\n"
+                "0 0.500000 0.500000 0.250000 0.250000\n",
+                encoding="utf-8",
+            )
+
+            run_augmentation(
+                root,
+                "augmented",
+                self._noop_profile(multiplier=0, include_originals=True),
+                SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0),
+                output_format="YOLO Detection",
+                max_workers=1,
+            )
+
+            output_labels = list((root.parent / "augmented" / "train" / "labels").glob("*.txt"))
+            self.assertEqual(len(output_labels), 1)
+            rows = [
+                line
+                for line in output_labels[0].read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(rows, ["0 0.500000 0.500000 0.250000 0.250000"])
 
 
 if __name__ == "__main__":

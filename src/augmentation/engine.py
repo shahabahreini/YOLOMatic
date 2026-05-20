@@ -187,17 +187,27 @@ def read_yolo_seg(label_path: Path | None) -> tuple[list[list[float]], list[int]
 def write_yolo_bbox(label_path: Path, bboxes: list[list[float]], class_ids: list[int]) -> None:
     label_path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
+    seen: set[str] = set()
     for cls, (cx, cy, w, h) in zip(class_ids, bboxes):
-        lines.append(f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+        line = f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
+        if line in seen:
+            continue
+        seen.add(line)
+        lines.append(line)
     label_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_yolo_seg(label_path: Path, polygons: list[list[float]], class_ids: list[int]) -> None:
     label_path.parent.mkdir(parents=True, exist_ok=True)
     lines = []
+    seen: set[str] = set()
     for cls, poly in zip(class_ids, polygons):
         coords = " ".join(f"{v:.6f}" for v in poly)
-        lines.append(f"{cls} {coords}")
+        line = f"{cls} {coords}"
+        if line in seen:
+            continue
+        seen.add(line)
+        lines.append(line)
     label_path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -418,13 +428,35 @@ def _read_dataset_yaml(dataset_path: Path) -> dict[str, Any]:
     return {}
 
 
-def _resolve_dataset_path(dataset_path: Path, value: Any) -> Path | None:
+def _split_values(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [item for item in value if item is not None]
+    return [value]
+
+
+def _resolve_dataset_base(dataset_path: Path, data: dict[str, Any]) -> Path:
+    raw_base = data.get("path")
+    if raw_base in (None, ""):
+        return dataset_path
+    base = Path(str(raw_base))
+    if base.is_absolute():
+        return base.resolve()
+    normalized = str(base).replace("\\", "/")
+    if normalized.startswith("../"):
+        return (dataset_path / normalized).resolve()
+    return (dataset_path / base).resolve()
+
+
+def _resolve_dataset_path(dataset_path: Path, value: Any, *, base_path: Path | None = None) -> Path | None:
     if value is None:
         return None
     path = Path(str(value))
     if path.is_absolute():
         return path
-    resolved = (dataset_path / path).resolve()
+    root = base_path or dataset_path
+    resolved = (root / path).resolve()
     if resolved.exists():
         return resolved
     normalized = str(path).replace("\\", "/")
@@ -435,23 +467,46 @@ def _resolve_dataset_path(dataset_path: Path, value: Any) -> Path | None:
     return resolved
 
 
+def _has_direct_images(path: Path) -> bool:
+    try:
+        return any(
+            item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS
+            for item in path.iterdir()
+        )
+    except OSError:
+        return False
+
+
+def _normalize_image_dir(path: Path | None) -> Path | None:
+    if path is None or not path.exists() or not path.is_dir():
+        return None
+    if _has_direct_images(path):
+        return path.resolve()
+    nested_images = path / "images"
+    if nested_images.exists() and nested_images.is_dir() and _has_direct_images(nested_images):
+        return nested_images.resolve()
+    return None
+
+
 def _iter_split_image_dirs(dataset_path: Path) -> list[tuple[str, Path]]:
     data = _read_dataset_yaml(dataset_path)
+    yaml_base = _resolve_dataset_base(dataset_path, data)
     dirs: list[tuple[str, Path]] = []
     seen: set[Path] = set()
 
     def add(split_name: str, path: Path | None) -> None:
-        if path is None or not path.exists():
+        image_dir = _normalize_image_dir(path)
+        if image_dir is None:
             return
-        resolved = path.resolve()
-        if resolved in seen:
+        if image_dir in seen:
             return
-        seen.add(resolved)
-        dirs.append((split_name, resolved))
+        seen.add(image_dir)
+        dirs.append((split_name, image_dir))
 
     for canonical, aliases in SPLIT_ALIASES.items():
         value = next((data.get(alias) for alias in aliases if data.get(alias)), None)
-        add(canonical, _resolve_dataset_path(dataset_path, value))
+        for split_value in _split_values(value):
+            add(canonical, _resolve_dataset_path(dataset_path, split_value, base_path=yaml_base))
 
     for split_name in ("train", "valid", "val", "test"):
         canonical = "val" if split_name == "valid" else split_name
@@ -583,6 +638,10 @@ def run_augmentation(
 
     # Output directory (under datasets/ by default)
     out_root = source_dataset_path.parent / output_name
+    if out_root.resolve() == source_dataset_path.resolve():
+        raise ValueError("Augmentation output path must be different from the source dataset path.")
+    if out_root.exists():
+        shutil.rmtree(out_root)
     # Use a temporary YOLO structure for augmented images, then optionally convert
     tmp_root = out_root if output_format != "COCO" else out_root / "_yolo_tmp"
 
