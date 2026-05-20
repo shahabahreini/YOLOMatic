@@ -145,3 +145,4 @@ runs/*
 yolomatic.egg-info
 output/*
 .DS_Store
+.worktrees/
