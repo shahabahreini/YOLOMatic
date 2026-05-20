@@ -170,22 +170,27 @@ class TUIParameterValidationTest(unittest.TestCase):
 
     def test_menu_renderer_does_not_leak_markup_in_checked_labels(self) -> None:
         from rich.console import Console
+        from unittest.mock import patch
 
-        console = Console(record=True, width=80, height=20, color_system=None)
-        renderer = MenuRenderer(
-            options=["✓ runs/detect/train/weights/best.pt", "  Confirm Selection"],
-            current_selection=1,
-            title="Weights",
-            instruction="Choose weights.",
-        )
+        with patch("src.utils.tui.TUI_TERM") as mock_term:
+            mock_term.width = 80
+            mock_term.height = 24
+            console = Console(record=True, width=80, height=20, color_system=None)
+            renderer = MenuRenderer(
+                options=["✓ runs/detect/train/weights/best.pt", "  Confirm Selection"],
+                current_selection=1,
+                title="Weights",
+                instruction="Choose weights.",
+            )
 
-        console.print(renderer)
-        output = console.export_text()
+            console.print(renderer)
+            output = console.export_text()
 
-        self.assertIn("✓ run", output)
-        self.assertIn("est.pt", output)
-        self.assertNotIn("[/bold green]", output)
-        self.assertNotIn("[bold green]", output)
+            self.assertIn("✓", output)
+            self.assertIn("runs/det", output)
+            self.assertIn("est.pt", output)
+            self.assertNotIn("[/bold green]", output)
+            self.assertNotIn("[bold green]", output)
 
     def test_menu_renderer_shows_finish_shortcut_when_available(self) -> None:
         from rich.console import Console
