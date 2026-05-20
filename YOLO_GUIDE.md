@@ -20,9 +20,10 @@
 8. [Export Options](#export-options)
 9. [SAM 3.1 Workflows](#sam-31-workflows)
 10. [Offline Augmentation](#offline-augmentation)
-11. [Troubleshooting](#troubleshooting)
-12. [Summary Table](#summary-table)
-13. [Additional Resources](#additional-resources)
+11. [NDJSON Conversion](#ndjson-conversion)
+12. [Troubleshooting](#troubleshooting)
+13. [Summary Table](#summary-table)
+14. [Additional Resources](#additional-resources)
 
 ---
 
@@ -74,6 +75,7 @@ Use your Roboflow **workspace slug** for `ROBOFLOW_WORKSPACE`, not a project nam
 | `uv run yolomatic-train` | Train from a saved config (YOLO, RF-DETR, SAM, or Detectron2) |
 | `uv run yolomatic-predict` | Run YOLO/RF-DETR prediction workflows |
 | `uv run yolomatic-sam` | Run SAM 3.1 segmentation inference |
+| `uv run yolomatic-convert` | Convert Labelbox NDJSON to YOLO/COCO |
 | `uv run yolomatic-benchmark` | Benchmark trained checkpoints with interactive HTML report |
 | `uv run yolomatic-upload` | Upload or deploy trained checkpoints to Roboflow |
 | `uv run yolomatic-tensorboard` | Launch TensorBoard for discovered runs |
@@ -117,6 +119,9 @@ uv run yolomatic-benchmark
 
 # Run SAM 3.1 segmentation
 uv run yolomatic-sam
+
+# Convert Labelbox NDJSON to YOLO/COCO
+uv run yolomatic-convert
 ```
 
 ### Training Runtime Notes
@@ -535,6 +540,24 @@ Access from the TUI under **Augment Dataset**:
 | **Multiplier** | Generate N augmented copies per source image |
 | **Split redistribution** | Pool all images, then redistribute into train/val/test with configurable ratios |
 | **Output formats** | YOLO Detection, YOLO Segmentation, COCO JSON |
+
+---
+
+## NDJSON Conversion
+
+YOLOmatic can convert **Labelbox NDJSON** exports into YOLO or COCO formats, automatically downloading images from the provided URLs.
+
+### Features
+- **Concurrent downloads** — uses a thread pool for fast image retrieval.
+- **Task detection** — extracts both bounding boxes and polygons.
+- **YOLO/COCO support** — generates valid `data.yaml` for YOLO or `annotations.json` for COCO.
+- **Public/Presigned URLs** — supports direct image downloads from Labelbox-hosted or presigned asset URLs.
+
+### Usage
+1. Export your project from Labelbox in **NDJSON** format.
+2. Select **Convert Dataset Format** from the YOLOmatic main menu.
+3. Provide the path to the `.ndjson` file.
+4. Choose the target format (YOLO or COCO) and output directory.
 
 ---
 

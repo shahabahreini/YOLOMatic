@@ -1,8 +1,8 @@
 # YOLOmatic
 
-> Automated YOLO, RF-DETR, SAM 3.1, and Detectron2 training CLI for configuring, training, fine-tuning, predicting, benchmarking, augmenting, monitoring, combining datasets, and uploading computer-vision models.
+> Automated YOLO, RF-DETR, SAM 3.1, and Detectron2 training CLI for configuring, training, fine-tuning, predicting, benchmarking, augmenting, monitoring, combining datasets, converting formats, and uploading computer-vision models.
 
-YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance segmentation, image classification, pose estimation, oriented object detection, and open-vocabulary segmentation workflows. It supports Ultralytics YOLO model families, native RF-DETR training, Meta SAM 3.1 inference and fine-tuning, and Detectron2 training, with hardware-aware config generation, offline Albumentations augmentation, interactive benchmark reports with UMAP vector analysis, TensorBoard logging, ClearML tracking, CUDA repair guidance, dataset utilities, prediction helpers, and Roboflow deployment support.
+YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance segmentation, image classification, pose estimation, oriented object detection, and open-vocabulary segmentation workflows. It supports Ultralytics YOLO model families, native RF-DETR training, Meta SAM 3.1 inference and fine-tuning, and Detectron2 training, with hardware-aware config generation, offline Albumentations augmentation, Labelbox NDJSON conversion, interactive benchmark reports with UMAP vector analysis, TensorBoard logging, ClearML tracking, CUDA repair guidance, dataset utilities, prediction helpers, and Roboflow deployment support.
 
 ## Primary Use Cases
 
@@ -13,6 +13,7 @@ YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance s
 - Run SAM 3.1 open-vocabulary segmentation in auto, text-prompted, or box-prompted modes.
 - Benchmark trained checkpoints on COCO validation sets with interactive HTML reports and UMAP vector analysis.
 - Augment datasets offline using Albumentations with reusable profiles, split redistribution, and YOLO/COCO output formats.
+- Convert Labelbox NDJSON exports into YOLO or COCO formats with concurrent image downloads.
 - Merge YOLO-format datasets and preserve class mappings.
 - Upload YOLO checkpoints and deploy RF-DETR checkpoints to Roboflow.
 
@@ -23,6 +24,7 @@ YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance s
 - `uv run yolomatic-train` — train from a saved config (YOLO, RF-DETR, SAM 3.1, or Detectron2).
 - `uv run yolomatic-predict` — run YOLO/RF-DETR prediction workflows.
 - `uv run yolomatic-sam` — run SAM 3.1 segmentation inference.
+- `uv run yolomatic-convert` — convert Labelbox NDJSON to YOLO/COCO formats.
 - `uv run yolomatic-benchmark` — benchmark trained checkpoints with interactive reports.
 - `uv run yolomatic-upload` — upload or deploy trained checkpoints to Roboflow.
 - `uv run yolomatic-tensorboard` — launch TensorBoard for discovered runs.
@@ -68,4 +70,4 @@ YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance s
 
 ## Search Phrases
 
-yolo training cli, automated yolo training, yolo26 training, RF-DETR training, rfdetr fine tuning, ultralytics training pipeline, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, roboflow upload, clearml tracking, tensorboard yolo, edge deployment yolo, computer vision training CLI, SAM 3.1 segmentation, segment anything model, detectron2 training, dataset augmentation, model benchmarking, UMAP vector analysis, yolo tui, yolo interactive terminal.
+yolo training cli, automated yolo training, yolo26 training, RF-DETR training, rfdetr fine tuning, ultralytics training pipeline, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, roboflow upload, clearml tracking, tensorboard yolo, edge deployment yolo, computer vision training CLI, SAM 3.1 segmentation, segment anything model, detectron2 training, dataset augmentation, model benchmarking, UMAP vector analysis, yolo tui, yolo interactive terminal, labelbox to yolo, ndjson to yolo, labelbox to coco, ndjson to coco, computer vision dataset tools.

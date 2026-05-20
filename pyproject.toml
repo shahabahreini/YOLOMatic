@@ -38,7 +38,7 @@ dependencies = [
   "Pillow>=9.0",
   "albumentations>=1.4",
 ]
-description = "Automated object-detection training utilities and CLI — configure, train, predict, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, and RF-DETR models with an interactive terminal interface."
+description = "Automated object-detection training utilities and CLI — configure, train, predict, benchmark, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, and SAM 3.1 models with an interactive terminal interface."
 keywords = [
   "yolo",
   "yolo26",
@@ -50,6 +50,8 @@ keywords = [
   "yolox",
   "rf-detr",
   "rfdetr",
+  "sam-3.1",
+  "sam2",
   "object-detection",
   "instance-segmentation",
   "pose-estimation",
@@ -66,13 +68,15 @@ keywords = [
   "roboflow",
   "tensorboard",
   "coco",
+  "ndjson",
+  "labelbox",
+  "dataset-tools",
   "model-training",
   "automated-training",
   "edge-deployment",
   "onnx",
   "cuda",
   "mps",
-  "dataset-tools",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -94,7 +98,7 @@ license = "Apache-2.0"
 name = "yolomatic"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-version = "4.3.0"
+version = "4.4.0"
 
 [project.urls]
 Homepage = "https://github.com/shahabahreini/YOLOMatic"
@@ -132,3 +136,4 @@ yolomatic-train = "src.trainers.yolo_trainer:main"
 yolomatic-upload = "src.cli.upload:main"
 yolomatic-benchmark = "src.cli.benchmark:main"
 yolomatic-sam = "src.cli.sam_predict:main"
+yolomatic-convert = "src.cli.convert_ndjson:main"

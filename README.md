@@ -73,7 +73,8 @@ Whether you are fine-tuning a nano model for a Raspberry Pi or training an XLarg
 | Feature | Description |
 |---|---|
 | **10 Model Families** | RF-DETR, YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, SAM 3.1, and Detectron2 |
-| **Interactive TUI** | Rich terminal menus for every workflow — configure, fine-tune, train, predict, benchmark, augment, combine, upload, and maintain |
+| **Interactive TUI** | Rich terminal menus for every workflow — configure, fine-tune, train, predict, benchmark, augment, combine, convert, upload, and maintain |
+| **NDJSON Conversion** | Convert Labelbox `.ndjson` exports to YOLO or COCO formats with concurrent image downloads and polygon/bbox support |
 | **Auto-Optimized Configs** | Augmentation, compute, and worker profiles recommended based on your dataset and hardware automatically |
 | **Checkpoint Fine-Tuning** | Discovers `.pt`, `.pth`, and HuggingFace checkpoints, binds them to a dataset, and generates a fresh fine-tuning YAML |
 | **Automatic Pretrained Downloads** | Fresh configs load official pretrained weights automatically; local checkpoints are used only for fine-tuning or resume |
@@ -197,6 +198,7 @@ YOLOmatic exposes a primary TUI plus focused helper commands:
 | `uv run yolomatic-train` | Train from a saved config |
 | `uv run yolomatic-predict` | Run YOLO/RF-DETR predictions |
 | `uv run yolomatic-sam` | Run SAM 3.1 segmentation inference |
+| `uv run yolomatic-convert` | Convert Labelbox NDJSON to YOLO/COCO |
 | `uv run yolomatic-benchmark` | Benchmark trained checkpoints |
 | `uv run yolomatic-upload` | Upload/deploy to Roboflow |
 | `uv run yolomatic-tensorboard` | Launch TensorBoard for training runs |
@@ -219,6 +221,7 @@ The main menu includes:
 | **SAM Segment** | Run SAM 3.1 auto/text/box-prompted segmentation |
 | **Launch TensorBoard** | Open TensorBoard for a selected run or the full `runs/` tree |
 | **Benchmark Models** | Evaluate trained checkpoints and generate an interactive HTML report |
+| **Convert Dataset Format** | Convert Labelbox NDJSON exports to YOLO or COCO formats |
 | **Augment Dataset** | Offline Albumentations augmentation with reusable profiles |
 | **Combine Datasets** | Merge YOLO-format datasets with class remapping |
 | **Upload to Roboflow** | Publish trained checkpoints to Roboflow |
@@ -562,7 +565,8 @@ YOLOmatic keeps a curated [`llms.txt`](llms.txt) file at the repository root. It
 
 Traditional search and package discovery are supported through this README, GitHub topics, PyPI metadata in `pyproject.toml`, and descriptive documentation pages.
 
-**Search keywords:** yolo training cli, automated yolo training, yolo26 training, yolov12 training, yolov11 training, ultralytics training pipeline, RF-DETR training, rfdetr fine tuning, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, clearml yolo, roboflow yolo upload, tensorboard yolo, edge deployment yolo, yolo tui, yolo interactive terminal, SAM 3.1 segmentation, segment anything model, detectron2 training, dataset augmentation, computer vision training, model benchmarking, UMAP vector analysis.
+**Search keywords:** yolo training cli, automated yolo training, yolo26 training, yolov12 training, yolov11 training, ultralytics training pipeline, RF-DETR training, rfdetr fine tuning, yolo configuration generator, instance segmentation training, object detection cli, pytorch yolo, onnx export, clearml yolo, roboflow yolo upload, tensorboard yolo, edge deployment yolo, yolo tui, yolo interactive terminal, SAM 3.1 segmentation, segment anything model, detectron2 training, dataset augmentation, model benchmarking, UMAP vector analysis, labelbox to yolo, ndjson to yolo, labelbox to coco, ndjson to coco, labelbox converter, computer vision dataset tools.
+
 
 ---
 

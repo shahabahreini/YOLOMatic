@@ -57,7 +57,7 @@ The **Benchmark & Vector Analysis** feature (`Evaluate & Monitor → Benchmark M
 | SAM 3.1 (HuggingFace) | ⚠️ Not yet supported — use dedicated SAM inference |
 | Detectron2 (`.pth`) | ⚠️ Not yet supported |
 
-Annotation format: COCO JSON (`_annotations.coco.json`). Roboflow export with COCO preset is directly compatible.
+Annotation format: COCO JSON (`_annotations.coco.json`). Roboflow export with COCO preset is directly compatible. YOLOmatic also includes a Labelbox NDJSON to COCO converter to assist with preparing custom validation sets.
 
 ---
 
