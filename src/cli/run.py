@@ -3478,6 +3478,7 @@ def _main_loop_iteration():
             "Benchmark Models",
             "SAM Segment",
             "[Datasets & Deployment]",
+            "Convert Dataset Format",
             "Combine Datasets",
             "Augment Dataset",
             "Upload to Roboflow",
@@ -3496,6 +3497,10 @@ def _main_loop_iteration():
             text="Pick a task to begin:",
             initial_selection=last_choice,
             descriptions={
+                "Convert Dataset Format": (
+                    "Convert Labelbox NDJSON exports into YOLO or COCO formats. "
+                    "Supports concurrent image downloads and handles both bounding boxes and polygons."
+                ),
                 "Configure Model": (
                     "Walk through the YOLOmatic wizard to pick a YOLO or RF-DETR family, choose a "
                     "variant that fits your hardware, and auto-generate a training YAML "
@@ -3613,6 +3618,12 @@ def _main_loop_iteration():
             from src.cli.sam_predict import main as sam_predict_main
 
             _safe_subcommand("SAM Segment", sam_predict_main, prog="yolomatic-sam")
+            continue
+
+        elif main_choice == "Convert Dataset Format":
+            from src.cli.convert_ndjson import main as convert_main
+
+            _safe_subcommand("Dataset Conversion", convert_main, prog="yolomatic-convert")
             continue
 
         elif main_choice == "Upload to Roboflow":
