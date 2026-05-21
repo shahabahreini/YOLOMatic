@@ -3726,7 +3726,7 @@ def settings_ai_page() -> None:
                 content_items.append(Text(""))
                 content_items.append(Text("Choosing a smaller, faster model (like gemini-2.5-flash) is highly recommended for quick hyperparameter recommendations.", style="dim"))
                 content_items.append(Text(""))
-                content_items.append(Text(f"Active Model: [bold yellow]{self.selected_model}[/bold yellow]"))
+                content_items.append(Text.from_markup(f"Active Model: [bold yellow]{self.selected_model}[/bold yellow]"))
                 content_items.append(Text(""))
                 
                 if self.focus == "select_model":
