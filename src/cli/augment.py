@@ -64,6 +64,12 @@ def _all_profile_names() -> list[str]:
 
 
 def _profile_description(name: str) -> str:
+    if name == "AI Recommendation":
+        return (
+            "[bold green]AI Recommendation[/bold green]\n\n"
+            "Let OpenAI or Gemini inspect your dataset images and context to "
+            "recommend and save a custom Albumentations augmentation pipeline."
+        )
     try:
         p = load_profile(name, PROFILES_DIR)
         is_builtin = name in BUILT_IN_PROFILES and name not in list_profiles(PROFILES_DIR)
@@ -87,6 +93,8 @@ def _profile_description(name: str) -> str:
 
 def _select_profile_name(title: str, *, breadcrumb_action: str) -> str | None:
     names = _all_profile_names()
+    if breadcrumb_action == "Select":
+        names = ["AI Recommendation"] + names
     if not names:
         console.print(Panel(
             "[bold yellow]No profiles found.[/bold yellow]\n\nCreate a profile first.",
@@ -1007,6 +1015,13 @@ def _run_augmentation_flow() -> None:
     )
     if profile_name is None:
         return
+        
+    if profile_name == "AI Recommendation":
+        from src.utils.ai_client import run_ai_augmentation_flow
+        profile_name = run_ai_augmentation_flow(str(dataset_path))
+        if profile_name is None:
+            return
+            
     try:
         profile = load_profile(profile_name, PROFILES_DIR)
     except Exception as exc:

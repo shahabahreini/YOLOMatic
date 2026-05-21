@@ -34,6 +34,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "show_success_panels": True,
         "show_skip_reasons": True,
     },
+    "ai": {
+        "provider": "Gemini",
+        "gemini_api_key": "",
+        "openai_api_key": "",
+        "selected_model": "gemini-2.5-flash",
+    },
 }
 
 _VALID_NARRATIVE_MODES = {"guided", "concise", "quiet"}
@@ -55,7 +61,7 @@ def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
     if mode not in _VALID_NARRATIVE_MODES:
         mode = "guided"
     result["narratives"]["mode"] = mode
-    for section in ("clearml", "roboflow", "narratives"):
+    for section in ("clearml", "roboflow", "narratives", "ai"):
         if not isinstance(result.get(section), dict):
             result[section] = copy.deepcopy(DEFAULT_SETTINGS[section])
     return result

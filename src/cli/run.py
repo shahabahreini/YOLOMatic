@@ -2586,6 +2586,7 @@ def update_config(
             model_choice,
             wizard_steps=wizard_steps,
             wizard_current_step=wizard_current_step,
+            dataset_path=str(dataset_path),
         )
         if profile_selection is None:
             return False
@@ -2615,6 +2616,21 @@ def update_config(
             # Override with custom parameters
             for section_name, section_params in custom_sections.items():
                 config.setdefault(section_name, {}).update(section_params)
+        elif profile_selection.get("mode") == "ai_recommendation":
+            training_overrides = profile_selection["training_overrides"]
+            suggested_name = profile_selection["name"]
+            
+            # Generate base config from recommended profile
+            config = generator.generate_config(
+                model_choice,
+                dict(profile_context["recommended_profiles"]),
+                profile_context,
+                finetune_source=finetune_source,
+                finetune_strategy=finetune_strategy,
+            )
+            # Apply AI recommendations
+            config.setdefault("training", {}).update(training_overrides)
+            config_file = f"{suggested_name}_ai_{timestamp}.yaml"
         else:
             display_regular_yolo_profile_selection_summary(
                 dataset_name,
@@ -2871,6 +2887,7 @@ def choose_regular_yolo_profiles(
     model_choice: str,
     wizard_steps: list[str] | None = None,
     wizard_current_step: int | None = None,
+    dataset_path: str | None = None,
 ) -> dict[str, str] | None:
     summary_text = build_regular_yolo_profile_summary_text(
         dataset_name,
@@ -2881,11 +2898,13 @@ def choose_regular_yolo_profiles(
 
     start_option_map = {
         "Recommended": "recommended",
+        "AI Recommendation": "ai_recommendation",
         "Customize": "customize",
         "Fully Customized": "fully_customized",
     }
     start_descriptions = {
         "Recommended": "Fastest path - let YOLOmatic heuristics decide augmentation, compute, and worker settings for you.",
+        "AI Recommendation": "AI path - let OpenAI/Gemini inspect your dataset samples/metadata and recommend custom hyperparameters.",
         "Customize": "Manual path - review and choose your own augmentation intensity, compute aggressiveness, and worker counts.",
         "Fully Customized": "Expert path - individually select and configure every training parameter with detailed explanations.",
         "Back": "Return to dataset selection.",
@@ -2895,8 +2914,8 @@ def choose_regular_yolo_profiles(
         "Hints",
         [
             "Use the recommended option unless you already know you need more or less augmentation.",
+            "AI Recommendation is ideal when you want multimodal models to optimize hyperparameters for your specific domain.",
             "Compute controls how hard YOLOmatic pushes memory and throughput.",
-            "Workers control dataloader parallelism and can increase RAM pressure.",
         ],
     )
 
@@ -2920,6 +2939,21 @@ def choose_regular_yolo_profiles(
         return dict(recommended_profiles)
     if start_option_map[initial_choice] == "fully_customized":
         return {"mode": "fully_customized"}
+    if start_option_map[initial_choice] == "ai_recommendation":
+        if not dataset_path:
+            console.print("[bold red]Error: Dataset path is missing. Cannot run AI analysis.[/bold red]")
+            input("\nPress Enter to return...")
+            return None
+        from src.utils.ai_client import run_ai_recommendation_flow
+        res = run_ai_recommendation_flow(model_choice, dataset_path)
+        if res is None:
+            return None
+        return {
+            "mode": "ai_recommendation",
+            "name": res["name"],
+            "training_overrides": res["training_overrides"],
+            "rationale": res["rationale"]
+        }
 
     augmentation_options = {
         "minimum": "Essential training values only with almost no extra augmentation",
@@ -3383,6 +3417,43 @@ def _settings_definitions() -> list[ParameterDefinition]:
             "Controls expected skip messages.",
             config_section="narratives",
         ),
+        ParameterDefinition(
+            "provider",
+            "AI",
+            "Gemini",
+            "str",
+            "AI API Provider",
+            "API Provider for AI dataset analysis and configuration recommendations.",
+            allowed_values=["Gemini", "OpenAI"],
+            config_section="ai",
+        ),
+        ParameterDefinition(
+            "gemini_api_key",
+            "AI",
+            "",
+            "str",
+            "Gemini API Key",
+            "API Key for Gemini recommendations (Google AI Studio).",
+            config_section="ai",
+        ),
+        ParameterDefinition(
+            "openai_api_key",
+            "AI",
+            "",
+            "str",
+            "OpenAI API Key",
+            "API Key for OpenAI chat completions and vision suggestions.",
+            config_section="ai",
+        ),
+        ParameterDefinition(
+            "selected_model",
+            "AI",
+            "gemini-2.5-flash",
+            "str",
+            "AI Model Name",
+            "Selected model for AI Recommendation flows.",
+            config_section="ai",
+        ),
     ]
 
 
@@ -3458,6 +3529,135 @@ def settings_credentials_page() -> None:
     input("\nPress Enter to return...")
 
 
+def settings_ai_page() -> None:
+    from src.utils.cli import (
+        get_parameter_value_input,
+        make_panel,
+        expected_error_panel,
+        warning_panel,
+        TUIState,
+        NAV_BACK,
+    )
+    from src.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS
+    import time
+    
+    while True:
+        clear_screen()
+        print_stylized_header("AI Recommendation Settings")
+        
+        settings = load_settings()
+        ai_config = settings.setdefault("ai", {})
+        provider = ai_config.get("provider", "Gemini")
+        selected_model = ai_config.get("selected_model", "gemini-2.5-flash")
+        
+        # Mask API keys for display
+        gemini_key = ai_config.get("gemini_api_key", "")
+        openai_key = ai_config.get("openai_api_key", "")
+        
+        masked_gemini = f"***{gemini_key[-4:]}" if (gemini_key and len(gemini_key) > 4) else ("configured" if gemini_key else "not set")
+        masked_openai = f"***{openai_key[-4:]}" if (openai_key and len(openai_key) > 4) else ("configured" if openai_key else "not set")
+        
+        status_lines = [
+            f"[bold green]Current Settings:[/bold green]",
+            f"  API Provider:   [cyan]{provider}[/cyan]",
+            f"  Selected Model: [cyan]{selected_model}[/cyan]",
+            f"  Gemini API Key: [dim]{masked_gemini}[/dim]",
+            f"  OpenAI API Key: [dim]{masked_openai}[/dim]"
+        ]
+        console.print(make_panel("\n".join(status_lines), title="AI Configuration Status"))
+        
+        choice = get_user_choice(
+            [
+                "Change API Provider",
+                "Configure Gemini API Key",
+                "Configure OpenAI API Key",
+                "Fetch & Select AI Model",
+                "Back"
+            ],
+            title="AI Settings Menu",
+            text="Choose an action to configure AI suggestions:"
+        )
+        
+        if choice == "Back":
+            return
+            
+        elif choice == "Change API Provider":
+            prov_choice = get_user_choice(
+                ["Gemini", "OpenAI"],
+                title="Select Provider",
+                text="Which AI provider do you want to use?"
+            )
+            ai_config["provider"] = prov_choice
+            # Fallback model auto-assignment if current model doesn't belong to the provider
+            default_models = FALLBACK_MODELS.get(prov_choice, [])
+            if selected_model not in default_models:
+                ai_config["selected_model"] = default_models[0] if default_models else ""
+            save_settings(settings)
+            console.print(f"\n[bold green]Provider updated to {prov_choice}.[/bold green]")
+            time.sleep(0.5)
+            
+        elif choice == "Configure Gemini API Key":
+            param = ParameterDefinition(
+                name="gemini_api_key",
+                category="AI",
+                default=gemini_key,
+                value_type="str",
+                description="Gemini API Key",
+                help_text="Provide your Google Gemini API Key from Google AI Studio."
+            )
+            new_key = get_parameter_value_input(param)
+            if new_key not in (None, NAV_BACK):
+                ai_config["gemini_api_key"] = new_key.strip()
+                save_settings(settings)
+                console.print("\n[bold green]Gemini API key saved.[/bold green]")
+                time.sleep(0.5)
+                
+        elif choice == "Configure OpenAI API Key":
+            param = ParameterDefinition(
+                name="openai_api_key",
+                category="AI",
+                default=openai_key,
+                value_type="str",
+                description="OpenAI API Key",
+                help_text="Provide your OpenAI API Key."
+            )
+            new_key = get_parameter_value_input(param)
+            if new_key not in (None, NAV_BACK):
+                ai_config["openai_api_key"] = new_key.strip()
+                save_settings(settings)
+                console.print("\n[bold green]OpenAI API key saved.[/bold green]")
+                time.sleep(0.5)
+                
+        elif choice == "Fetch & Select AI Model":
+            current_provider = provider
+            key = gemini_key if current_provider.lower() == "gemini" else openai_key
+            if not key:
+                console.print("\n[bold red]Error: API Key must be configured first to fetch models.[/bold red]")
+                input("\nPress Enter to return...")
+                continue
+                
+            console.print(f"\n[bold green]Fetching models from {current_provider} API...[/bold green]")
+            try:
+                models = fetch_multimodal_models(current_provider, key)
+                if not models:
+                    console.print(f"[yellow]No models returned from API, using local fallbacks...[/yellow]")
+                    models = FALLBACK_MODELS.get(current_provider, [])
+            except Exception as e:
+                console.print(expected_error_panel(f"Failed to fetch models from API: {e}\nFalling back to offline list."))
+                models = FALLBACK_MODELS.get(current_provider, [])
+                
+            model_choice = get_user_choice(
+                models + ["Cancel"],
+                title="Select Multimodal Model",
+                text=f"Select a multimodal model from {current_provider}:"
+            )
+            if model_choice != "Cancel":
+                ai_config["selected_model"] = model_choice
+                save_settings(settings)
+                console.print(f"\n[bold green]AI Model updated to {model_choice}.[/bold green]")
+                time.sleep(0.5)
+
+
 def settings_reset_page() -> None:
     choice = get_user_choice(
         ["Reset to Defaults", "Cancel"],
@@ -3479,6 +3679,7 @@ def settings_menu() -> None:
                 "ClearML Integration",
                 "Roboflow Integration",
                 "Integration Narratives",
+                "AI Recommendations",
                 "Credential Status",
                 "Reset to Defaults",
                 "Back",
@@ -3498,6 +3699,8 @@ def settings_menu() -> None:
             settings_roboflow_page()
         elif choice == "Integration Narratives":
             settings_narratives_page()
+        elif choice == "AI Recommendations":
+            settings_ai_page()
         elif choice == "Credential Status":
             settings_credentials_page()
         elif choice == "Reset to Defaults":
