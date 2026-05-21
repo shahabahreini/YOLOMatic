@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import json
+import time
 import base64
 import random
 import traceback
@@ -11,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
 from PIL import Image
 
 from src.utils.cli import (
@@ -27,8 +28,9 @@ from src.utils.cli import (
     TUIState,
     ParameterDefinition,
     NAV_BACK,
+    NAV_LIST,
 )
-from src.config.settings import load_settings, save_settings
+from src.config.settings import load_settings
 from src.datasets.core import summarize_dataset
 
 # Fallback models in case fetching fails
@@ -57,42 +59,75 @@ SUPPORTED_TRANSFORMS = [
 ]
 
 
-def make_http_request(url: str, method: str = "GET", headers: dict = None, data: Any = None, timeout: int = 25) -> tuple[int, Any]:
-    """Helper to perform HTTP requests using standard urllib, with fallback to requests if installed."""
-    headers = headers or {}
-    
+# HTTP status codes worth retrying (rate limits and transient server errors).
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _extract_api_error(res: Any, default: str = "Unknown API error") -> str:
+    """Pull a human-readable error message out of a provider/transport response.
+
+    Handles both API error envelopes ({"error": {"message": ...}}) and the flat
+    transport-error shape this module produces ({"error": "<text>"}), plus bare
+    strings, so callers never trip over `.get` on a non-dict value.
+    """
+    if isinstance(res, str):
+        return res
+    if isinstance(res, dict):
+        err = res.get("error", res)
+        if isinstance(err, dict):
+            msg = err.get("message")
+            if msg:
+                return str(msg)
+            return json.dumps(err)[:500]
+        if err:
+            return str(err)
+    return f"{default}: {str(res)[:300]}"
+
+
+def _do_single_request(url: str, method: str, headers: dict, data: Any, timeout: int) -> tuple[int, Any]:
+    """Perform one HTTP request, preferring `requests` and falling back to urllib."""
     # Try using requests first if available
     try:
         import requests
-        try:
-            if method == "GET":
-                response = requests.get(url, headers=headers, timeout=timeout)
-            elif method == "POST":
-                response = requests.post(url, headers=headers, json=data, timeout=timeout)
-            return response.status_code, response.json()
-        except Exception:
-            pass
     except ImportError:
-        pass
+        requests = None
 
-    # Urllib fallback
+    if requests is not None:
+        try:
+            if method == "POST":
+                response = requests.post(url, headers=headers, json=data, timeout=timeout)
+            else:
+                response = requests.get(url, headers=headers, timeout=timeout)
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {"error": (response.text or "Non-JSON response")[:1000]}
+            return response.status_code, payload
+        except Exception as exc:
+            # Network/transport failure — fall through to urllib so a single
+            # broken backend doesn't take out the whole request.
+            return 0, {"error": f"{type(exc).__name__}: {exc}"}
+
     import urllib.request
     import urllib.error
-    
+
     req = urllib.request.Request(url, method=method)
     for k, v in headers.items():
         req.add_header(k, v)
-        
+
     req_data = None
     if data is not None:
         req_data = json.dumps(data).encode("utf-8")
         req.add_header("Content-Type", "application/json")
-        
+
     try:
         with urllib.request.urlopen(req, data=req_data, timeout=timeout) as response:
             status = response.status
             body = response.read().decode("utf-8")
-            return status, json.loads(body)
+            try:
+                return status, json.loads(body)
+            except json.JSONDecodeError:
+                return status, {"error": (body or "Non-JSON response")[:1000]}
     except urllib.error.HTTPError as e:
         try:
             error_body = e.read().decode("utf-8")
@@ -100,7 +135,68 @@ def make_http_request(url: str, method: str = "GET", headers: dict = None, data:
         except Exception:
             return e.code, {"error": str(e)}
     except Exception as e:
-        return 500, {"error": str(e)}
+        return 0, {"error": f"{type(e).__name__}: {e}"}
+
+
+def make_http_request(
+    url: str,
+    method: str = "GET",
+    headers: dict | None = None,
+    data: Any = None,
+    timeout: int = 25,
+    max_retries: int = 2,
+    backoff: float = 1.5,
+) -> tuple[int, Any]:
+    """Perform an HTTP request with bounded retry on transient failures.
+
+    Returns (status_code, parsed_body). status_code is 0 when the request never
+    reached the server (DNS/connection/timeout). Retries cover transport errors
+    and retryable HTTP statuses (429/5xx); a small backoff avoids hammering the
+    API on rate limits.
+    """
+    headers = headers or {}
+    last_status, last_body = 0, {"error": "Request was not attempted"}
+
+    for attempt in range(max_retries + 1):
+        status, body = _do_single_request(url, method, headers, data, timeout)
+        last_status, last_body = status, body
+        if status != 0 and status not in _RETRYABLE_STATUS:
+            return status, body
+        if attempt < max_retries:
+            time.sleep(backoff * (attempt + 1))
+
+    return last_status, last_body
+
+
+def _slugify(name: str, fallback: str = "ai_profile", max_length: int = 64) -> str:
+    """Reduce an LLM-supplied name to a safe, filesystem-friendly slug.
+
+    Guards against path traversal and invalid filenames: lowercases, replaces any
+    run of non-alphanumeric characters with a single underscore, strips leading/
+    trailing underscores, and bounds the length. Returns `fallback` if nothing
+    usable remains.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
+    slug = slug[:max_length].strip("_")
+    return slug or fallback
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    """Robustly interpret an LLM-supplied truthy/falsy value as a bool.
+
+    Unlike `bool(x)`, the string "false"/"0"/"no" correctly maps to False.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {"true", "1", "yes", "y", "on"}:
+            return True
+        if text in {"false", "0", "no", "n", "off", ""}:
+            return False
+    return default
 
 
 def fetch_multimodal_models(provider: str, api_key: str) -> list[str]:
@@ -111,37 +207,40 @@ def fetch_multimodal_models(provider: str, api_key: str) -> list[str]:
     if provider.lower() == "gemini":
         url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
         status, res = make_http_request(url, "GET")
-        if status == 200 and "models" in res:
+        if status == 200 and isinstance(res, dict) and "models" in res:
             models = []
             for m in res["models"]:
                 name = m.get("name", "")
                 if "models/" in name:
                     name = name.split("models/")[-1]
-                
+
                 # Check for modern multimodal Gemini models that support text/content generation
                 methods = m.get("supportedGenerationMethods", [])
                 if "generateContent" in methods:
                     if "gemini" in name.lower() and not any(x in name.lower() for x in ["embedding", "vision-preview", "aqa"]):
                         models.append(name)
-            return sorted(list(set(models)))
-        else:
-            raise ValueError(res.get("error", {}).get("message", "Failed to fetch models from Gemini API"))
-            
+            return sorted(set(models))
+        raise ValueError(_extract_api_error(res, "Failed to fetch models from Gemini API"))
+
     elif provider.lower() == "openai":
         url = "https://api.openai.com/v1/models"
         headers = {"Authorization": f"Bearer {api_key}"}
         status, res = make_http_request(url, "GET", headers=headers)
-        if status == 200 and "data" in res:
+        if status == 200 and isinstance(res, dict) and "data" in res:
+            # Include known multimodal-capable chat families; exclude non-chat
+            # endpoints (audio/realtime/embeddings/image/etc.) that can't take
+            # an image-in / JSON-out request.
+            include = ("gpt-4o", "gpt-4.1", "gpt-4-turbo", "gpt-4-vision", "chatgpt-4o", "o1", "o3", "o4")
+            exclude = ("audio", "realtime", "transcribe", "tts", "embedding", "moderation", "image", "search", "dall-e")
             models = []
             for m in res["data"]:
-                model_id = m.get("id", "")
-                # Prioritize GPT-4o family models
-                if "gpt-4o" in model_id.lower() or "gpt-4-vision" in model_id.lower():
+                model_id = str(m.get("id", ""))
+                lower = model_id.lower()
+                if any(tok in lower for tok in include) and not any(tok in lower for tok in exclude):
                     models.append(model_id)
-            return sorted(list(set(models)))
-        else:
-            raise ValueError(res.get("error", {}).get("message", "Failed to fetch models from OpenAI API"))
-            
+            return sorted(set(models))
+        raise ValueError(_extract_api_error(res, "Failed to fetch models from OpenAI API"))
+
     return []
 
 
@@ -149,15 +248,16 @@ def get_dataset_ai_summary(dataset_path: str | Path) -> tuple[dict[str, Any], li
     """Summarize dataset metadata and prepare 1-2 random images for multimodal API consumption."""
     path = Path(dataset_path)
     summary = summarize_dataset(path)
-    
-    # Collect all image files
-    valid_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".JPG", ".JPEG", ".PNG"}
-    all_images = []
-    for ext in valid_exts:
-        all_images.extend(list(path.rglob(f"*{ext}")))
-    
-    all_images = list(set([p for p in all_images if p.is_file()]))
-    
+
+    # Collect all image files in a single walk, matching by case-insensitive
+    # suffix. This avoids duplicate hits on case-insensitive filesystems and
+    # covers every extension the augmentation engine supports (incl. tif/tiff).
+    valid_exts = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+    all_images = [
+        p for p in path.rglob("*")
+        if p.is_file() and p.suffix.lower() in valid_exts
+    ]
+
     samples_base64 = []
     image_stats = []
     
@@ -227,13 +327,8 @@ def query_llm_multimodal(
     """Call the provider multimodal API and retrieve the text response."""
     if provider.lower() == "gemini":
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        
-        parts = []
-        if system_instruction:
-            parts.append({"text": f"System Guidelines:\n{system_instruction}\n\n"})
-            
-        parts.append({"text": text_prompt})
-        
+
+        parts: list[dict[str, Any]] = [{"text": text_prompt}]
         for sample in samples_base64:
             parts.append({
                 "inlineData": {
@@ -241,27 +336,46 @@ def query_llm_multimodal(
                     "data": sample["base64_data"]
                 }
             })
-            
-        payload = {
-            "contents": [{"parts": parts}],
+
+        payload: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
                 "responseMimeType": "application/json"
             }
         }
-        
+        if system_instruction:
+            payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
         status, res = make_http_request(url, "POST", data=payload)
-        if status == 200:
-            try:
-                candidates = res.get("candidates", [])
-                if candidates:
-                    return candidates[0]["content"]["parts"][0]["text"]
-            except Exception:
-                pass
-            raise ValueError(f"Gemini API returned unexpected response structure: {res}")
-        else:
-            err_msg = res.get("error", {}).get("message", str(res))
-            raise ValueError(f"Gemini API Error (status {status}): {err_msg}")
-            
+        if status != 200:
+            raise ValueError(f"Gemini API Error (status {status}): {_extract_api_error(res)}")
+        if not isinstance(res, dict):
+            raise ValueError(f"Gemini API returned a non-JSON response: {str(res)[:300]}")
+
+        # Surface prompt-level blocks (e.g. safety filters) with a clear message.
+        block_reason = (res.get("promptFeedback") or {}).get("blockReason")
+        if block_reason:
+            raise ValueError(f"Gemini blocked the prompt (reason: {block_reason}).")
+
+        candidates = res.get("candidates") or []
+        if not candidates:
+            raise ValueError(f"Gemini returned no candidates: {str(res)[:300]}")
+
+        candidate = candidates[0]
+        text_chunks = [
+            part["text"]
+            for part in (candidate.get("content") or {}).get("parts", [])
+            if isinstance(part, dict) and "text" in part
+        ]
+        if text_chunks:
+            return "".join(text_chunks)
+
+        finish_reason = candidate.get("finishReason", "UNKNOWN")
+        raise ValueError(
+            f"Gemini returned an empty response (finishReason: {finish_reason}). "
+            "Try a different model or simplify the request."
+        )
+
     elif provider.lower() == "openai":
         url = "https://api.openai.com/v1/chat/completions"
         headers = {
@@ -291,32 +405,43 @@ def query_llm_multimodal(
         }
         
         status, res = make_http_request(url, "POST", headers=headers, data=payload)
-        if status == 200:
-            try:
-                return res["choices"][0]["message"]["content"]
-            except Exception:
-                pass
-            raise ValueError(f"OpenAI API returned unexpected response structure: {res}")
-        else:
-            err_msg = res.get("error", {}).get("message", str(res))
-            raise ValueError(f"OpenAI API Error (status {status}): {err_msg}")
-            
+        if status != 200:
+            raise ValueError(f"OpenAI API Error (status {status}): {_extract_api_error(res)}")
+        if not isinstance(res, dict):
+            raise ValueError(f"OpenAI API returned a non-JSON response: {str(res)[:300]}")
+        try:
+            content = res["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            content = None
+        if content:
+            return content
+        raise ValueError(f"OpenAI API returned an empty/unexpected response: {str(res)[:300]}")
+
     raise ValueError(f"Unsupported provider: {provider}")
 
 
 def verify_ai_setup() -> tuple[bool, str, str, str]:
     """Helper to verify settings and prompt user to configure if keys are missing."""
+    # Load .env so the environment-variable key fallback works the same way the
+    # Roboflow integration does (keys are commonly stored in the project .env).
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(".env"))
+    except ImportError:
+        pass
+
     settings = load_settings()
     ai_config = settings.get("ai", {})
     provider = ai_config.get("provider", "Gemini")
     model_name = ai_config.get("selected_model", "gemini-2.5-flash")
-    
+
     api_key = ""
     if provider.lower() == "gemini":
-        api_key = ai_config.get("gemini_api_key", "").strip() or os.getenv("GEMINI_API_KEY", "").strip()
+        api_key = (ai_config.get("gemini_api_key") or "").strip() or os.getenv("GEMINI_API_KEY", "").strip()
     elif provider.lower() == "openai":
-        api_key = ai_config.get("openai_api_key", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
-        
+        api_key = (ai_config.get("openai_api_key") or "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+
     if not api_key:
         console.print(warning_panel(
             f"AI key for [bold cyan]{provider}[/bold cyan] is not configured.\n\n"
@@ -330,194 +455,301 @@ def verify_ai_setup() -> tuple[bool, str, str, str]:
     return True, provider, api_key, model_name
 
 
-def extract_json_block(text: str) -> dict:
-    """Extract and parse the first valid JSON block {...} from text.
-    Handles potential LLM markdown decorations, trailing/leading 
-    conversational text, and whitespace issues.
-    """
-    import re
-    cleaned = text.strip()
-    
-    # Try direct parse first
+def _try_parse_json_object(candidate: str) -> dict | None:
+    """Parse `candidate` and return it only if it decodes to a JSON object."""
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(candidate)
     except json.JSONDecodeError:
-        pass
-        
-    # Look inside markdown code blocks
-    # This matches any ```json ... ``` or ``` ... ``` block
-    blocks = re.findall(r"```(?:json)?\s*(.*?)\s*```", cleaned, re.DOTALL)
-    for b in blocks:
-        b_clean = b.strip()
-        try:
-            return json.loads(b_clean)
-        except json.JSONDecodeError:
-            # Maybe the block itself has conversational junk, try finding outer braces within it
-            first = b_clean.find("{")
-            last = b_clean.rfind("}")
-            if first != -1 and last != -1 and last > first:
-                try:
-                    return json.loads(b_clean[first:last+1])
-                except json.JSONDecodeError:
-                    pass
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
-    # Look for outer-most braces in the entire text
-    first_brace = cleaned.find("{")
-    last_brace = cleaned.rfind("}")
-    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-        candidate = cleaned[first_brace:last_brace + 1]
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-            
+
+def extract_json_block(text: str) -> dict:
+    """Extract and parse the first valid JSON object {...} from text.
+
+    Handles LLM markdown decorations, leading/trailing conversational text, and
+    whitespace. Only JSON objects are accepted (callers index by key), so a bare
+    array or scalar is treated as "not found".
+    """
+    cleaned = text.strip()
+
+    # 1. Direct parse.
+    result = _try_parse_json_object(cleaned)
+    if result is not None:
+        return result
+
+    # 2. Inside markdown code fences (```json ... ``` or ``` ... ```).
+    for block in re.findall(r"```(?:json)?\s*(.*?)\s*```", cleaned, re.DOTALL):
+        block = block.strip()
+        result = _try_parse_json_object(block)
+        if result is not None:
+            return result
+        first, last = block.find("{"), block.rfind("}")
+        if first != -1 and last > first:
+            result = _try_parse_json_object(block[first:last + 1])
+            if result is not None:
+                return result
+
+    # 3. Outermost braces anywhere in the text.
+    first, last = cleaned.find("{"), cleaned.rfind("}")
+    if first != -1 and last > first:
+        result = _try_parse_json_object(cleaned[first:last + 1])
+        if result is not None:
+            return result
+
     raise ValueError(
-        f"Failed to locate or parse a valid JSON block in the AI response.\n"
+        "Failed to locate or parse a valid JSON object in the AI response.\n"
         f"Raw response preview:\n{cleaned[:300]}..."
     )
 
 
+# Numeric clamp ranges for AI-suggested Ultralytics training params. Values that
+# fall outside these bounds would either be rejected by Ultralytics or silently
+# produce a broken run, so we clamp rather than trust the model.
+_TRAINING_FLOAT_RANGES: dict[str, tuple[float, float]] = {
+    # Optimizer
+    "lr0": (1e-9, 1.0),
+    "lrf": (1e-9, 1.0),
+    "momentum": (0.0, 1.0),
+    "weight_decay": (0.0, 1.0),
+    "warmup_epochs": (0.0, 100.0),
+    "warmup_momentum": (0.0, 1.0),
+    # Augmentation (probabilities / normalized magnitudes)
+    "hsv_h": (0.0, 1.0),
+    "hsv_s": (0.0, 1.0),
+    "hsv_v": (0.0, 1.0),
+    "translate": (0.0, 1.0),
+    "scale": (0.0, 1.0),
+    "perspective": (0.0, 0.001),
+    "flipud": (0.0, 1.0),
+    "fliplr": (0.0, 1.0),
+    "mosaic": (0.0, 1.0),
+    "mixup": (0.0, 1.0),
+    "copy_paste": (0.0, 1.0),
+    "erasing": (0.0, 1.0),
+    # Geometric angles
+    "degrees": (-180.0, 180.0),
+    "shear": (-180.0, 180.0),
+    # Loss weights
+    "box": (0.0, 100.0),
+    "cls": (0.0, 100.0),
+    "dfl": (0.0, 100.0),
+    "label_smoothing": (0.0, 0.9),
+    # Dataset fraction
+    "fraction": (0.01, 1.0),
+}
+
+_TRAINING_BOOL_KEYS = {"cos_lr", "rect", "pretrained"}
+_VALID_OPTIMIZERS = {"auto", "SGD", "Adam", "AdamW", "Adamax", "NAdam", "RAdam", "RMSProp", "MuSGD"}
+_VALID_AUTO_AUGMENT = {"randaugment", "autoaugment", "augmix"}
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
 def sanitize_training_params(params: dict) -> dict:
-    """Sanitize and cast the AI suggested parameters to ensure strict type safety 
-    matching YOLOmatic and Ultralytics expectations.
+    """Sanitize, cast, and clamp AI-suggested training parameters.
+
+    Guarantees strict type safety and valid ranges matching YOLOmatic and
+    Ultralytics expectations, so a hallucinated value (e.g. fliplr=2.0,
+    cos_lr="false", batch=0) can never produce an invalid or broken config.
     """
-    sanitized = {}
-    
-    # Define mapping of keys to casting functions
-    casts = {
-        # Core
-        "epochs": int,
-        "patience": int,
-        "batch": int,
-        "imgsz": int,
-        # Optimizer
-        "optimizer": str,
-        "lr0": float,
-        "lrf": float,
-        "momentum": float,
-        "weight_decay": float,
-        "warmup_epochs": float,
-        "warmup_momentum": float,
-        "cos_lr": lambda x: str(x).lower() == "true" or bool(x),
-        # Augmentation
-        "hsv_h": float,
-        "hsv_s": float,
-        "hsv_v": float,
-        "degrees": float,
-        "translate": float,
-        "scale": float,
-        "shear": float,
-        "perspective": float,
-        "flipud": float,
-        "fliplr": float,
-        "mosaic": float,
-        "mixup": float,
-        "copy_paste": float,
-        "auto_augment": str,
-        "erasing": float,
-        "close_mosaic": int,
-        # Loss
-        "box": float,
-        "cls": float,
-        "dfl": float,
-        "label_smoothing": float,
-        # Advanced
-        "rect": lambda x: str(x).lower() == "true" or bool(x),
-        "pretrained": lambda x: str(x).lower() == "true" or bool(x),
-        "fraction": float,
-    }
-    
-    for k, v in params.items():
-        if k in casts:
+    if not isinstance(params, dict):
+        return {}
+
+    sanitized: dict[str, Any] = {}
+    float_keys = set(_TRAINING_FLOAT_RANGES)
+    int_keys = {"epochs", "patience", "imgsz", "close_mosaic"}
+
+    for key, raw in params.items():
+        if key in _TRAINING_BOOL_KEYS:
+            sanitized[key] = _coerce_bool(raw)
+        elif key in float_keys:
             try:
-                # Handle special casing
-                if casts[k] == int:
-                    sanitized[k] = int(float(v))
-                elif casts[k] == float:
-                    sanitized[k] = float(v)
-                elif casts[k] == str:
-                    sanitized[k] = str(v).strip()
-                else:
-                    sanitized[k] = casts[k](v)
+                low, high = _TRAINING_FLOAT_RANGES[key]
+                sanitized[key] = _clamp(float(raw), low, high)
             except (ValueError, TypeError):
-                pass
-                
-    # Extra validation for specific keys
+                continue
+        elif key in int_keys:
+            try:
+                sanitized[key] = int(float(raw))
+            except (ValueError, TypeError):
+                continue
+        elif key == "batch":
+            try:
+                batch = int(float(raw))
+            except (ValueError, TypeError):
+                continue
+            # -1 means Ultralytics auto-batch; otherwise must be a positive count.
+            sanitized[key] = batch if batch == -1 else max(1, batch)
+        elif key == "optimizer":
+            opt = str(raw).strip()
+            if opt in _VALID_OPTIMIZERS:
+                sanitized[key] = opt
+            else:
+                match = next((vo for vo in _VALID_OPTIMIZERS if vo.lower() == opt.lower()), None)
+                sanitized[key] = match or "auto"
+        elif key == "auto_augment":
+            val = str(raw).strip().lower()
+            if val in _VALID_AUTO_AUGMENT:
+                sanitized[key] = val
+            elif val in {"", "none", "null", "false"}:
+                sanitized[key] = ""
+            # else: drop unknown policy rather than passing a bad value through
+        # Unknown keys are intentionally dropped.
+
+    # Post-cast validation for keys with structural constraints.
     if "imgsz" in sanitized:
         val = sanitized["imgsz"]
-        # Round to nearest multiple of 32
         sanitized["imgsz"] = max(32, min(2048, ((val + 16) // 32) * 32))
-        
+
     if "epochs" in sanitized:
         sanitized["epochs"] = max(1, min(10000, sanitized["epochs"]))
-        
-    if "optimizer" in sanitized:
-        valid_opts = {"auto", "SGD", "Adam", "AdamW", "Adamax", "NAdam", "RAdam", "RMSProp", "MuSGD"}
-        opt = sanitized["optimizer"]
-        if opt not in valid_opts:
-            matched = False
-            for vo in valid_opts:
-                if vo.lower() == opt.lower():
-                    sanitized["optimizer"] = vo
-                    matched = True
-                    break
-            if not matched:
-                sanitized["optimizer"] = "auto"
-                
+
+    if "patience" in sanitized:
+        sanitized["patience"] = max(0, sanitized["patience"])
+
+    if "close_mosaic" in sanitized:
+        sanitized["close_mosaic"] = max(0, sanitized["close_mosaic"])
+
     return sanitized
 
 
+def _transform_param_defs(name: str) -> dict[str, Any]:
+    """Return {param_name: ParameterDefinition} for a transform, excluding the
+    shared probability `p`. Empty for transforms that take no extra params."""
+    try:
+        from src.augmentation.transforms import get_params_for_transform
+    except ImportError:  # pragma: no cover - defensive
+        return {}
+    return {d.name: d for d in get_params_for_transform(name) if d.name != "p"}
+
+
+def _coerce_param_value(definition: Any, value: Any) -> Any:
+    """Cast and clamp a single transform parameter to its declared type/range.
+
+    Returns None when the value cannot be coerced (caller drops it).
+    """
+    if definition.allowed_values:
+        candidate = str(value).strip()
+        chosen = candidate if candidate in definition.allowed_values else str(definition.default)
+        if definition.value_type == "int":
+            try:
+                return int(float(chosen))
+            except (ValueError, TypeError):
+                return int(float(str(definition.default)))
+        return chosen
+
+    try:
+        numeric = float(value)
+    except (ValueError, TypeError):
+        return None if definition.value_type in {"int", "float"} else value
+
+    if definition.min_value is not None:
+        numeric = max(float(definition.min_value), numeric)
+    if definition.max_value is not None:
+        numeric = min(float(definition.max_value), numeric)
+    return int(numeric) if definition.value_type == "int" else float(numeric)
+
+
+def _order_range_pairs(defs: dict[str, Any], result: dict[str, Any]) -> None:
+    """Ensure low/high (and lower/upper) sibling params are correctly ordered so
+    the augmentation engine reassembles valid (low, high) tuples."""
+    for lo_suffix, hi_suffix in (("_low", "_high"), ("_lower", "_upper")):
+        for key in defs:
+            if not key.endswith(lo_suffix):
+                continue
+            hi_key = key[: -len(lo_suffix)] + hi_suffix
+            if hi_key in result and key in result:
+                lo_v, hi_v = result[key], result[hi_key]
+                if isinstance(lo_v, (int, float)) and isinstance(hi_v, (int, float)) and lo_v > hi_v:
+                    result[key], result[hi_key] = hi_v, lo_v
+
+
+def build_transform_param_catalog() -> dict[str, list[str]]:
+    """Human-readable per-transform tunable parameter hints for the AI prompt.
+
+    Only includes transforms that accept extra parameters; the values describe
+    the exact keys/types/ranges the augmentation engine understands.
+    """
+    catalog: dict[str, list[str]] = {}
+    for name in SUPPORTED_TRANSFORMS:
+        defs = _transform_param_defs(name)
+        if not defs:
+            continue
+        entries = []
+        for d in defs.values():
+            if d.allowed_values:
+                rng = f" (one of {list(d.allowed_values)})"
+            elif d.min_value is not None or d.max_value is not None:
+                lo = d.min_value if d.min_value is not None else "-inf"
+                hi = d.max_value if d.max_value is not None else "+inf"
+                rng = f" [{lo}..{hi}]"
+            else:
+                rng = ""
+            entries.append(f"{d.name}:{d.value_type}{rng}")
+        catalog[name] = entries
+    return catalog
+
+
+def _format_transform_param_catalog() -> str:
+    """Render build_transform_param_catalog() as compact prompt text."""
+    catalog = build_transform_param_catalog()
+    lines = []
+    for name, entries in catalog.items():
+        lines.append(f"  - {name}: {', '.join(entries)}")
+    return "\n".join(lines)
+
+
 def sanitize_augmentation_transforms(transforms: list) -> list:
-    """Sanitize and cast the AI suggested Albumentations transforms to ensure strict type safety."""
-    sanitized_list = []
-    supported_set = set(SUPPORTED_TRANSFORMS)
-    
+    """Sanitize AI-suggested Albumentations transforms into engine-compatible entries.
+
+    Validates each transform name against the supported catalog, coerces and
+    clamps every parameter to the schema the augmentation engine expects
+    (including completing low/high pairs from defaults), and drops unknown
+    parameter keys. This guarantees the resulting profile actually instantiates
+    instead of being silently skipped at augmentation time.
+    """
     if not isinstance(transforms, list):
         return []
-        
+
+    supported_set = set(SUPPORTED_TRANSFORMS)
+    sanitized_list = []
+
     for tx in transforms:
         if not isinstance(tx, dict):
             continue
-            
+
         name = tx.get("name")
         if not name or name not in supported_set:
             continue
-            
-        enabled = str(tx.get("enabled", "true")).lower() == "true"
+
+        enabled = _coerce_bool(tx.get("enabled", True), default=True)
         try:
-            p = float(tx.get("p", 0.5))
+            p = _clamp(float(tx.get("p", 0.5)), 0.0, 1.0)
         except (ValueError, TypeError):
             p = 0.5
-            
-        sanitized_tx = {
-            "name": name,
-            "enabled": enabled,
-            "p": max(0.0, min(1.0, p))
-        }
-        
-        # Keep and sanitise other parameters
-        for k, v in tx.items():
-            if k in ["name", "enabled", "p"]:
+
+        sanitized_tx: dict[str, Any] = {"name": name, "enabled": enabled, "p": round(p, 4)}
+
+        defs = _transform_param_defs(name)
+        # Seed every known parameter with its default so the engine always gets a
+        # complete, valid kwarg set (matches the built-in profile convention).
+        for pname, definition in defs.items():
+            sanitized_tx[pname] = _coerce_param_value(definition, definition.default)
+
+        # Override defaults with any valid AI-supplied values; drop unknown keys.
+        for key, value in tx.items():
+            if key in ("name", "enabled", "p") or key not in defs:
                 continue
-            if isinstance(v, (int, float, bool)):
-                sanitized_tx[k] = v
-            else:
-                try:
-                    if "." in str(v):
-                        sanitized_tx[k] = float(v)
-                    else:
-                        sanitized_tx[k] = int(v)
-                except (ValueError, TypeError):
-                    val_str = str(v).strip()
-                    if val_str.lower() == "true":
-                        sanitized_tx[k] = True
-                    elif val_str.lower() == "false":
-                        sanitized_tx[k] = False
-                    else:
-                        sanitized_tx[k] = val_str
-                        
+            coerced = _coerce_param_value(defs[key], value)
+            if coerced is not None:
+                sanitized_tx[key] = coerced
+
+        _order_range_pairs(defs, sanitized_tx)
         sanitized_list.append(sanitized_tx)
-        
+
     return sanitized_list
 
 
@@ -540,7 +772,7 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
         help_text="Provide context like: 'Aerial drone images of solar panels' or 'Thermal night vision camera detecting pedestrians'."
     )
     project_desc = get_parameter_value_input(desc_param)
-    if project_desc in (None, NAV_BACK):
+    if project_desc in (None, NAV_BACK, NAV_LIST):
         return None
         
     pref_param = ParameterDefinition(
@@ -552,12 +784,12 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
         help_text="Tell the AI any preferences like: 'keep model lightweight', 'prioritize recall', 'noisy labels', 'high imbalance'."
     )
     user_prompt = get_parameter_value_input(pref_param)
-    if user_prompt in (None, NAV_BACK):
+    if user_prompt in (None, NAV_BACK, NAV_LIST):
         return None
 
     # Load dataset details and sample images
     dataset_path = Path(dataset_choice)
-    console.print(f"\n[bold green]Gathering dataset information and sampling images...[/bold green]")
+    console.print("\n[bold green]Gathering dataset information and sampling images...[/bold green]")
     try:
         dataset_details, samples_base64 = get_dataset_ai_summary(dataset_path)
     except Exception as e:
@@ -618,7 +850,7 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
         f"  - 'translate': float (0.0 to 1.0, random translation)\n"
         f"  - 'scale': float (0.0 to 1.0, random scaling zoom factor)\n"
         f"  - 'shear': float (-180.0 to 180.0, random slant)\n"
-        f"  - 'perspective': float (0.0 to 1.0, 3D perspective distortion)\n"
+        f"  - 'perspective': float (0.0 to 0.001, 3D perspective distortion — Ultralytics keeps this tiny)\n"
         f"  - 'flipud': float (0.0 to 1.0, vertical flip probability)\n"
         f"  - 'fliplr': float (0.0 to 1.0, horizontal flip probability)\n"
         f"  - 'mosaic': float (0.0 to 1.0, mosaic augmentation probability)\n"
@@ -657,7 +889,10 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
         # Use our robust block extractor
         recommendation = extract_json_block(raw_response)
         
-        suggested_name = recommendation.get("suggested_name", f"ai_{model_choice.lower()}").strip().lower().replace(" ", "_")
+        suggested_name = _slugify(
+            recommendation.get("suggested_name", ""),
+            fallback=_slugify(f"ai_{model_choice}", fallback="ai_config"),
+        )
         rationale = recommendation.get("rationale", "Optimized by AI based on dataset analysis.")
         training_overrides = recommendation.get("training", {})
         
@@ -722,7 +957,7 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         help_text="Provide context like: 'Aerial drone images of solar panels' or 'Thermal night vision camera detecting pedestrians'."
     )
     project_desc = get_parameter_value_input(desc_param)
-    if project_desc in (None, NAV_BACK):
+    if project_desc in (None, NAV_BACK, NAV_LIST):
         return None
         
     pref_param = ParameterDefinition(
@@ -734,12 +969,12 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         help_text="Tell the AI any preferences like: 'keep variations minor', 'heavy atmospheric distortions needed', 'rotation invariance'."
     )
     user_prompt = get_parameter_value_input(pref_param)
-    if user_prompt in (None, NAV_BACK):
+    if user_prompt in (None, NAV_BACK, NAV_LIST):
         return None
 
     # Load dataset details and sample images
     dataset_path = Path(dataset_choice)
-    console.print(f"\n[bold green]Gathering dataset information and sampling images...[/bold green]")
+    console.print("\n[bold green]Gathering dataset information and sampling images...[/bold green]")
     try:
         dataset_details, samples_base64 = get_dataset_ai_summary(dataset_path)
     except Exception as e:
@@ -776,6 +1011,13 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         f"=== SUPPORTED TRANSFORMS REFERENCE ===\n"
         f"Only select transforms from the following supported catalog:\n"
         f"{json.dumps(SUPPORTED_TRANSFORMS)}\n\n"
+        f"=== TRANSFORM PARAMETER REFERENCE ===\n"
+        f"Some transforms accept extra tuning parameters. Range parameters are split\n"
+        f"into explicit low/high (or lower/upper) keys — always provide BOTH sides of\n"
+        f"a range. Use ONLY the exact parameter names listed below; any other names are\n"
+        f"ignored. Any parameter you omit falls back to a sensible default. Transforms\n"
+        f"not listed here take only 'name', 'enabled', and 'p'.\n"
+        f"{_format_transform_param_catalog()}\n\n"
         f"=== EXPECTED OUTPUT FORMAT ===\n"
         f"You must return a single JSON object containing exactly the following fields:\n"
         f"1. 'profile_name': a short, lowercase_with_underscores string identifying the augmentation profile (e.g. 'aerial_solar_panels_aug').\n"
@@ -787,7 +1029,7 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         f"   - 'name': string (must be exactly one of the supported transforms from the catalog above)\n"
         f"   - 'enabled': true\n"
         f"   - 'p': float (probability of applying this transform, from 0.0 to 1.0)\n"
-        f"   - optionally any transform-specific parameters (e.g. 'brightness_limit': 0.2, 'degrees': 15.0) to fine-tune it.\n"
+        f"   - optionally any transform-specific parameters using the exact names from the Parameter Reference above.\n"
     )
     
     try:
@@ -803,15 +1045,28 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         # Use our robust block extractor
         recommendation = extract_json_block(raw_response)
         
-        profile_name = recommendation.get("profile_name", "ai_profile").strip().lower().replace(" ", "_")
+        profile_name = _slugify(recommendation.get("profile_name", ""), fallback="ai_profile")
         description = recommendation.get("description", "Optimized by AI based on dataset analysis.")
-        multiplier = int(recommendation.get("multiplier", 3))
-        include_originals = bool(recommendation.get("include_originals", True))
+        try:
+            multiplier = max(1, min(10, int(float(recommendation.get("multiplier", 3)))))
+        except (ValueError, TypeError):
+            multiplier = 3
+        include_originals = _coerce_bool(recommendation.get("include_originals", True), default=True)
         suggested_transforms = recommendation.get("transforms", [])
         
         # Sanitize and type-check suggested transforms
         suggested_transforms = sanitize_augmentation_transforms(suggested_transforms)
-        
+
+        if not any(tx.get("enabled") for tx in suggested_transforms):
+            console.print(warning_panel(
+                "The AI did not return any valid, enabled transforms for this dataset.\n"
+                "Nothing would be augmented, so no profile was saved. Try rephrasing "
+                "your preferences or pick a built-in profile instead.",
+                title="No Usable Transforms",
+            ))
+            input("\nPress Enter to return...")
+            return None
+
         clear_screen()
         print_stylized_header("AI Recommendation Success")
         

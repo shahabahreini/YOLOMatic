@@ -1717,9 +1717,11 @@ def display_configuration_summary(
             }
         )
 
-    # Indicate if this is a fully customized config
+    # Indicate if this is a fully customized or AI-recommended config
     if profile_selection and profile_selection.get("mode") == "fully_customized":
         fields["Config Mode"] = "Fully Customized"
+    elif profile_selection and profile_selection.get("mode") == "ai_recommendation":
+        fields["Config Mode"] = "AI Recommendation"
 
     render_summary_panel("Configuration Summary", fields)
 
@@ -3530,132 +3532,577 @@ def settings_credentials_page() -> None:
 
 
 def settings_ai_page() -> None:
-    from src.utils.cli import (
-        get_parameter_value_input,
+    from src.utils.tui import (
+        TUI_TERM,
+        TUI_CONSOLE,
         make_panel,
-        expected_error_panel,
-        warning_panel,
         TUIState,
-        NAV_BACK,
+        is_enter_key,
     )
     from src.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS
-    import time
-    
-    while True:
-        clear_screen()
-        print_stylized_header("AI Recommendation Settings")
-        
-        settings = load_settings()
-        ai_config = settings.setdefault("ai", {})
-        provider = ai_config.get("provider", "Gemini")
-        selected_model = ai_config.get("selected_model", "gemini-2.5-flash")
-        
-        # Mask API keys for display
-        gemini_key = ai_config.get("gemini_api_key", "")
-        openai_key = ai_config.get("openai_api_key", "")
-        
-        masked_gemini = f"***{gemini_key[-4:]}" if (gemini_key and len(gemini_key) > 4) else ("configured" if gemini_key else "not set")
-        masked_openai = f"***{openai_key[-4:]}" if (openai_key and len(openai_key) > 4) else ("configured" if openai_key else "not set")
-        
-        status_lines = [
-            f"[bold green]Current Settings:[/bold green]",
-            f"  API Provider:   [cyan]{provider}[/cyan]",
-            f"  Selected Model: [cyan]{selected_model}[/cyan]",
-            f"  Gemini API Key: [dim]{masked_gemini}[/dim]",
-            f"  OpenAI API Key: [dim]{masked_openai}[/dim]"
-        ]
-        console.print(make_panel("\n".join(status_lines), title="AI Configuration Status"))
-        
-        choice = get_user_choice(
-            [
-                "Change API Provider",
-                "Configure Gemini API Key",
-                "Configure OpenAI API Key",
-                "Fetch & Select AI Model",
-                "Back"
-            ],
-            title="AI Settings Menu",
-            text="Choose an action to configure AI suggestions:"
-        )
-        
-        if choice == "Back":
-            return
+    from rich.live import Live
+    from rich.layout import Layout
+    from rich.text import Text
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.console import Group
+    import threading
+
+    class AISettingsRenderer:
+        """Renderer for the unified dual-panel AI Recommendation Settings screen."""
+
+        def __init__(
+            self,
+            provider: str,
+            gemini_api_key: str,
+            openai_api_key: str,
+            selected_model: str,
+            current_idx: int,
+            focus: str,
+            input_buffer: str,
+            mask_keys: bool,
+            test_result: tuple[bool, str] | None,
+            is_testing: bool,
+            model_list: list[str],
+            model_scroll_index: int,
+            is_fetching: bool = False,
+            fetch_result: tuple[bool, str] | None = None,
+        ):
+            self.provider = provider
+            self.gemini_api_key = gemini_api_key
+            self.openai_api_key = openai_api_key
+            self.selected_model = selected_model
+            self.current_idx = current_idx
+            self.focus = focus
+            self.input_buffer = input_buffer
+            self.mask_keys = mask_keys
+            self.test_result = test_result
+            self.is_testing = is_testing
+            self.model_list = model_list
+            self.model_scroll_index = model_scroll_index
+            self.is_fetching = is_fetching
+            self.fetch_result = fetch_result
+
+            self.sidebar_items = [
+                ("provider", "API Provider"),
+                ("gemini_key", "Gemini API Key"),
+                ("openai_key", "OpenAI API Key"),
+                ("model", "Selected Model"),
+                ("fetch", "Fetch Latest Models"),
+                ("test", "Test Connection"),
+                ("save", "Save & Exit"),
+            ]
+
+        def _render_sidebar(self) -> Panel:
+            items = []
+            for i, (key, label) in enumerate(self.sidebar_items):
+                is_active = i == self.current_idx
+                
+                # Show current value inside the label for context
+                val_suffix = ""
+                if key == "provider":
+                    val_suffix = f": [cyan]{self.provider}[/cyan]"
+                elif key == "gemini_key":
+                    if self.gemini_api_key:
+                        masked = f"***{self.gemini_api_key[-4:]}" if len(self.gemini_api_key) > 4 else "configured"
+                        val_suffix = f": [dim]{masked}[/dim]"
+                    else:
+                        val_suffix = ": [red]not set[/red]"
+                elif key == "openai_key":
+                    if self.openai_api_key:
+                        masked = f"***{self.openai_api_key[-4:]}" if len(self.openai_api_key) > 4 else "configured"
+                        val_suffix = f": [dim]{masked}[/dim]"
+                    else:
+                        val_suffix = ": [red]not set[/red]"
+                elif key == "model":
+                    val_suffix = f": [yellow]{self.selected_model}[/yellow]"
+                elif key == "fetch":
+                    if self.is_fetching:
+                        val_suffix = ": [yellow]fetching...[/yellow]"
+                    elif self.fetch_result is not None and self.fetch_result[0]:
+                        val_suffix = ": [green]loaded[/green]"
+                    
+                if is_active and self.focus == "sidebar":
+                    text = Text.from_markup(f"[bold yellow]➤ [/bold yellow][bold white]{label}[/bold white]{val_suffix}")
+                    text.stylize("on blue")
+                else:
+                    if is_active:
+                        text = Text.from_markup(f"  [bold]{label}[/bold]{val_suffix}")
+                    else:
+                        text = Text.from_markup(f"  [dim white]{label}[/dim white]{val_suffix}")
+                    
+                items.append(text)
+                items.append(Text(""))
+                
+            return Panel(
+                Group(*items[:-1]),
+                title="[bold cyan]AI Recommendation Configuration[/bold cyan]",
+                border_style="blue" if self.focus == "sidebar" else "dim",
+                padding=(1, 2),
+                expand=True,
+            )
+
+        def _render_content(self) -> Panel:
+            key, label = self.sidebar_items[self.current_idx]
+            content_items = []
             
-        elif choice == "Change API Provider":
-            prov_choice = get_user_choice(
-                ["Gemini", "OpenAI"],
-                title="Select Provider",
-                text="Which AI provider do you want to use?"
-            )
-            ai_config["provider"] = prov_choice
-            # Fallback model auto-assignment if current model doesn't belong to the provider
-            default_models = FALLBACK_MODELS.get(prov_choice, [])
-            if selected_model not in default_models:
-                ai_config["selected_model"] = default_models[0] if default_models else ""
-            save_settings(settings)
-            console.print(f"\n[bold green]Provider updated to {prov_choice}.[/bold green]")
-            time.sleep(0.5)
+            # Build header for right card
+            content_items.append(Text(f"{label} Configuration", style="bold yellow underline"))
+            content_items.append(Text(""))
             
-        elif choice == "Configure Gemini API Key":
-            param = ParameterDefinition(
-                name="gemini_api_key",
-                category="AI",
-                default=gemini_key,
-                value_type="str",
-                description="Gemini API Key",
-                help_text="Provide your Google Gemini API Key from Google AI Studio."
+            if key == "provider":
+                content_items.append(Text("YOLOMatic uses Large Language Models to analyze your dataset metadata (images, format, distribution, aspect ratios) and automatically recommend optimized training configs to eliminate trial-and-error.", style="dim"))
+                content_items.append(Text(""))
+                content_items.append(Text("Selecting a Provider:", style="bold cyan"))
+                content_items.append(Text("  • Google Gemini: Fast, highly cost-effective, and powerful multimodal reasoning (Gemini 2.5 Flash is recommended). Setup with a key from Google AI Studio.", style="dim"))
+                content_items.append(Text("  • OpenAI GPT: Industry standard model backend. Requires an OpenAI API key.", style="dim"))
+                content_items.append(Text(""))
+                
+                # Show current provider selection indicator
+                prov_table = Table.grid(expand=True)
+                prov_table.add_column(ratio=1)
+                prov_table.add_column(ratio=1)
+                
+                gemini_style = "bold white on purple" if self.provider == "Gemini" else "dim"
+                openai_style = "bold white on green" if self.provider == "OpenAI" else "dim"
+                
+                gemini_box = Panel(Text("Google Gemini", justify="center", style=gemini_style), border_style="purple" if self.provider == "Gemini" else "dim")
+                openai_box = Panel(Text("OpenAI GPT", justify="center", style=openai_style), border_style="green" if self.provider == "OpenAI" else "dim")
+                
+                prov_table.add_row(gemini_box, openai_box)
+                content_items.append(prov_table)
+                
+                if self.focus == "select_provider":
+                    content_items.append(Text(""))
+                    content_items.append(Text("➤ Select provider using [Left/Right] arrows and press [Enter].", style="bold yellow"))
+                else:
+                    content_items.append(Text(""))
+                    content_items.append(Text("Press [Enter/Space] or [→] to select provider.", style="dim green"))
+                    
+            elif key in ("gemini_key", "openai_key"):
+                is_gemini = key == "gemini_key"
+                prov_name = "Google Gemini" if is_gemini else "OpenAI"
+                url = "https://aistudio.google.com/" if is_gemini else "https://platform.openai.com/"
+                current_key_val = self.gemini_api_key if is_gemini else self.openai_api_key
+                
+                content_items.append(Text(f"Configure your API Key for {prov_name} access.", style="bold cyan"))
+                content_items.append(Text(""))
+                content_items.append(Text.from_markup(f"To generate a key, visit: [bold magenta underline]{url}[/bold magenta underline]", style="dim"))
+                content_items.append(Text("This key is stored purely locally in your configuration file and never shared with external services.", style="dim italic"))
+                content_items.append(Text(""))
+                
+                if self.focus == "input_key":
+                    display_key = self.input_buffer
+                    if self.mask_keys and display_key:
+                        display_key = "*" * (len(display_key) - 4) + display_key[-4:] if len(display_key) > 4 else "*" * len(display_key)
+                    
+                    input_panel = Panel(
+                        Text(f"  {display_key}█", style="bold yellow"),
+                        title="[bold green]Enter API Key (Typing Mode)[/bold green]",
+                        border_style="green",
+                        padding=(1, 1)
+                    )
+                    content_items.append(input_panel)
+                    content_items.append(Text(""))
+                    content_items.append(Text("  [Enter] Confirm & Keep  [Esc] Cancel  [F2] Toggle Key Visibility", style="dim green"))
+                else:
+                    display_key = current_key_val
+                    if not display_key:
+                        display_key = "< Not Configured >"
+                        key_style = "bold red"
+                    else:
+                        key_style = "bold cyan"
+                        if self.mask_keys:
+                            display_key = "*" * (len(display_key) - 4) + display_key[-4:] if len(display_key) > 4 else "*" * len(display_key)
+                    
+                    content_items.append(Panel(Text(f"  {display_key}", style=key_style), title="Configured API Key", border_style="dim"))
+                    content_items.append(Text(""))
+                    content_items.append(Text("Press [Enter] or [→] to edit API key.", style="dim green"))
+                    if current_key_val:
+                        content_items.append(Text("Press [F2] to toggle key visibility.", style="dim"))
+                        
+            elif key == "model":
+                content_items.append(Text(f"Configure the active multimodal model for {self.provider} API recommendations.", style="bold cyan"))
+                content_items.append(Text(""))
+                content_items.append(Text("Choosing a smaller, faster model (like gemini-2.5-flash) is highly recommended for quick hyperparameter recommendations.", style="dim"))
+                content_items.append(Text(""))
+                content_items.append(Text(f"Active Model: [bold yellow]{self.selected_model}[/bold yellow]"))
+                content_items.append(Text(""))
+                
+                if self.focus == "select_model":
+                    content_items.append(Text("Navigate & select a model:", style="bold cyan"))
+                    content_items.append(Text(""))
+                    
+                    models = self.model_list if self.model_list else ["gemini-2.5-flash"]
+                    visible_count = 5
+                    start = max(0, min(self.model_scroll_index - visible_count // 2, len(models) - visible_count))
+                    end = min(start + visible_count, len(models))
+                    
+                    model_rows = []
+                    for idx in range(start, end):
+                        m = models[idx]
+                        is_current_active = m == self.selected_model
+                        is_highlighted = idx == self.model_scroll_index
+                        
+                        row = Text()
+                        if is_highlighted:
+                            row.append("➤ ", style="bold yellow")
+                            row.append(f"{m}", style="bold white on blue")
+                        else:
+                            row.append("  ")
+                            row.append(f"{m}", style="dim" if not is_current_active else "yellow")
+                            
+                        if is_current_active:
+                            row.append(" [✓ active]", style="bold green")
+                            
+                        model_rows.append(row)
+                    
+                    content_items.append(Panel(Group(*model_rows), title="Available Models", border_style="blue"))
+                    content_items.append(Text(""))
+                    content_items.append(Text("  [↑/↓] Navigate  [Enter] Choose  [Esc/←] Back", style="dim green"))
+                else:
+                    if self.is_fetching:
+                        content_items.append(Panel(
+                            Text("⟳ Fetching live model list from provider...", style="bold yellow"),
+                            border_style="yellow",
+                            title="API Request"
+                        ))
+                    else:
+                        content_items.append(Text("Press [Enter] or [→] to select a model from the list.", style="dim green"))
+                        content_items.append(Text("Press [F] to fetch the latest models from the API.", style="dim magenta"))
+                    
+            elif key == "test":
+                content_items.append(Text("Verify your AI integration settings.", style="bold cyan"))
+                content_items.append(Text(""))
+                content_items.append(Text("Runs an authentication check and fetches models to make sure credentials are correct.", style="dim"))
+                content_items.append(Text(""))
+                
+                active_key = self.gemini_api_key if self.provider == "Gemini" else self.openai_api_key
+                if not active_key:
+                    content_items.append(Panel(
+                        Text("✗ Cannot Test: API key is not configured yet. Please configure the API Key first.", style="bold red"),
+                        border_style="red",
+                        title="Missing Configuration"
+                    ))
+                elif self.is_testing:
+                    content_items.append(Panel(
+                        Text("⟳ Connecting to API... Testing authentication credentials...", style="bold yellow"),
+                        border_style="yellow",
+                        title="Active Test"
+                    ))
+                elif self.test_result is not None:
+                    success, msg = self.test_result
+                    if success:
+                        content_items.append(Panel(
+                            Text(f"✓ Success! API key verified.\n\n{msg}", style="bold green"),
+                            border_style="green",
+                            title="Connection Success"
+                        ))
+                    else:
+                        content_items.append(Panel(
+                            Text(f"✗ Failed! API connection error.\n\n{msg}", style="bold red"),
+                            border_style="red",
+                            title="Connection Failed"
+                        ))
+                else:
+                    content_items.append(Text("Press [Enter] to run the connection test now.", style="bold green"))
+                    
+            elif key == "fetch":
+                content_items.append(Text("Fetch the latest available models from the provider's API.", style="bold cyan"))
+                content_items.append(Text(""))
+                content_items.append(Text("This queries the active provider to discover new or updated LLMs. The fetched models will instantly populate the 'Selected Model' list.", style="dim"))
+                content_items.append(Text(""))
+                
+                active_key = self.gemini_api_key if self.provider == "Gemini" else self.openai_api_key
+                if not active_key:
+                    content_items.append(Panel(
+                        Text("✗ Cannot Fetch: API key is not configured. Please configure the API Key first.", style="bold red"),
+                        border_style="red",
+                        title="Missing Configuration"
+                    ))
+                elif self.is_fetching:
+                    content_items.append(Panel(
+                        Text("⟳ Fetching model catalog from API... Please wait...", style="bold yellow"),
+                        border_style="yellow",
+                        title="Active Fetch"
+                    ))
+                elif self.fetch_result is not None:
+                    success, msg = self.fetch_result
+                    if success:
+                        content_items.append(Panel(
+                            Text(f"✓ Success! Model catalog updated.\n\n{msg}", style="bold green"),
+                            border_style="green",
+                            title="Fetch Success"
+                        ))
+                    else:
+                        content_items.append(Panel(
+                            Text(f"✗ Failed! Model catalog fetch failed.\n\n{msg}", style="bold red"),
+                            border_style="red",
+                            title="Fetch Failed"
+                        ))
+                else:
+                    content_items.append(Text("Press [Enter] to query and update the model catalog.", style="bold green"))
+
+            elif key == "save":
+                content_items.append(Text("Save settings and exit.", style="bold cyan"))
+                content_items.append(Text(""))
+                content_items.append(Text("Apply and save all changes directly to yolomatic_settings.yaml and return to the main settings page.", style="dim"))
+                content_items.append(Text(""))
+                
+                # Show summary of what will be saved
+                summary_lines = [
+                    f"[bold]Provider:[/bold] [cyan]{self.provider}[/cyan]",
+                    "[bold]Gemini API Key:[/bold] " + (f"[cyan]***{self.gemini_api_key[-4:]}[/cyan]" if (self.gemini_api_key and len(self.gemini_api_key) > 4) else ("[green]configured[/green]" if self.gemini_api_key else "[red]not set[/red]")),
+                    "[bold]OpenAI API Key:[/bold] " + (f"[cyan]***{self.openai_api_key[-4:]}[/cyan]" if (self.openai_api_key and len(self.openai_api_key) > 4) else ("[green]configured[/green]" if self.openai_api_key else "[red]not set[/red]")),
+                    f"[bold]AI Model:[/bold] [yellow]{self.selected_model}[/yellow]",
+                ]
+                content_items.append(Panel(Text.from_markup("\n".join(summary_lines)), title="Pending Changes Summary", border_style="green"))
+                content_items.append(Text(""))
+                content_items.append(Text("Press [Enter] to save and return.", style="bold green"))
+                
+            return Panel(
+                Group(*content_items),
+                title=f"[bold cyan]{label} Information[/bold cyan]",
+                border_style="dim",
+                padding=(1, 2),
+                expand=True,
             )
-            new_key = get_parameter_value_input(param)
-            if new_key not in (None, NAV_BACK):
-                ai_config["gemini_api_key"] = new_key.strip()
-                save_settings(settings)
-                console.print("\n[bold green]Gemini API key saved.[/bold green]")
-                time.sleep(0.5)
+
+        def _render_status_bar(self) -> Panel:
+            hints = []
+            if self.focus == "sidebar":
+                hints.append("[↑/↓] Navigate")
+                hints.append("[Enter/→] Select/Edit")
+                if self.sidebar_items[self.current_idx][0] == "model":
+                    hints.append("[F] Fetch Models")
+                elif self.sidebar_items[self.current_idx][0] in ("gemini_key", "openai_key"):
+                    hints.append("[F2] Mask Key")
+                hints.append("[Esc/Q] Back")
+            elif self.focus == "select_provider":
+                hints.append("[←/→] Select Provider")
+                hints.append("[Enter] Confirm")
+                hints.append("[Esc] Cancel")
+            elif self.focus == "input_key":
+                hints.append("[Type] Enter key characters")
+                hints.append("[Backspace] Delete")
+                hints.append("[F2] Toggle Masking")
+                hints.append("[Enter] Confirm")
+                hints.append("[Esc] Cancel")
+            elif self.focus == "select_model":
+                hints.append("[↑/↓] Navigate Models")
+                hints.append("[Enter] Select Model")
+                hints.append("[Esc/←] Back")
                 
-        elif choice == "Configure OpenAI API Key":
-            param = ParameterDefinition(
-                name="openai_api_key",
-                category="AI",
-                default=openai_key,
-                value_type="str",
-                description="OpenAI API Key",
-                help_text="Provide your OpenAI API Key."
+            status_table = Table.grid(expand=True)
+            status_table.add_column(justify="left", ratio=1)
+            status_table.add_row(Text.from_markup("  " + "  │  ".join(hints), style="bold white"))
+            
+            return Panel(status_table, border_style="dim", padding=(0, 1))
+
+        def __rich__(self) -> Layout:
+            layout = Layout()
+            layout.split_column(
+                Layout(name="header", size=3),
+                Layout(name="body"),
+                Layout(name="footer", size=3),
             )
-            new_key = get_parameter_value_input(param)
-            if new_key not in (None, NAV_BACK):
-                ai_config["openai_api_key"] = new_key.strip()
-                save_settings(settings)
-                console.print("\n[bold green]OpenAI API key saved.[/bold green]")
-                time.sleep(0.5)
-                
-        elif choice == "Fetch & Select AI Model":
-            current_provider = provider
-            key = gemini_key if current_provider.lower() == "gemini" else openai_key
-            if not key:
-                console.print("\n[bold red]Error: API Key must be configured first to fetch models.[/bold red]")
-                input("\nPress Enter to return...")
-                continue
-                
-            console.print(f"\n[bold green]Fetching models from {current_provider} API...[/bold green]")
-            try:
-                models = fetch_multimodal_models(current_provider, key)
-                if not models:
-                    console.print(f"[yellow]No models returned from API, using local fallbacks...[/yellow]")
-                    models = FALLBACK_MODELS.get(current_provider, [])
-            except Exception as e:
-                console.print(expected_error_panel(f"Failed to fetch models from API: {e}\nFalling back to offline list."))
-                models = FALLBACK_MODELS.get(current_provider, [])
-                
-            model_choice = get_user_choice(
-                models + ["Cancel"],
-                title="Select Multimodal Model",
-                text=f"Select a multimodal model from {current_provider}:"
+            
+            layout["header"].update(
+                make_panel(
+                    Text("AI Recommendation settings - Unified Panel", style="bold cyan", justify="center"),
+                    state=TUIState.INFO,
+                    padding=(0, 1),
+                )
             )
-            if model_choice != "Cancel":
-                ai_config["selected_model"] = model_choice
-                save_settings(settings)
-                console.print(f"\n[bold green]AI Model updated to {model_choice}.[/bold green]")
-                time.sleep(0.5)
+            
+            layout["body"].split_row(
+                Layout(name="sidebar", ratio=2),
+                Layout(name="content", ratio=3),
+            )
+            
+            layout["body"]["sidebar"].update(self._render_sidebar())
+            layout["body"]["content"].update(self._render_content())
+            layout["footer"].update(self._render_status_bar())
+            
+            return layout
+
+    settings = load_settings()
+    ai_config = settings.setdefault("ai", {})
+    provider = ai_config.get("provider", "Gemini")
+    selected_model = ai_config.get("selected_model", "gemini-2.5-flash")
+    gemini_key = ai_config.get("gemini_api_key", "")
+    openai_key = ai_config.get("openai_api_key", "")
+
+    current_idx = 0
+    focus = "sidebar"
+    input_buffer = ""
+    mask_keys = True
+    test_result = None
+    fetch_result = None
+    is_testing = False
+    is_fetching = False
+    model_list = FALLBACK_MODELS.get(provider, [])
+    model_scroll_index = 0
+    if selected_model in model_list:
+        model_scroll_index = model_list.index(selected_model)
+
+    renderer = AISettingsRenderer(
+        provider=provider,
+        gemini_api_key=gemini_key,
+        openai_api_key=openai_key,
+        selected_model=selected_model,
+        current_idx=current_idx,
+        focus=focus,
+        input_buffer=input_buffer,
+        mask_keys=mask_keys,
+        test_result=test_result,
+        is_testing=is_testing,
+        model_list=model_list,
+        model_scroll_index=model_scroll_index,
+        is_fetching=is_fetching,
+        fetch_result=fetch_result,
+    )
+
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
+        with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
+            while True:
+                key = TUI_TERM.inkey(timeout=0.1)
+                
+                # Active sidebar item key
+                active_item_key, _ = renderer.sidebar_items[renderer.current_idx]
+
+                if renderer.focus == "sidebar":
+                    if key.name == "KEY_UP" or key.lower() == "k":
+                        renderer.current_idx = (renderer.current_idx - 1) % len(renderer.sidebar_items)
+                        renderer.test_result = None
+                        renderer.fetch_result = None
+                    elif key.name == "KEY_DOWN" or key.lower() == "j":
+                        renderer.current_idx = (renderer.current_idx + 1) % len(renderer.sidebar_items)
+                        renderer.test_result = None
+                        renderer.fetch_result = None
+                    elif key.name == "KEY_RIGHT" or is_enter_key(key):
+                        if active_item_key == "provider":
+                            renderer.focus = "select_provider"
+                        elif active_item_key in ("gemini_key", "openai_key"):
+                            renderer.focus = "input_key"
+                            renderer.input_buffer = renderer.gemini_api_key if active_item_key == "gemini_key" else renderer.openai_api_key
+                        elif active_item_key == "model":
+                            renderer.focus = "select_model"
+                            if not renderer.model_list:
+                                renderer.model_list = FALLBACK_MODELS.get(renderer.provider, [])
+                            try:
+                                renderer.model_scroll_index = renderer.model_list.index(renderer.selected_model)
+                            except ValueError:
+                                renderer.model_scroll_index = 0
+                        elif active_item_key == "fetch":
+                            active_key = renderer.gemini_api_key if renderer.provider == "Gemini" else renderer.openai_api_key
+                            if active_key and not renderer.is_fetching:
+                                renderer.is_fetching = True
+                                renderer.fetch_result = None
+                                def run_fetch_sidebar():
+                                    try:
+                                        models = fetch_multimodal_models(renderer.provider, active_key)
+                                        if models:
+                                            renderer.fetch_result = (True, f"Connected to {renderer.provider} successfully!\nFetched {len(models)} models.")
+                                            renderer.model_list = models
+                                        else:
+                                            renderer.fetch_result = (True, f"Connected to {renderer.provider} successfully, but fetched 0 models.")
+                                    except Exception as e:
+                                        renderer.fetch_result = (False, str(e))
+                                    renderer.is_fetching = False
+                                threading.Thread(target=run_fetch_sidebar, daemon=True).start()
+                        elif active_item_key == "test":
+                            active_key = renderer.gemini_api_key if renderer.provider == "Gemini" else renderer.openai_api_key
+                            if active_key and not renderer.is_testing:
+                                renderer.is_testing = True
+                                renderer.test_result = None
+                                def run_test():
+                                    try:
+                                        models = fetch_multimodal_models(renderer.provider, active_key)
+                                        if models:
+                                            renderer.test_result = (True, f"Connected to {renderer.provider} successfully!\nFetched {len(models)} models.")
+                                            # Update the model list too while we are at it
+                                            renderer.model_list = models
+                                        else:
+                                            renderer.test_result = (True, f"Connected to {renderer.provider} successfully, but fetched 0 models.")
+                                    except Exception as e:
+                                        renderer.test_result = (False, str(e))
+                                    renderer.is_testing = False
+                                threading.Thread(target=run_test, daemon=True).start()
+                        elif active_item_key == "save":
+                            # Save and exit
+                            ai_config["provider"] = renderer.provider
+                            ai_config["selected_model"] = renderer.selected_model
+                            ai_config["gemini_api_key"] = renderer.gemini_api_key
+                            ai_config["openai_api_key"] = renderer.openai_api_key
+                            save_settings(settings)
+                            break
+                    elif key == " ":
+                        if active_item_key == "provider":
+                            # Instant toggle on Space
+                            renderer.provider = "OpenAI" if renderer.provider == "Gemini" else "Gemini"
+                            renderer.model_list = FALLBACK_MODELS.get(renderer.provider, [])
+                            renderer.selected_model = renderer.model_list[0] if renderer.model_list else ""
+                    elif key.name == "KEY_F2" or key == "f2":
+                        renderer.mask_keys = not renderer.mask_keys
+                    elif key.lower() == "f" and active_item_key == "model":
+                        active_key = renderer.gemini_api_key if renderer.provider == "Gemini" else renderer.openai_api_key
+                        if active_key and not renderer.is_fetching:
+                            renderer.is_fetching = True
+                            def run_fetch():
+                                try:
+                                    models = fetch_multimodal_models(renderer.provider, active_key)
+                                    if models:
+                                        renderer.model_list = models
+                                except Exception:
+                                    pass
+                                renderer.is_fetching = False
+                            threading.Thread(target=run_fetch, daemon=True).start()
+                    elif key.lower() == "q" or key.name == "KEY_ESCAPE":
+                        # Discard changes
+                        break
+
+                elif renderer.focus == "select_provider":
+                    if key.name in ("KEY_LEFT", "KEY_RIGHT", "KEY_UP", "KEY_DOWN") or key.lower() in ("h", "l", "k", "j"):
+                        renderer.provider = "OpenAI" if renderer.provider == "Gemini" else "Gemini"
+                        renderer.model_list = FALLBACK_MODELS.get(renderer.provider, [])
+                        renderer.selected_model = renderer.model_list[0] if renderer.model_list else ""
+                    elif is_enter_key(key):
+                        renderer.focus = "sidebar"
+                    elif key.name == "KEY_ESCAPE":
+                        renderer.focus = "sidebar"
+
+                elif renderer.focus == "input_key":
+                    if key.name == "KEY_ESCAPE":
+                        renderer.focus = "sidebar"
+                    elif is_enter_key(key):
+                        if active_item_key == "gemini_key":
+                            renderer.gemini_api_key = renderer.input_buffer.strip()
+                        else:
+                            renderer.openai_api_key = renderer.input_buffer.strip()
+                        renderer.focus = "sidebar"
+                    elif key.name == "KEY_F2" or key == "f2":
+                        renderer.mask_keys = not renderer.mask_keys
+                    elif key.name == "KEY_BACKSPACE" or str(key) in {"\x08", "\x7f"}:
+                        renderer.input_buffer = renderer.input_buffer[:-1]
+                    elif key and not key.is_sequence:
+                        renderer.input_buffer += key
+
+                elif renderer.focus == "select_model":
+                    if key.name == "KEY_UP" or key.lower() == "k":
+                        if renderer.model_list:
+                            renderer.model_scroll_index = (renderer.model_scroll_index - 1) % len(renderer.model_list)
+                    elif key.name == "KEY_DOWN" or key.lower() == "j":
+                        if renderer.model_list:
+                            renderer.model_scroll_index = (renderer.model_scroll_index + 1) % len(renderer.model_list)
+                    elif is_enter_key(key):
+                        if renderer.model_list:
+                            renderer.selected_model = renderer.model_list[renderer.model_scroll_index]
+                        renderer.focus = "sidebar"
+                    elif key.name in ("KEY_ESCAPE", "KEY_LEFT") or key.lower() == "h":
+                        renderer.focus = "sidebar"
+
+                live.update(renderer)
 
 
 def settings_reset_page() -> None:
