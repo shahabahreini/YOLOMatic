@@ -4174,6 +4174,7 @@ def _main_loop_iteration():
             "Benchmark Models",
             "SAM Segment",
             "[Datasets & Deployment]",
+            "Prepare / Split Dataset",
             "Convert Dataset Format",
             "Combine Datasets",
             "Augment Dataset",
@@ -4196,6 +4197,11 @@ def _main_loop_iteration():
                 "Convert Dataset Format": (
                     "Convert Labelbox NDJSON exports into YOLO or COCO formats. "
                     "Supports concurrent image downloads and handles both bounding boxes and polygons."
+                ),
+                "Prepare / Split Dataset": (
+                    "Create a versioned, training-ready YOLO or COCO dataset from a YOLO folder, "
+                    "COCO folder, or Labelbox NDJSON export. Includes guided split presets, "
+                    "class-balanced assignment, validation warnings, and manifest metadata."
                 ),
                 "Configure Model": (
                     "Walk through the YOLOmatic wizard to pick a YOLO or RF-DETR family, choose a "
@@ -4320,6 +4326,12 @@ def _main_loop_iteration():
             from src.cli.convert_ndjson import main as convert_main
 
             _safe_subcommand("Dataset Conversion", convert_main, prog="yolomatic-convert")
+            continue
+
+        elif main_choice == "Prepare / Split Dataset":
+            from src.cli.prepare_dataset import main as prepare_main
+
+            _safe_subcommand("Dataset Preparation", prepare_main, prog="yolomatic-prepare")
             continue
 
         elif main_choice == "Upload to Roboflow":
