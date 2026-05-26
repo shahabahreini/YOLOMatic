@@ -231,6 +231,67 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.15, 0.15]), 100, 100), "medium")
         self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.40, 0.40]), 100, 100), "large")
 
+    def test_data_yaml_omits_test_when_test_split_is_zero(self) -> None:
+        source = self.tmp / "source"
+        source.mkdir()
+        self._write_yolo_dataset(source, count=4)
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=source,
+                output_root=self.tmp / "datasets",
+                output_slug="no_test",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(0.75, 0.25, 0.0),
+            )
+        )
+
+        data = yaml.safe_load((Path(stats.output_path) / "data.yaml").read_text(encoding="utf-8"))
+        self.assertIn("train", data)
+        self.assertIn("val", data)
+        self.assertNotIn("test", data)
+        self.assertFalse((Path(stats.output_path) / "test" / "images").exists())
+
+    def test_ndjson_rejects_non_http_url_scheme(self) -> None:
+        ndjson = self.tmp / "labels.ndjson"
+        row = {
+            "data_row": {"global_key": "leak.jpg", "row_data": "file:///etc/passwd"},
+            "projects": {},
+        }
+        ndjson.write_text(json.dumps(row), encoding="utf-8")
+
+        with patch("requests.get") as mock_get:
+            # Should never be called because scheme is rejected.
+            mock_get.side_effect = AssertionError("file:// must not be requested")
+            with self.assertRaises(Exception):
+                prepare_dataset(
+                    PrepareDatasetConfig(
+                        source_path=ndjson,
+                        output_root=self.tmp / "datasets",
+                        output_slug="leak",
+                        output_format="YOLO Detection",
+                        split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+                    )
+                )
+
+    def test_ndjson_download_retries_on_transient_failure(self) -> None:
+        from src.datasets.prepare import _download_ndjson_image
+
+        target = self.tmp / "img.jpg"
+        good = MagicMock()
+        good.content = b"jpeg"
+        good.raise_for_status.return_value = None
+        bad = MagicMock()
+        bad.raise_for_status.side_effect = __import__("requests").ConnectionError("boom")
+
+        with patch("requests.get", side_effect=[bad, good]) as mock_get, patch("time.sleep"):
+            ok, reason = _download_ndjson_image("https://example.com/img.jpg", target, retries=2)
+
+        self.assertTrue(ok)
+        self.assertIsNone(reason)
+        self.assertEqual(mock_get.call_count, 2)
+        self.assertEqual(target.read_bytes(), b"jpeg")
+
 
 if __name__ == "__main__":
     unittest.main()
