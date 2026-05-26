@@ -645,17 +645,20 @@ def split_records(
     split_config: PrepareSplitConfig,
     seed: int,
     strategy: str = "class_balanced",
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> dict[str, list[ImageRecord]]:
     if strategy not in SPLIT_STRATEGIES:
         raise ValueError(f"Unsupported split strategy: {strategy}")
     if strategy == "smart_balanced":
-        return _split_records_smart_balanced(records, split_config, seed)
+        return _split_records_smart_balanced(records, split_config, seed, progress_callback=progress_callback)
 
     rng = random.Random(seed)
     target = _target_counts(len(records), split_config)
     result: dict[str, list[ImageRecord]] = {name: [] for name in SPLIT_NAMES}
     class_totals = Counter(cls for record in records for cls in record.class_ids)
     split_class_counts: dict[str, Counter[int]] = {name: Counter() for name in SPLIT_NAMES}
+    total = len(records)
+    progress_step = max(1, total // 100)
 
     ordered = list(records)
     rng.shuffle(ordered)
@@ -667,7 +670,7 @@ def split_records(
         )
     )
 
-    for record in ordered:
+    for idx, record in enumerate(ordered, start=1):
         candidates = [name for name in SPLIT_NAMES if len(result[name]) < target[name]]
         if not candidates:
             candidates = list(SPLIT_NAMES)
@@ -685,6 +688,8 @@ def split_records(
         result[chosen].append(record)
         for cls in record.class_ids:
             split_class_counts[chosen][cls] += 1
+        if progress_callback and (idx == total or idx % progress_step == 0):
+            progress_callback(idx, total, f"Class-balanced split assignment... {idx}/{total}")
 
     return result
 
@@ -703,6 +708,7 @@ def _split_records_smart_balanced(
     records: list[ImageRecord],
     split_config: PrepareSplitConfig,
     seed: int,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> dict[str, list[ImageRecord]]:
     rng = random.Random(seed)
     target = _target_counts(len(records), split_config)
@@ -717,8 +723,12 @@ def _split_records_smart_balanced(
     total_objects = sum(len(record.annotations) for record in records)
     total_unlabeled = sum(1 for record in records if not record.annotations)
     total_images = max(1, len(records))
+    total = len(records)
+    progress_step = max(1, total // 100)
 
     ordered = list(records)
+    if progress_callback:
+        progress_callback(0, total, "Preparing smart split order...")
     rng.shuffle(ordered)
     ordered.sort(
         key=lambda record: (
@@ -729,7 +739,7 @@ def _split_records_smart_balanced(
         )
     )
 
-    for record in ordered:
+    for idx, record in enumerate(ordered, start=1):
         candidates = [name for name in SPLIT_NAMES if len(result[name]) < target[name]]
         if not candidates:
             candidates = list(SPLIT_NAMES)
@@ -763,6 +773,8 @@ def _split_records_smart_balanced(
         split_size_counts[chosen].update(record_size_counts)
         split_object_counts[chosen] += len(record.annotations)
         split_unlabeled_counts[chosen] += record_unlabeled
+        if progress_callback and (idx == total or idx % progress_step == 0):
+            progress_callback(idx, total, f"Smart balanced split assignment... {idx}/{total}")
 
     return result
 
@@ -1000,8 +1012,14 @@ def prepare_dataset(
     output.mkdir(parents=True, exist_ok=True)
 
     if progress_callback:
-        progress_callback(0, len(records), "Splitting dataset...")
-    split_records_by_name = split_records(records, config.split_config, config.seed, config.split_strategy)
+        progress_callback(0, len(records), f"Splitting dataset with {config.split_strategy.replace('_', ' ')}...")
+    split_records_by_name = split_records(
+        records,
+        config.split_config,
+        config.seed,
+        config.split_strategy,
+        progress_callback=progress_callback,
+    )
     warnings.extend(_split_warnings(split_records_by_name, config.split_config, config.split_strategy))
     if progress_callback:
         progress_callback(len(records), len(records), "Writing output dataset...")

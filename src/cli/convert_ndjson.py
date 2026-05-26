@@ -189,7 +189,14 @@ def main() -> None:
         
         # Get NDJSON path
         ndjson_path_str = get_parameter_value_input(
-            ParameterDefinition("ndjson", "Path to Labelbox .ndjson file", str, ""),
+            ParameterDefinition(
+                "ndjson",
+                "source",
+                "",
+                "str",
+                "Path to Labelbox .ndjson file",
+                "Enter an absolute path or a path relative to the project root.",
+            ),
             "",
             title="Select Input File"
         )
@@ -211,7 +218,14 @@ def main() -> None:
             return
             
         output_dir_str = get_parameter_value_input(
-            ParameterDefinition("output_dir", "Output directory path", str, "converted_dataset"),
+            ParameterDefinition(
+                "output_dir",
+                "output",
+                "converted_dataset",
+                "str",
+                "Output directory path",
+                "Converted files will be written here.",
+            ),
             "converted_dataset",
             title="Select Output Directory"
         )

@@ -239,6 +239,26 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertEqual({key: [r.file_name for r in value] for key, value in first.items()}, {key: [r.file_name for r in value] for key, value in second.items()})
         self.assertEqual({key: len(value) for key, value in first.items()}, {"train": 6, "valid": 2, "test": 2})
 
+    def test_smart_split_reports_progress(self) -> None:
+        records = [
+            ImageRecord(Path(f"img_{idx}.jpg"), f"img_{idx}.jpg", 10, 10, [Annotation(idx % 2, bbox=[0.5, 0.5, 0.1, 0.1])])
+            for idx in range(20)
+        ]
+        events: list[tuple[int, int, str]] = []
+
+        split_records(
+            records,
+            PrepareSplitConfig(0.60, 0.20, 0.20),
+            seed=99,
+            strategy="smart_balanced",
+            progress_callback=lambda current, total, message: events.append((current, total, message)),
+        )
+
+        self.assertTrue(any("Preparing smart split" in message for _, _, message in events))
+        self.assertEqual(events[-1][0], 20)
+        self.assertEqual(events[-1][1], 20)
+        self.assertIn("Smart balanced split assignment", events[-1][2])
+
     def test_smart_split_writes_object_size_diagnostics(self) -> None:
         source = self.tmp / "smart"
         source.mkdir()

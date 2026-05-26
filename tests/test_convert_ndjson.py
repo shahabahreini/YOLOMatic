@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import shutil
 import tempfile
 
+from src.cli import convert_ndjson
 from src.cli.convert_ndjson import convert_ndjson_to_format
 
 
@@ -104,3 +105,17 @@ class TestConvertNDJSON(unittest.TestCase):
             
             # Line 1: dog (polygon)
             self.assertTrue(lines[1].startswith("1 0.100000 0.100000 0.200000 0.100000 0.200000 0.200000"))
+
+    def test_interactive_main_uses_current_parameter_definition_signature(self):
+        output_dir = self.tmp_dir / "interactive_output"
+        prompt_values = iter([str(self.ndjson_file), str(output_dir)])
+
+        with patch("src.cli.convert_ndjson.clear_screen"), \
+             patch("src.cli.convert_ndjson.print_stylized_header"), \
+             patch("src.cli.convert_ndjson.get_parameter_value_input", side_effect=lambda *args, **kwargs: next(prompt_values)), \
+             patch("src.cli.convert_ndjson.get_user_choice", return_value="YOLO"), \
+             patch("src.cli.convert_ndjson.convert_ndjson_to_format") as mock_convert, \
+             patch("builtins.input", return_value=""):
+            convert_ndjson.main()
+
+        mock_convert.assert_called_once_with(self.ndjson_file, "YOLO", output_dir)
