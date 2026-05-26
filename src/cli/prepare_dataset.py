@@ -5,6 +5,7 @@ import argparse
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 from rich.live import Live
 from rich.panel import Panel
@@ -24,12 +25,20 @@ from src.utils.cli import (
     ParameterDefinition,
     clear_screen,
     console,
+    format_path,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
     render_summary_panel,
 )
-from src.utils.project import list_dataset_directories
+from src.utils.project import (
+    calculate_folder_size,
+    format_size,
+    list_dataset_directories,
+)
+
+
+WIZARD_STEPS = ["Source", "Format", "Split", "Strategy", "Output", "Confirm"]
 
 
 SPLIT_PRESETS: dict[str, tuple[PrepareSplitConfig, str]] = {
@@ -52,13 +61,28 @@ SPLIT_PRESETS: dict[str, tuple[PrepareSplitConfig, str]] = {
 }
 
 
+def _format_split_label(cfg: PrepareSplitConfig) -> str:
+    return f"{cfg.train_ratio:.0%} / {cfg.val_ratio:.0%} / {cfg.test_ratio:.0%}"
+
+
+def _safe_size(path: Path) -> str:
+    try:
+        return format_size(calculate_folder_size(path))
+    except OSError:
+        return "unknown"
+
+
 def _quick_source_description(path: Path) -> str:
-    if path.suffix.lower() == ".ndjson":
+    if path.is_file() and path.suffix.lower() == ".ndjson":
+        try:
+            line_count = sum(1 for line in path.read_text("utf-8").splitlines() if line.strip())
+        except OSError:
+            line_count = 0
         return (
             f"[bold cyan]{path.name}[/bold cyan]\n\n"
             "Format: [yellow]Labelbox NDJSON[/yellow]\n"
-            "YOLOmatic will download referenced images, parse boxes/polygons, "
-            "then split the prepared output."
+            f"Rows: [yellow]{line_count}[/yellow]\n\n"
+            "[dim]Images will be downloaded into a temporary directory before splitting.[/dim]"
         )
     try:
         from src.datasets.core import summarize_dataset
@@ -67,17 +91,27 @@ def _quick_source_description(path: Path) -> str:
         class_preview = ", ".join(summary.classes[:8])
         if len(summary.classes) > 8:
             class_preview += "..."
+        size_text = _safe_size(path)
         return (
             f"[bold cyan]{path.name}[/bold cyan]\n\n"
             f"Format: [yellow]{summary.format}[/yellow]  |  "
             f"Task: [yellow]{summary.task}[/yellow]\n"
             f"Images: [yellow]{summary.image_count}[/yellow]  |  "
             f"Annotations: [yellow]{summary.annotation_count}[/yellow]  |  "
-            f"Classes: [yellow]{len(summary.classes)}[/yellow]\n\n"
+            f"Classes: [yellow]{len(summary.classes)}[/yellow]\n"
+            f"Size: [yellow]{size_text}[/yellow]\n\n"
             f"[dim]{class_preview or path}[/dim]"
         )
-    except Exception:
-        return f"[bold cyan]{path.name}[/bold cyan]\n\n[dim]{path}[/dim]"
+    except Exception as exc:
+        return (
+            f"[bold cyan]{path.name}[/bold cyan]\n\n"
+            f"[yellow]Could not inspect dataset:[/yellow] {exc}\n\n"
+            f"[dim]{path}[/dim]"
+        )
+
+
+def _wizard_kwargs(step_index: int) -> dict[str, Any]:
+    return {"wizard_steps": WIZARD_STEPS, "wizard_current_step": step_index}
 
 
 def _select_source() -> Path | None:
@@ -99,6 +133,8 @@ def _select_source() -> Path | None:
             ),
         },
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Source"],
+        tip="↑/↓ select  •  PgUp/PgDn jump  •  Enter confirm  •  Q back",
+        **_wizard_kwargs(0),
     )
     if choice in (NAV_BACK, "Back"):
         return None
@@ -118,15 +154,24 @@ def _select_source() -> Path | None:
         if raw in (None, NAV_BACK):
             return None
         path = Path(str(raw)).expanduser()
-        if not path.exists() or path.suffix.lower() != ".ndjson":
-            console.print(Panel(f"[bold red]NDJSON file not found:[/bold red] {path}", border_style="red"))
+        if not path.exists() or not path.is_file() or path.suffix.lower() != ".ndjson":
+            console.print(Panel(
+                f"[bold red]NDJSON file not found or invalid:[/bold red] {path}\n\n"
+                "[dim]The path must point to a readable .ndjson file.[/dim]",
+                border_style="red",
+            ))
             input("\nPress Enter to continue...")
             return None
         return path
 
     datasets = list_dataset_directories(include_size=False)
     if not datasets:
-        console.print(Panel("[bold yellow]No datasets found under ./datasets/.[/bold yellow]", border_style="yellow"))
+        console.print(Panel(
+            "[bold yellow]No datasets found under ./datasets/.[/bold yellow]\n\n"
+            "Place a YOLO or COCO dataset (with a data.yaml) in the datasets/ folder "
+            "first, or use 'Convert Dataset Format' to import from Labelbox.",
+            border_style="yellow",
+        ))
         input("\nPress Enter to continue...")
         return None
     path_by_name = {item["name"]: Path(item["path"]) for item in datasets}
@@ -134,20 +179,21 @@ def _select_source() -> Path | None:
     selected = get_user_choice(
         list(path_by_name),
         allow_back=True,
-        title="Select Dataset Folder",
+        title=f"Select Dataset Folder ({len(path_by_name)} available)",
         text="Choose a YOLO or COCO source dataset:",
         descriptions=descriptions,
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Source"],
+        tip="PgUp/PgDn page through long lists  •  Home/End jump  •  Q back",
+        **_wizard_kwargs(0),
     )
     if selected in (NAV_BACK, "Back"):
         return None
     return path_by_name[selected]
 
 
-def _select_output_format() -> str | None:
+def _select_output_format(source: Path) -> str | None:
     choice = get_user_choice(
-        ["YOLO Detection", "YOLO Segmentation", "COCO"],
-        allow_back=True,
+        ["YOLO Detection", "YOLO Segmentation", "COCO", "Back"],
         title="Output Format",
         text="Choose the format for the prepared training dataset:",
         descriptions={
@@ -165,14 +211,16 @@ def _select_output_format() -> str | None:
             ),
         },
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Format"],
+        status_fields={"Source": str(source)},
+        **_wizard_kwargs(1),
     )
     return None if choice in (NAV_BACK, "Back") else choice
 
 
-def _select_split() -> PrepareSplitConfig | None:
+def _select_split(source: Path, output_format: str) -> PrepareSplitConfig | None:
     options = [*SPLIT_PRESETS, "Custom", "Back"]
     descriptions = {
-        name: f"{cfg.train_ratio:.0%} train / {cfg.val_ratio:.0%} valid / {cfg.test_ratio:.0%} test\n\n{desc}"
+        name: f"{_format_split_label(cfg)}\n\n{desc}"
         for name, (cfg, desc) in SPLIT_PRESETS.items()
     }
     descriptions["Custom"] = "Enter custom train, validation, and test ratios. Values must sum to 1.0."
@@ -182,13 +230,15 @@ def _select_split() -> PrepareSplitConfig | None:
         text="Choose how to divide the source images:",
         descriptions=descriptions,
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Splits"],
+        status_fields={"Source": str(source), "Format": output_format},
+        **_wizard_kwargs(2),
     )
     if choice in (NAV_BACK, "Back"):
         return None
     if choice in SPLIT_PRESETS:
         return SPLIT_PRESETS[choice][0]
 
-    values = {}
+    values: dict[str, float] = {}
     for name, default, label in [
         ("train_ratio", 0.70, "Train ratio"),
         ("val_ratio", 0.20, "Validation ratio"),
@@ -220,7 +270,7 @@ def _select_split() -> PrepareSplitConfig | None:
         return None
 
 
-def _select_split_strategy() -> str | None:
+def _select_split_strategy(source: Path, split_config: PrepareSplitConfig) -> str | None:
     choice = get_user_choice(
         ["Class Balanced", "Smart Balanced", "Back"],
         title="Split Strategy",
@@ -237,14 +287,53 @@ def _select_split_strategy() -> str | None:
             ),
         },
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Split Strategy"],
+        status_fields={"Source": str(source), "Split": _format_split_label(split_config)},
+        **_wizard_kwargs(3),
     )
     if choice in (NAV_BACK, "Back"):
         return None
     return "smart_balanced" if choice == "Smart Balanced" else "class_balanced"
 
 
-def _run_with_progress(config: PrepareDatasetConfig) -> None:
-    progress_state = {"done": 0, "total": 0, "message": "Initializing..."}
+def _collect_output_settings(
+    source: Path,
+    split_config: PrepareSplitConfig,
+    strategy: str,
+) -> tuple[str, int] | None:
+    default_slug = slugify(source.stem if source.is_file() else source.name)
+    raw_slug = get_parameter_value_input(
+        ParameterDefinition(
+            "output_slug",
+            "output",
+            default_slug,
+            "str",
+            "Output dataset name",
+            "YOLOmatic appends _v001, _v002, etc. automatically unless you include a _vNNN suffix.",
+        ),
+        default_slug,
+    )
+    if raw_slug in (None, NAV_BACK):
+        return None
+    raw_seed = get_parameter_value_input(
+        ParameterDefinition(
+            "seed",
+            "split",
+            42,
+            "int",
+            "Split seed",
+            "Use the same seed to reproduce the same train/valid/test assignment.",
+            min_value=0,
+            max_value=999999,
+        ),
+        42,
+    )
+    if raw_seed in (None, NAV_BACK):
+        return None
+    return slugify(str(raw_slug)), int(raw_seed)
+
+
+def _run_with_progress(config: PrepareDatasetConfig) -> PrepareDatasetStats | None:
+    progress_state: dict[str, Any] = {"done": 0, "total": 0, "message": "Initializing..."}
     stats_holder: list[PrepareDatasetStats] = []
     errors: list[Exception] = []
     done = threading.Event()
@@ -262,89 +351,88 @@ def _run_with_progress(config: PrepareDatasetConfig) -> None:
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
-    with Live(refresh_per_second=4) as live:
-        while not done.is_set():
-            total = progress_state["total"]
-            current = progress_state["done"]
-            pct = f"{current / total * 100:.0f}%" if total else "..."
-            live.update(
-                Panel(
-                    f"{progress_state['message']}\n\n[cyan]{current}/{total}[/cyan]",
-                    title=f"[cyan]Preparing Dataset [{pct}][/cyan]",
-                    border_style="cyan",
+    try:
+        with Live(refresh_per_second=4) as live:
+            while not done.is_set():
+                total = progress_state["total"]
+                current = progress_state["done"]
+                pct = f"{current / total * 100:.0f}%" if total else "..."
+                live.update(
+                    Panel(
+                        f"{progress_state['message']}\n\n[cyan]{current}/{total}[/cyan]",
+                        title=f"[cyan]Preparing Dataset [{pct}][/cyan]",
+                        border_style="cyan",
+                    )
                 )
-            )
-            time.sleep(0.25)
+                time.sleep(0.25)
+    except KeyboardInterrupt:
+        console.print(Panel(
+            "[bold yellow]Interrupted.[/bold yellow] Waiting for in-flight work to finish so output stays consistent...",
+            border_style="yellow",
+        ))
     thread.join()
 
     if errors:
-        console.print(Panel(f"[bold red]Dataset preparation failed:[/bold red] {errors[0]}", border_style="red"))
-        return
+        exc = errors[0]
+        console.print(Panel(
+            f"[bold red]Dataset preparation failed:[/bold red]\n\n{type(exc).__name__}: {exc}",
+            border_style="red",
+        ))
+        return None
     stats = stats_holder[0]
-    render_summary_panel(
-        "Prepared Dataset",
-        {
-            "Output Path": stats.output_path,
-            "Output Format": stats.output_format,
-            "Version": f"v{stats.version:03d}",
-            "Source Format": stats.source_format,
-            "Images": stats.total_images,
-            "Annotations": stats.total_annotations,
-            "Train": stats.split_counts.get("train", 0),
-            "Valid": stats.split_counts.get("valid", 0),
-            "Test": stats.split_counts.get("test", 0),
-            "Warnings": len(stats.warnings),
-            "Time": f"{stats.elapsed_seconds:.1f}s",
-        },
-    )
+    summary_fields: dict[str, Any] = {
+        "Output Path": stats.output_path,
+        "Output Format": stats.output_format,
+        "Version": f"v{stats.version:03d}",
+        "Source Format": stats.source_format,
+        "Classes": f"{len(stats.classes)} ({', '.join(stats.classes[:6])}{'...' if len(stats.classes) > 6 else ''})",
+        "Images": stats.total_images,
+        "Annotations": stats.total_annotations,
+        "Train": stats.split_counts.get("train", 0),
+        "Valid": stats.split_counts.get("valid", 0),
+        "Test": stats.split_counts.get("test", 0),
+        "Warnings": len(stats.warnings),
+        "Time": f"{stats.elapsed_seconds:.1f}s",
+    }
+    render_summary_panel("Prepared Dataset", summary_fields)
+    if stats.warnings:
+        preview = "\n".join(f"• {w}" for w in stats.warnings[:8])
+        if len(stats.warnings) > 8:
+            preview += f"\n[dim]... and {len(stats.warnings) - 8} more (see manifest.json)[/dim]"
+        console.print(Panel(preview, title="[yellow]Warnings[/yellow]", border_style="yellow"))
+    return stats
 
 
 def interactive_main() -> None:
     source = _select_source()
     if source is None:
         return
-    output_format = _select_output_format()
+    output_format = _select_output_format(source)
     if output_format is None:
         return
-    split_config = _select_split()
+    split_config = _select_split(source, output_format)
     if split_config is None:
         return
-    split_strategy = _select_split_strategy()
+    split_strategy = _select_split_strategy(source, split_config)
     if split_strategy is None:
         return
 
-    default_slug = slugify(source.stem if source.is_file() else source.name)
-    raw_slug = get_parameter_value_input(
-        ParameterDefinition(
-            "output_slug",
-            "output",
-            default_slug,
-            "str",
-            "Output dataset name",
-            "YOLOmatic appends _v001, _v002, etc. automatically unless you include a _vNNN suffix.",
-        ),
-        default_slug,
-    )
-    if raw_slug in (None, NAV_BACK):
+    output_settings = _collect_output_settings(source, split_config, split_strategy)
+    if output_settings is None:
         return
-    raw_seed = get_parameter_value_input(
-        ParameterDefinition(
-            "seed",
-            "split",
-            42,
-            "int",
-            "Split seed",
-            "Use the same seed to reproduce the same train/valid/test assignment.",
-            min_value=0,
-            max_value=999999,
-        ),
-        42,
-    )
-    if raw_seed in (None, NAV_BACK):
+    slug, seed = output_settings
+
+    try:
+        output_path, version = resolve_versioned_output(Path("datasets"), slug)
+    except FileExistsError as exc:
+        console.print(Panel(
+            f"[bold red]{exc}[/bold red]\n\n"
+            "[dim]Pick a different name, or remove the existing directory and try again.[/dim]",
+            border_style="red",
+        ))
+        input("\nPress Enter to return to main menu...")
         return
 
-    slug = slugify(str(raw_slug))
-    output_path, version = resolve_versioned_output(Path("datasets"), slug)
     clear_screen()
     print_stylized_header("Prepare Dataset — Confirm")
     render_summary_panel(
@@ -352,10 +440,10 @@ def interactive_main() -> None:
         {
             "Source": source,
             "Output Format": output_format,
-            "Split": f"{split_config.train_ratio:.0%} / {split_config.val_ratio:.0%} / {split_config.test_ratio:.0%}",
+            "Split": _format_split_label(split_config),
             "Split Strategy": split_strategy.replace("_", " "),
-            "Seed": raw_seed,
-            "Output": output_path,
+            "Seed": seed,
+            "Output": format_path(str(output_path), max_chars=64),
             "Version": f"v{version:03d}",
         },
     )
@@ -368,6 +456,7 @@ def interactive_main() -> None:
             "Back": "Return to the main menu without writing files.",
         },
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Confirm"],
+        **_wizard_kwargs(5),
     )
     if confirm in (NAV_BACK, "Back"):
         return
@@ -379,7 +468,7 @@ def interactive_main() -> None:
             output_slug=slug,
             split_config=split_config,
             split_strategy=split_strategy,
-            seed=int(raw_seed),
+            seed=seed,
         )
     )
     input("\nPress Enter to return to main menu...")

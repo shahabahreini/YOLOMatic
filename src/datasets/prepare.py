@@ -273,17 +273,29 @@ def _read_yolo_records(source: Path, warnings: list[str]) -> tuple[list[ImageRec
 
 
 def _find_coco_image(source: Path, ann_path: Path, file_name: str) -> Path | None:
+    # Prefer paths that preserve the relative directory layout (avoids name collisions
+    # between split-specific images that happen to share a basename).
+    base_name = Path(file_name).name
     candidates = [
         source / file_name,
         ann_path.parent.parent / file_name,
-        ann_path.parent.parent / Path(file_name).name,
-        ann_path.parent.parent / "images" / Path(file_name).name,
+        ann_path.parent.parent / "images" / file_name,
+        ann_path.parent.parent / "images" / base_name,
+        ann_path.parent.parent / base_name,
     ]
     for candidate in candidates:
-        if candidate.exists():
+        if candidate.exists() and candidate.is_file():
             return candidate
-    matches = list(source.rglob(Path(file_name).name))
-    return matches[0] if matches else None
+    # Last resort: full-tree search. Prefer matches that sit beneath the annotation
+    # split (e.g. train/, valid/) when multiple files share the same basename.
+    matches = [match for match in source.rglob(base_name) if match.is_file()]
+    if not matches:
+        return None
+    split_hint = ann_path.stem.replace("instances_", "").replace("_annotations.coco", "")
+    for match in matches:
+        if split_hint and split_hint in match.parts:
+            return match
+    return matches[0]
 
 
 def _read_coco_records(source: Path, warnings: list[str]) -> tuple[list[ImageRecord], list[str], str]:
@@ -351,24 +363,40 @@ def _extract_labelbox_objects(row: dict[str, Any]) -> list[dict[str, Any]]:
     return objects
 
 
-def _download_ndjson_image(url: str, output_path: Path) -> bool:
-    try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        output_path.write_bytes(response.content)
-        return True
-    except Exception:
-        return False
+_ALLOWED_NDJSON_SCHEMES = {"http", "https"}
+
+
+def _download_ndjson_image(url: str, output_path: Path, *, retries: int = 2) -> tuple[bool, str | None]:
+    """Download an NDJSON-referenced image. Returns (ok, error_reason)."""
+    scheme = urlparse(url).scheme.lower()
+    if scheme not in _ALLOWED_NDJSON_SCHEMES:
+        return False, f"unsupported URL scheme: {scheme or '<none>'}"
+    last_error: str | None = None
+    for attempt in range(retries + 1):
+        try:
+            response = requests.get(url, timeout=15)
+            response.raise_for_status()
+            output_path.write_bytes(response.content)
+            return True, None
+        except requests.HTTPError as exc:
+            last_error = f"HTTP {exc.response.status_code if exc.response is not None else '?'}"
+            status = exc.response.status_code if exc.response is not None else 0
+            if status and status < 500 and status != 429:
+                break  # client error other than rate-limit; don't retry
+        except requests.RequestException as exc:
+            last_error = type(exc).__name__
+        if attempt < retries:
+            time.sleep(min(2.0, 0.5 * (attempt + 1)))
+    return False, last_error or "download failed"
 
 
 def _read_ndjson_records(source: Path, warnings: list[str], *, max_workers: int) -> tuple[list[ImageRecord], list[str], str]:
     from PIL import Image
 
     rows = [json.loads(line) for line in source.read_text("utf-8").splitlines() if line.strip()]
-    temp_dir = source.parent / f".{source.stem}_yolomatic_downloads"
-    if temp_dir.exists():
-        shutil.rmtree(temp_dir)
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    import tempfile
+
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"{source.stem}_yolomatic_"))
     classes: dict[str, int] = {}
     records: list[ImageRecord] = []
     used_names: set[str] = set()
@@ -394,8 +422,9 @@ def _read_ndjson_records(source: Path, warnings: list[str], *, max_workers: int)
 
         for future in as_completed(futures):
             idx, row, image_path = futures[future]
-            if not future.result():
-                warnings.append(f"Skipped NDJSON row {idx + 1}: image download failed")
+            ok, reason = future.result()
+            if not ok:
+                warnings.append(f"Skipped NDJSON row {idx + 1}: {reason or 'image download failed'}")
                 continue
             try:
                 with Image.open(image_path) as image:
@@ -676,6 +705,8 @@ def _write_yolo_dataset(
 ) -> int:
     total_annotations = 0
     for split_name, records in split_records_by_name.items():
+        if not records:
+            continue
         img_dir = output / split_name / "images"
         label_dir = output / split_name / "labels"
         img_dir.mkdir(parents=True, exist_ok=True)
@@ -684,15 +715,20 @@ def _write_yolo_dataset(
             target_image = img_dir / record.file_name
             _copy_or_link(record.image_path, target_image)
             total_annotations += _write_yolo_label(label_dir / f"{Path(record.file_name).stem}.txt", record, output_format)
-    data_yaml = {
+    data_yaml: dict[str, Any] = {
         "path": str(output.resolve()),
         "train": "train/images",
         "val": "valid/images",
-        "test": "test/images",
-        "nc": len(classes),
-        "names": classes,
-        "task": "segment" if output_format == "YOLO Segmentation" else "detect",
     }
+    if split_records_by_name.get("test"):
+        data_yaml["test"] = "test/images"
+    data_yaml.update(
+        {
+            "nc": len(classes),
+            "names": classes,
+            "task": "segment" if output_format == "YOLO Segmentation" else "detect",
+        }
+    )
     (output / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return total_annotations
 
@@ -824,8 +860,11 @@ def prepare_dataset(
         total_annotations = _write_coco_dataset(output, split_records_by_name, classes)
     else:
         total_annotations = _write_yolo_dataset(output, split_records_by_name, classes, config.output_format)
-    if source_format == "ndjson":
-        shutil.rmtree(Path(config.source_path).parent / f".{Path(config.source_path).stem}_yolomatic_downloads", ignore_errors=True)
+    if source_format == "ndjson" and records:
+        # Records share a single tempfile.mkdtemp parent; remove that root once.
+        download_root = records[0].image_path.parent
+        if download_root.name.startswith(Path(config.source_path).stem + "_yolomatic_"):
+            shutil.rmtree(download_root, ignore_errors=True)
 
     split_counts = {name: len(items) for name, items in split_records_by_name.items()}
     diagnostics = split_diagnostics(split_records_by_name, classes)
