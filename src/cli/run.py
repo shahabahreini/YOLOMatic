@@ -27,6 +27,7 @@ from src.config.settings import (
     reset_settings,
     roboflow_credential_status,
     save_settings,
+    ultralytics_credential_status,
 )
 from src.datasets import summarize_dataset
 from src.models.data import model_data_dict
@@ -3383,6 +3384,33 @@ def _settings_definitions() -> list[ParameterDefinition]:
             config_section="roboflow",
         ),
         ParameterDefinition(
+            "default_dataset_download_dir",
+            "Ultralytics",
+            "datasets/ultralytics/downloads",
+            "str",
+            "Dataset download dir",
+            "Default directory for signed Platform dataset exports before preparation.",
+            config_section="ultralytics",
+        ),
+        ParameterDefinition(
+            "default_model_download_dir",
+            "Ultralytics",
+            "weights/ultralytics",
+            "str",
+            "Model download dir",
+            "Default directory for Platform model weight downloads.",
+            config_section="ultralytics",
+        ),
+        ParameterDefinition(
+            "default_output_root",
+            "Ultralytics",
+            "datasets",
+            "str",
+            "Prepared output root",
+            "Default root for datasets prepared from Platform exports.",
+            config_section="ultralytics",
+        ),
+        ParameterDefinition(
             "mode",
             "Narratives",
             "guided",
@@ -3513,16 +3541,22 @@ def settings_roboflow_page() -> None:
     run_settings_customizer("Roboflow Integration", {"roboflow"})
 
 
+def settings_ultralytics_page() -> None:
+    run_settings_customizer("Ultralytics Platform", {"ultralytics"})
+
+
 def settings_narratives_page() -> None:
     run_settings_customizer("Integration Narratives", {"narratives"})
 
 
 def settings_credentials_page() -> None:
     status = roboflow_credential_status()
+    ultralytics_status = ultralytics_credential_status()
     rows = {
         "ROBOFLOW_API_KEY": "configured" if status["api_key"] else "missing",
         "ROBOFLOW_WORKSPACE": "configured" if status["workspace"] else "missing",
         "ROBOFLOW_PROJECT_IDS": "configured" if status["project_ids"] else "missing",
+        "ULTRALYTICS_API_KEY": "configured" if ultralytics_status["api_key"] else "missing",
     }
     _settings_table("Credential Status", rows)
     console.print(
@@ -4125,6 +4159,7 @@ def settings_menu() -> None:
                 "Customize All Settings",
                 "ClearML Integration",
                 "Roboflow Integration",
+                "Ultralytics Platform",
                 "Integration Narratives",
                 "AI Recommendations",
                 "Credential Status",
@@ -4144,6 +4179,8 @@ def settings_menu() -> None:
             settings_clearml_page()
         elif choice == "Roboflow Integration":
             settings_roboflow_page()
+        elif choice == "Ultralytics Platform":
+            settings_ultralytics_page()
         elif choice == "Integration Narratives":
             settings_narratives_page()
         elif choice == "AI Recommendations":
@@ -4178,6 +4215,7 @@ def _main_loop_iteration():
             "Convert Dataset Format",
             "Combine Datasets",
             "Augment Dataset",
+            "Ultralytics Platform",
             "Upload to Roboflow",
             "[Maintenance]",
             "Settings",
@@ -4263,8 +4301,13 @@ def _main_loop_iteration():
                     "WORKSPACE / PROJECT_IDS from .env and stages the weight correctly for "
                     "Roboflow's deploy API."
                 ),
+                "Ultralytics Platform": (
+                    "Use ULTRALYTICS_API_KEY from .env to list/download Platform datasets, "
+                    "upload prepared datasets through signed URLs, download model weights, "
+                    "and generate ul:// dataset URI training guidance."
+                ),
                 "Settings": (
-                    "Edit global ClearML, Roboflow, narrative, and credential-status settings. "
+                    "Edit global ClearML, Roboflow, Ultralytics, narrative, and credential-status settings. "
                     "Secrets remain in .env and are never displayed."
                 ),
                 "Check for Updates": (
@@ -4338,6 +4381,12 @@ def _main_loop_iteration():
             from src.cli.upload import main as upload_main
 
             _safe_subcommand("Roboflow Upload", upload_main, prog="yolomatic-upload")
+            continue
+
+        elif main_choice == "Ultralytics Platform":
+            from src.cli.ultralytics_platform import main as ultralytics_main
+
+            _safe_subcommand("Ultralytics Platform", ultralytics_main, prog="yolomatic-ultralytics")
             continue
 
         elif main_choice == "Combine Datasets":

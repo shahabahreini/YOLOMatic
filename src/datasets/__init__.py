@@ -14,6 +14,7 @@ from src.datasets.prepare import (
     PrepareDatasetConfig,
     PrepareDatasetStats,
     PrepareSplitConfig,
+    SPLIT_STRATEGIES,
     prepare_dataset,
 )
 
@@ -31,5 +32,6 @@ __all__ = [
     "PrepareDatasetConfig",
     "PrepareDatasetStats",
     "PrepareSplitConfig",
+    "SPLIT_STRATEGIES",
     "prepare_dataset",
 ]

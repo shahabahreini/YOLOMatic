@@ -32,6 +32,8 @@ from src.datasets.core import (
 
 OUTPUT_FORMATS = {"YOLO Detection", "YOLO Segmentation", "COCO"}
 SPLIT_NAMES = ("train", "valid", "test")
+SPLIT_STRATEGIES = {"class_balanced", "smart_balanced"}
+OBJECT_SIZE_BUCKETS = ("small", "medium", "large")
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ class PrepareDatasetConfig:
     output_root: Path = Path("datasets")
     output_slug: str | None = None
     split_config: PrepareSplitConfig = field(default_factory=PrepareSplitConfig)
+    split_strategy: str = "class_balanced"
     seed: int = 42
     overwrite: bool = False
     max_workers: int = 10
@@ -75,6 +78,7 @@ class PrepareDatasetStats:
     warnings: list[str] = field(default_factory=list)
     skipped_files: int = 0
     elapsed_seconds: float = 0.0
+    split_diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -98,6 +102,10 @@ class ImageRecord:
     @property
     def class_ids(self) -> set[int]:
         return {ann.class_id for ann in self.annotations}
+
+    @property
+    def object_size_buckets(self) -> list[str]:
+        return [object_size_bucket(ann, self.width, self.height) for ann in self.annotations]
 
 
 def slugify(value: str) -> str:
@@ -178,6 +186,25 @@ def _yolo_bbox_from_coco(bbox: list[float], width: int, height: int) -> list[flo
         w / width,
         h / height,
     ]
+
+
+def _normalized_annotation_area(annotation: Annotation, width: int, height: int) -> float:
+    if annotation.bbox is not None and len(annotation.bbox) == 4:
+        return max(0.0, annotation.bbox[2]) * max(0.0, annotation.bbox[3])
+    if annotation.segmentation is not None and len(annotation.segmentation) >= 6:
+        bbox = _segmentation_to_bbox(annotation.segmentation, width, height)
+        image_area = max(1.0, float(width * height))
+        return max(0.0, bbox[2] * bbox[3]) / image_area
+    return 0.0
+
+
+def object_size_bucket(annotation: Annotation, width: int, height: int) -> str:
+    area = _normalized_annotation_area(annotation, width, height)
+    if area < 0.01:
+        return "small"
+    if area < 0.05:
+        return "medium"
+    return "large"
 
 
 def _coco_bbox_from_yolo(bbox: list[float], width: int, height: int) -> list[float]:
@@ -441,7 +468,17 @@ def _target_counts(total: int, split_config: PrepareSplitConfig) -> dict[str, in
     return {"train": train, "valid": val, "test": test}
 
 
-def split_records(records: list[ImageRecord], split_config: PrepareSplitConfig, seed: int) -> dict[str, list[ImageRecord]]:
+def split_records(
+    records: list[ImageRecord],
+    split_config: PrepareSplitConfig,
+    seed: int,
+    strategy: str = "class_balanced",
+) -> dict[str, list[ImageRecord]]:
+    if strategy not in SPLIT_STRATEGIES:
+        raise ValueError(f"Unsupported split strategy: {strategy}")
+    if strategy == "smart_balanced":
+        return _split_records_smart_balanced(records, split_config, seed)
+
     rng = random.Random(seed)
     target = _target_counts(len(records), split_config)
     result: dict[str, list[ImageRecord]] = {name: [] for name in SPLIT_NAMES}
@@ -478,6 +515,136 @@ def split_records(records: list[ImageRecord], split_config: PrepareSplitConfig, 
             split_class_counts[chosen][cls] += 1
 
     return result
+
+
+def _counter_cost(counter: Counter[Any], totals: Counter[Any], ratio: float, weight: float = 1.0) -> float:
+    if not totals:
+        return 0.0
+    cost = 0.0
+    for key, total in totals.items():
+        desired = max(0.0001, total * ratio)
+        cost += abs(counter[key] - desired) / desired
+    return (cost / max(1, len(totals))) * weight
+
+
+def _split_records_smart_balanced(
+    records: list[ImageRecord],
+    split_config: PrepareSplitConfig,
+    seed: int,
+) -> dict[str, list[ImageRecord]]:
+    rng = random.Random(seed)
+    target = _target_counts(len(records), split_config)
+    result: dict[str, list[ImageRecord]] = {name: [] for name in SPLIT_NAMES}
+    split_class_counts: dict[str, Counter[int]] = {name: Counter() for name in SPLIT_NAMES}
+    split_size_counts: dict[str, Counter[str]] = {name: Counter() for name in SPLIT_NAMES}
+    split_object_counts: dict[str, int] = {name: 0 for name in SPLIT_NAMES}
+    split_unlabeled_counts: dict[str, int] = {name: 0 for name in SPLIT_NAMES}
+
+    class_totals = Counter(ann.class_id for record in records for ann in record.annotations)
+    size_totals = Counter(bucket for record in records for bucket in record.object_size_buckets)
+    total_objects = sum(len(record.annotations) for record in records)
+    total_unlabeled = sum(1 for record in records if not record.annotations)
+    total_images = max(1, len(records))
+
+    ordered = list(records)
+    rng.shuffle(ordered)
+    ordered.sort(
+        key=lambda record: (
+            0 if record.annotations else 1,
+            -len(record.annotations),
+            min((class_totals[ann.class_id] for ann in record.annotations), default=len(records) + 1),
+            record.file_name,
+        )
+    )
+
+    for record in ordered:
+        candidates = [name for name in SPLIT_NAMES if len(result[name]) < target[name]]
+        if not candidates:
+            candidates = list(SPLIT_NAMES)
+        record_class_counts = Counter(ann.class_id for ann in record.annotations)
+        record_size_counts = Counter(record.object_size_buckets)
+        record_unlabeled = 1 if not record.annotations else 0
+
+        def score(split_name: str) -> tuple[float, int, str]:
+            ratio = target[split_name] / total_images
+            class_counts = split_class_counts[split_name] + record_class_counts
+            size_counts = split_size_counts[split_name] + record_size_counts
+            object_count = split_object_counts[split_name] + len(record.annotations)
+            unlabeled_count = split_unlabeled_counts[split_name] + record_unlabeled
+            image_fill = abs((len(result[split_name]) + 1) - target[split_name]) / max(1, target[split_name])
+            object_desired = max(0.0001, total_objects * ratio)
+            unlabeled_desired = max(0.0001, total_unlabeled * ratio)
+            object_cost = abs(object_count - object_desired) / object_desired if total_objects else 0.0
+            unlabeled_cost = abs(unlabeled_count - unlabeled_desired) / unlabeled_desired if total_unlabeled else 0.0
+            cost = (
+                _counter_cost(class_counts, class_totals, ratio, 3.0)
+                + _counter_cost(size_counts, size_totals, ratio, 2.0)
+                + object_cost
+                + unlabeled_cost
+                + image_fill
+            )
+            return (cost, len(result[split_name]), split_name)
+
+        chosen = min(candidates, key=score)
+        result[chosen].append(record)
+        split_class_counts[chosen].update(record_class_counts)
+        split_size_counts[chosen].update(record_size_counts)
+        split_object_counts[chosen] += len(record.annotations)
+        split_unlabeled_counts[chosen] += record_unlabeled
+
+    return result
+
+
+def split_diagnostics(
+    split_records_by_name: dict[str, list[ImageRecord]],
+    classes: list[str],
+) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {}
+    for split_name in SPLIT_NAMES:
+        records = split_records_by_name.get(split_name, [])
+        class_counter = Counter(ann.class_id for record in records for ann in record.annotations)
+        size_counter = Counter(bucket for record in records for bucket in record.object_size_buckets)
+        object_counts = [len(record.annotations) for record in records]
+        diagnostics[split_name] = {
+            "image_count": len(records),
+            "annotation_count": sum(object_counts),
+            "class_counts": {
+                classes[class_id] if 0 <= class_id < len(classes) else f"class_{class_id}": count
+                for class_id, count in sorted(class_counter.items())
+            },
+            "object_size_counts": {bucket: size_counter.get(bucket, 0) for bucket in OBJECT_SIZE_BUCKETS},
+            "unlabeled_images": sum(1 for record in records if not record.annotations),
+            "objects_per_image": {
+                "min": min(object_counts, default=0),
+                "max": max(object_counts, default=0),
+                "avg": round(sum(object_counts) / len(object_counts), 3) if object_counts else 0.0,
+            },
+        }
+    return diagnostics
+
+
+def _split_warnings(
+    split_records_by_name: dict[str, list[ImageRecord]],
+    split_config: PrepareSplitConfig,
+    strategy: str,
+) -> list[str]:
+    warnings: list[str] = []
+    enabled_splits = [
+        name
+        for name, ratio in zip(SPLIT_NAMES, split_config.normalized(), strict=True)
+        if ratio > 0
+    ]
+    for split_name in enabled_splits:
+        if not split_records_by_name.get(split_name):
+            warnings.append(f"{split_name} split is empty; the dataset is too small for the requested ratios.")
+    if strategy == "smart_balanced":
+        total_records = sum(len(records) for records in split_records_by_name.values())
+        total_annotations = sum(len(record.annotations) for records in split_records_by_name.values() for record in records)
+        if total_records < len(enabled_splits) * 2:
+            warnings.append("Smart split degraded to deterministic best effort because the dataset is very small.")
+        if total_annotations == 0:
+            warnings.append("Smart split found no annotations; only image and background balance could be optimized.")
+    return warnings
 
 
 def _write_yolo_label(path: Path, record: ImageRecord, output_format: str) -> int:
@@ -596,6 +763,7 @@ Generated by YOLOmatic Prepare / Split Dataset.
 - Version: `v{stats.version:03d}`
 - Seed: `{seed}`
 - Split ratios: `{split_config.train_ratio:.0%} / {split_config.val_ratio:.0%} / {split_config.test_ratio:.0%}`
+- Split strategy: `{stats.split_diagnostics.get("strategy", "class_balanced")}`
 
 ## Counts
 | Split | Images |
@@ -623,6 +791,8 @@ def prepare_dataset(
     started = time.time()
     if config.output_format not in OUTPUT_FORMATS:
         raise ValueError(f"Unsupported output format: {config.output_format}")
+    if config.split_strategy not in SPLIT_STRATEGIES:
+        raise ValueError(f"Unsupported split strategy: {config.split_strategy}")
     config.split_config.normalized()
 
     warnings: list[str] = []
@@ -645,7 +815,8 @@ def prepare_dataset(
 
     if progress_callback:
         progress_callback(0, len(records), "Splitting dataset...")
-    split_records_by_name = split_records(records, config.split_config, config.seed)
+    split_records_by_name = split_records(records, config.split_config, config.seed, config.split_strategy)
+    warnings.extend(_split_warnings(split_records_by_name, config.split_config, config.split_strategy))
     if progress_callback:
         progress_callback(len(records), len(records), "Writing output dataset...")
 
@@ -657,6 +828,8 @@ def prepare_dataset(
         shutil.rmtree(Path(config.source_path).parent / f".{Path(config.source_path).stem}_yolomatic_downloads", ignore_errors=True)
 
     split_counts = {name: len(items) for name, items in split_records_by_name.items()}
+    diagnostics = split_diagnostics(split_records_by_name, classes)
+    diagnostics["strategy"] = config.split_strategy
     stats = PrepareDatasetStats(
         source_path=str(Path(config.source_path).resolve()),
         source_format=source_format,
@@ -670,9 +843,11 @@ def prepare_dataset(
         warnings=warnings,
         skipped_files=len(warnings),
         elapsed_seconds=time.time() - started,
+        split_diagnostics=diagnostics,
     )
     manifest = stats.to_dict()
     manifest["split_ratios"] = asdict(config.split_config)
+    manifest["split_strategy"] = config.split_strategy
     manifest["seed"] = config.seed
     manifest["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

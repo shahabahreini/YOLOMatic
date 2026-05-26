@@ -19,6 +19,7 @@ from src.datasets.prepare import (
     split_records,
     ImageRecord,
     Annotation,
+    object_size_bucket,
 )
 
 
@@ -187,6 +188,48 @@ class PrepareDatasetTest(unittest.TestCase):
 
         self.assertEqual({key: [r.file_name for r in value] for key, value in first.items()}, {key: [r.file_name for r in value] for key, value in second.items()})
         self.assertEqual({key: len(value) for key, value in first.items()}, {"train": 6, "valid": 2, "test": 2})
+
+    def test_smart_split_writes_object_size_diagnostics(self) -> None:
+        source = self.tmp / "smart"
+        source.mkdir()
+        (source / "data.yaml").write_text(
+            "path: .\ntrain: train/images\nnc: 2\nnames: [small, large]\ntask: detect\n",
+            encoding="utf-8",
+        )
+        for idx in range(12):
+            self._write_image(source / "train" / "images" / f"img_{idx}.jpg", value=70 + idx)
+            label = source / "train" / "labels" / f"img_{idx}.txt"
+            label.parent.mkdir(parents=True, exist_ok=True)
+            if idx < 6:
+                label.write_text("0 0.500000 0.500000 0.050000 0.050000\n", encoding="utf-8")
+            else:
+                label.write_text("1 0.500000 0.500000 0.500000 0.500000\n", encoding="utf-8")
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=source,
+                output_root=self.tmp / "datasets",
+                output_slug="smart_ready",
+                split_config=PrepareSplitConfig(0.50, 0.25, 0.25),
+                split_strategy="smart_balanced",
+            )
+        )
+
+        manifest = json.loads((Path(stats.output_path) / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["split_strategy"], "smart_balanced")
+        self.assertEqual(manifest["split_diagnostics"]["strategy"], "smart_balanced")
+        self.assertEqual(manifest["split_diagnostics"]["train"]["image_count"], 6)
+        self.assertEqual(manifest["split_diagnostics"]["valid"]["image_count"], 3)
+        self.assertEqual(manifest["split_diagnostics"]["test"]["image_count"], 3)
+        for split in ("valid", "test"):
+            counts = manifest["split_diagnostics"][split]["object_size_counts"]
+            self.assertGreater(counts["small"], 0)
+            self.assertGreater(counts["large"], 0)
+
+    def test_object_size_bucket_uses_normalized_area(self) -> None:
+        self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.05, 0.05]), 100, 100), "small")
+        self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.15, 0.15]), 100, 100), "medium")
+        self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.40, 0.40]), 100, 100), "large")
 
 
 if __name__ == "__main__":

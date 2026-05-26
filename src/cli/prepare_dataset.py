@@ -14,6 +14,7 @@ from src.datasets.prepare import (
     PrepareDatasetConfig,
     PrepareDatasetStats,
     PrepareSplitConfig,
+    SPLIT_STRATEGIES,
     prepare_dataset,
     resolve_versioned_output,
     slugify,
@@ -219,6 +220,29 @@ def _select_split() -> PrepareSplitConfig | None:
         return None
 
 
+def _select_split_strategy() -> str | None:
+    choice = get_user_choice(
+        ["Class Balanced", "Smart Balanced", "Back"],
+        title="Split Strategy",
+        text="Choose how YOLOmatic should assign images to train, valid, and test:",
+        descriptions={
+            "Class Balanced": (
+                "Default. Keeps class coverage distributed across splits while preserving "
+                "the requested image counts."
+            ),
+            "Smart Balanced": (
+                "Balances class counts, small / medium / large object buckets, "
+                "background-only images, and dense multi-object images. Use it when "
+                "validation and test splits need to represent object scale and image difficulty."
+            ),
+        },
+        breadcrumbs=["YOLOmatic", "Prepare Dataset", "Split Strategy"],
+    )
+    if choice in (NAV_BACK, "Back"):
+        return None
+    return "smart_balanced" if choice == "Smart Balanced" else "class_balanced"
+
+
 def _run_with_progress(config: PrepareDatasetConfig) -> None:
     progress_state = {"done": 0, "total": 0, "message": "Initializing..."}
     stats_holder: list[PrepareDatasetStats] = []
@@ -285,6 +309,9 @@ def interactive_main() -> None:
     split_config = _select_split()
     if split_config is None:
         return
+    split_strategy = _select_split_strategy()
+    if split_strategy is None:
+        return
 
     default_slug = slugify(source.stem if source.is_file() else source.name)
     raw_slug = get_parameter_value_input(
@@ -326,6 +353,7 @@ def interactive_main() -> None:
             "Source": source,
             "Output Format": output_format,
             "Split": f"{split_config.train_ratio:.0%} / {split_config.val_ratio:.0%} / {split_config.test_ratio:.0%}",
+            "Split Strategy": split_strategy.replace("_", " "),
             "Seed": raw_seed,
             "Output": output_path,
             "Version": f"v{version:03d}",
@@ -350,6 +378,7 @@ def interactive_main() -> None:
             output_root=Path("datasets"),
             output_slug=slug,
             split_config=split_config,
+            split_strategy=split_strategy,
             seed=int(raw_seed),
         )
     )
@@ -366,6 +395,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val", type=float, default=0.20, help="Validation split ratio.")
     parser.add_argument("--test", type=float, default=0.10, help="Test split ratio.")
     parser.add_argument("--seed", type=int, default=42, help="Deterministic split seed.")
+    parser.add_argument(
+        "--smart-split",
+        action="store_true",
+        help="Balance classes, object-size buckets, background images, and object density across splits.",
+    )
+    parser.add_argument(
+        "--split-strategy",
+        choices=sorted(SPLIT_STRATEGIES),
+        help="Explicit split strategy. Overrides --smart-split when provided.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite the selected versioned output if it exists.")
     return parser.parse_args()
 
@@ -382,6 +421,7 @@ def main() -> None:
             output_root=args.output_root,
             output_slug=args.slug,
             split_config=PrepareSplitConfig(args.train, args.val, args.test),
+            split_strategy=args.split_strategy or ("smart_balanced" if args.smart_split else "class_balanced"),
             seed=args.seed,
             overwrite=args.overwrite,
         )
