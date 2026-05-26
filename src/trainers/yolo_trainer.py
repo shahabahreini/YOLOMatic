@@ -54,6 +54,10 @@ def configure_ultralytics_runtime():
             # ClearML callback logs plots through matplotlib/Tk at train end,
             # and those optional plots must never abort checkpoint/export flow.
             "clearml": False,
+            # MLflow is also optional here. Importing Ultralytics' MLflow
+            # callback can fail before training starts when MLflow's protobuf
+            # stack is incompatible with the active protobuf runtime.
+            "mlflow": False,
         }
     )
 

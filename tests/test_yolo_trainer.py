@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from src.trainers.yolo_trainer import (
+    configure_ultralytics_runtime,
     disable_ultralytics_clearml_callbacks,
     normalize_class_names,
     print_config_summary,
@@ -33,6 +34,17 @@ class FakeModel:
 
 
 class YoloTrainerTests(unittest.TestCase):
+    @patch("src.trainers.yolo_trainer.import_ultralytics_settings")
+    def test_configure_ultralytics_runtime_disables_optional_mlflow(self, mock_settings) -> None:
+        settings = {}
+        mock_settings.return_value = settings
+
+        configure_ultralytics_runtime()
+
+        self.assertTrue(settings["tensorboard"])
+        self.assertFalse(settings["clearml"])
+        self.assertFalse(settings["mlflow"])
+
     def test_disable_ultralytics_clearml_callbacks_preserves_other_callbacks(self) -> None:
         model = FakeModel()
 
