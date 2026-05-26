@@ -72,6 +72,27 @@ def _safe_size(path: Path) -> str:
         return "unknown"
 
 
+def _discover_ndjson_files(root: Path = Path(".")) -> list[Path]:
+    candidates: list[Path] = []
+    search_roots = [root, root / "datasets"]
+    for search_root in search_roots:
+        if not search_root.exists():
+            continue
+        pattern = "*.ndjson" if search_root == root else "**/*.ndjson"
+        for path in search_root.glob(pattern):
+            if path.is_file() and not path.name.startswith("."):
+                candidates.append(path)
+    return sorted(set(candidates), key=lambda path: str(path.resolve()).lower())
+
+
+def _ndjson_label(path: Path, root: Path = Path(".")) -> str:
+    try:
+        display = path.relative_to(root)
+    except ValueError:
+        display = path
+    return format_path(display)
+
+
 def _quick_source_description(path: Path) -> str:
     if path.is_file() and path.suffix.lower() == ".ndjson":
         try:
@@ -140,6 +161,25 @@ def _select_source() -> Path | None:
         return None
 
     if choice == "Enter NDJSON File Path":
+        detected = _discover_ndjson_files()
+        if detected:
+            labels = [_ndjson_label(path) for path in detected]
+            path_by_label = dict(zip(labels, detected, strict=True))
+            selected = get_user_choice(
+                [*labels, "Enter Manual Path", "Back"],
+                allow_back=True,
+                title=f"Select NDJSON Export ({len(detected)} found)",
+                text="Choose a detected Labelbox NDJSON export or enter a path manually:",
+                descriptions={label: _quick_source_description(path) for label, path in path_by_label.items()},
+                breadcrumbs=["YOLOmatic", "Prepare Dataset", "NDJSON"],
+                tip="Detected files include top-level .ndjson exports and any .ndjson under datasets/.",
+                **_wizard_kwargs(0),
+            )
+            if selected in (NAV_BACK, "Back"):
+                return None
+            if selected != "Enter Manual Path":
+                return path_by_label[selected]
+
         raw = get_parameter_value_input(
             ParameterDefinition(
                 "ndjson_path",

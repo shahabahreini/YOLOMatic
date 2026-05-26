@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 import yaml
 
+from src.cli.prepare_dataset import _discover_ndjson_files
 from src.datasets.prepare import (
     PrepareDatasetConfig,
     PrepareSplitConfig,
@@ -177,6 +178,50 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertEqual(stats.classes, ["cat"])
         self.assertTrue((Path(stats.output_path) / "train" / "labels" / "test.txt").exists())
 
+    def test_prepare_ultralytics_ndjson_export_with_mocked_download(self) -> None:
+        ndjson = self.tmp / "ultralytics.ndjson"
+        rows = [
+            {
+                "type": "dataset",
+                "task": "segment",
+                "class_names": {"0": "vegetation"},
+                "version": 4,
+            },
+            {
+                "type": "image",
+                "file": "tile.jpg",
+                "url": "https://cdn.ul.run/example/tile.jpg",
+                "width": 16,
+                "height": 16,
+                "annotations": {
+                    "segments": [[0, 0.25, 0.25, 0.75, 0.25, 0.75, 0.75, 0.25, 0.75]]
+                },
+            },
+        ]
+        ndjson.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+        with patch("requests.get") as mock_get:
+            response = MagicMock()
+            response.content = cv2.imencode(".jpg", np.full((16, 16, 3), 120, dtype=np.uint8))[1].tobytes()
+            response.raise_for_status.return_value = None
+            mock_get.return_value = response
+
+            stats = prepare_dataset(
+                PrepareDatasetConfig(
+                    source_path=ndjson,
+                    output_root=self.tmp / "datasets",
+                    output_slug="ultralytics_ready",
+                    output_format="YOLO Segmentation",
+                    split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+                )
+            )
+
+        self.assertEqual(stats.source_format, "ndjson")
+        self.assertEqual(stats.classes, ["vegetation"])
+        label = Path(stats.output_path) / "train" / "labels" / "tile.txt"
+        self.assertTrue(label.exists())
+        self.assertTrue(label.read_text(encoding="utf-8").startswith("0 0.250000 0.250000"))
+
     def test_split_records_is_deterministic_and_preserves_counts(self) -> None:
         records = [
             ImageRecord(Path(f"img_{idx}.jpg"), f"img_{idx}.jpg", 10, 10, [Annotation(idx % 2, bbox=[0.5, 0.5, 0.1, 0.1])])
@@ -230,6 +275,19 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.05, 0.05]), 100, 100), "small")
         self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.15, 0.15]), 100, 100), "medium")
         self.assertEqual(object_size_bucket(Annotation(0, bbox=[0.5, 0.5, 0.40, 0.40]), 100, 100), "large")
+
+    def test_discover_ndjson_files_checks_project_root_and_datasets(self) -> None:
+        root_export = self.tmp / "labelbox.ndjson"
+        nested_export = self.tmp / "datasets" / "weeds" / "export.ndjson"
+        ignored_export = self.tmp / "other" / "export.ndjson"
+        hidden_export = self.tmp / "datasets" / ".download.ndjson"
+        for path in (root_export, nested_export, ignored_export, hidden_export):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}", encoding="utf-8")
+
+        discovered = _discover_ndjson_files(self.tmp)
+
+        self.assertEqual(discovered, [nested_export, root_export])
 
     def test_data_yaml_omits_test_when_test_split_is_zero(self) -> None:
         source = self.tmp / "source"

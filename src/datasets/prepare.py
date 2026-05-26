@@ -363,6 +363,114 @@ def _extract_labelbox_objects(row: dict[str, Any]) -> list[dict[str, Any]]:
     return objects
 
 
+def _ultralytics_class_names(rows: list[dict[str, Any]]) -> list[str]:
+    metadata = next((row for row in rows if row.get("type") == "dataset"), {})
+    raw_names = metadata.get("class_names") or metadata.get("names") or {}
+    if isinstance(raw_names, dict):
+        names_by_id: dict[int, str] = {}
+        for key, value in raw_names.items():
+            try:
+                names_by_id[int(key)] = str(value)
+            except (TypeError, ValueError):
+                continue
+        if names_by_id:
+            max_id = max(names_by_id)
+            return [names_by_id.get(idx, f"class_{idx}") for idx in range(max_id + 1)]
+    if isinstance(raw_names, list):
+        return [str(name) for name in raw_names]
+    return []
+
+
+def _ensure_class_name(classes: list[str], class_id: int) -> None:
+    while class_id >= len(classes):
+        classes.append(f"class_{len(classes)}")
+
+
+def _ultralytics_annotations(row: dict[str, Any], classes: list[str]) -> tuple[list[Annotation], bool]:
+    annotations: list[Annotation] = []
+    has_seg = False
+    payload = row.get("annotations")
+    if not isinstance(payload, dict):
+        return annotations, has_seg
+
+    for raw_segment in payload.get("segments") or []:
+        if not isinstance(raw_segment, list) or len(raw_segment) < 7:
+            continue
+        try:
+            class_id = int(float(raw_segment[0]))
+            coords = [max(0.0, min(1.0, float(value))) for value in raw_segment[1:]]
+        except (TypeError, ValueError):
+            continue
+        if len(coords) >= 6 and len(coords) % 2 == 0:
+            _ensure_class_name(classes, class_id)
+            annotations.append(Annotation(class_id, segmentation=coords))
+            has_seg = True
+
+    for raw_box in payload.get("boxes") or payload.get("bboxes") or []:
+        if not isinstance(raw_box, list) or len(raw_box) < 5:
+            continue
+        try:
+            class_id = int(float(raw_box[0]))
+            bbox = [max(0.0, min(1.0, float(value))) for value in raw_box[1:5]]
+        except (TypeError, ValueError):
+            continue
+        _ensure_class_name(classes, class_id)
+        annotations.append(Annotation(class_id, bbox=bbox))
+
+    return annotations, has_seg
+
+
+def _read_ultralytics_ndjson_records(
+    rows: list[dict[str, Any]],
+    source: Path,
+    warnings: list[str],
+    *,
+    max_workers: int,
+) -> tuple[list[ImageRecord], list[str], str]:
+    classes = _ultralytics_class_names(rows)
+    image_rows = [(idx, row) for idx, row in enumerate(rows, start=1) if row.get("type") == "image"]
+    records: list[ImageRecord] = []
+    used_names: set[str] = set()
+    has_seg = False
+
+    import tempfile
+
+    temp_dir = Path(tempfile.mkdtemp(prefix=f"{source.stem}_yolomatic_"))
+    futures = {}
+    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
+        for idx, row in image_rows:
+            url = row.get("url")
+            if not url:
+                warnings.append(f"Skipped Ultralytics NDJSON row {idx}: missing image url")
+                continue
+            file_name = Path(str(row.get("file") or Path(urlparse(str(url)).path).name or f"row_{idx:06d}.jpg")).name
+            target = temp_dir / _dedupe_filename(file_name, used_names)
+            futures[executor.submit(_download_ndjson_image, str(url), target)] = (idx, row, target)
+
+        for future in as_completed(futures):
+            idx, row, image_path = futures[future]
+            ok, reason = future.result()
+            if not ok:
+                warnings.append(f"Skipped Ultralytics NDJSON row {idx}: {reason or 'image download failed'}")
+                continue
+            try:
+                width = int(float(row.get("width") or 0))
+                height = int(float(row.get("height") or 0))
+            except (TypeError, ValueError):
+                width = height = 0
+            if width <= 0 or height <= 0:
+                try:
+                    width, height = _image_size(image_path)
+                except Exception:
+                    warnings.append(f"Skipped Ultralytics NDJSON row {idx}: image size missing and downloaded image could not be inspected")
+                    continue
+            annotations, row_has_seg = _ultralytics_annotations(row, classes)
+            has_seg = has_seg or row_has_seg
+            records.append(ImageRecord(image_path, image_path.name, int(width), int(height), annotations))
+
+    return records, classes, "segment" if has_seg else "detect"
+
+
 _ALLOWED_NDJSON_SCHEMES = {"http", "https"}
 
 
@@ -394,6 +502,9 @@ def _read_ndjson_records(source: Path, warnings: list[str], *, max_workers: int)
     from PIL import Image
 
     rows = [json.loads(line) for line in source.read_text("utf-8").splitlines() if line.strip()]
+    if any(row.get("type") == "image" for row in rows):
+        return _read_ultralytics_ndjson_records(rows, source, warnings, max_workers=max_workers)
+
     import tempfile
 
     temp_dir = Path(tempfile.mkdtemp(prefix=f"{source.stem}_yolomatic_"))
@@ -834,7 +945,14 @@ def prepare_dataset(
     warnings: list[str] = []
     records, classes, task, source_format = _load_records(config, warnings)
     if not records:
-        raise DatasetValidationError("No images were found in the source dataset.", path=config.source_path, format=source_format)
+        detail = ""
+        if warnings:
+            detail = " First issues: " + " | ".join(warnings[:3])
+        raise DatasetValidationError(
+            f"No images were found in the source dataset.{detail}",
+            path=config.source_path,
+            format=source_format,
+        )
     if not classes:
         max_cls = max((ann.class_id for record in records for ann in record.annotations), default=-1)
         classes = [f"class_{idx}" for idx in range(max_cls + 1)]
