@@ -92,12 +92,23 @@ class UltralyticsPlatformCliTests(unittest.TestCase):
     def test_cli_parses_download_dataset_smart_split(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["download-dataset", "ds1", "--version", "5", "--smart-split"])
+        args = parser.parse_args([
+            "download-dataset",
+            "ds1",
+            "--version",
+            "5",
+            "--smart-split",
+            "--max-workers",
+            "12",
+            "--multiprocessing",
+        ])
 
         self.assertEqual(args.command, "download-dataset")
         self.assertEqual(args.dataset_id, "ds1")
         self.assertEqual(args.version, 5)
         self.assertTrue(args.smart_split)
+        self.assertEqual(args.max_workers, 12)
+        self.assertTrue(args.multiprocessing)
 
     def test_cli_parses_uri_helper(self) -> None:
         parser = build_parser()

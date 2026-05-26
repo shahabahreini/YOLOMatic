@@ -7,7 +7,7 @@ import re
 import shutil
 import time
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -62,6 +62,7 @@ class PrepareDatasetConfig:
     seed: int = 42
     overwrite: bool = False
     max_workers: int = 10
+    use_multiprocessing: bool = False
 
 
 @dataclass
@@ -381,17 +382,12 @@ def _ultralytics_class_names(rows: list[dict[str, Any]]) -> list[str]:
     return []
 
 
-def _ensure_class_name(classes: list[str], class_id: int) -> None:
-    while class_id >= len(classes):
-        classes.append(f"class_{len(classes)}")
-
-
-def _ultralytics_annotations(row: dict[str, Any], classes: list[str]) -> tuple[list[Annotation], bool]:
+def _parse_ultralytics_annotation_payload(payload: Any) -> tuple[list[Annotation], bool, int]:
     annotations: list[Annotation] = []
     has_seg = False
-    payload = row.get("annotations")
+    max_class_id = -1
     if not isinstance(payload, dict):
-        return annotations, has_seg
+        return annotations, has_seg, max_class_id
 
     for raw_segment in payload.get("segments") or []:
         if not isinstance(raw_segment, list) or len(raw_segment) < 7:
@@ -402,9 +398,9 @@ def _ultralytics_annotations(row: dict[str, Any], classes: list[str]) -> tuple[l
         except (TypeError, ValueError):
             continue
         if len(coords) >= 6 and len(coords) % 2 == 0:
-            _ensure_class_name(classes, class_id)
             annotations.append(Annotation(class_id, segmentation=coords))
             has_seg = True
+            max_class_id = max(max_class_id, class_id)
 
     for raw_box in payload.get("boxes") or payload.get("bboxes") or []:
         if not isinstance(raw_box, list) or len(raw_box) < 5:
@@ -414,10 +410,15 @@ def _ultralytics_annotations(row: dict[str, Any], classes: list[str]) -> tuple[l
             bbox = [max(0.0, min(1.0, float(value))) for value in raw_box[1:5]]
         except (TypeError, ValueError):
             continue
-        _ensure_class_name(classes, class_id)
         annotations.append(Annotation(class_id, bbox=bbox))
+        max_class_id = max(max_class_id, class_id)
 
-    return annotations, has_seg
+    return annotations, has_seg, max_class_id
+
+
+def _ensure_class_names(classes: list[str], max_class_id: int) -> None:
+    while max_class_id >= len(classes):
+        classes.append(f"class_{len(classes)}")
 
 
 def _read_ultralytics_ndjson_records(
@@ -426,6 +427,7 @@ def _read_ultralytics_ndjson_records(
     warnings: list[str],
     *,
     max_workers: int,
+    use_multiprocessing: bool,
 ) -> tuple[list[ImageRecord], list[str], str]:
     classes = _ultralytics_class_names(rows)
     image_rows = [(idx, row) for idx, row in enumerate(rows, start=1) if row.get("type") == "image"]
@@ -437,36 +439,49 @@ def _read_ultralytics_ndjson_records(
 
     temp_dir = Path(tempfile.mkdtemp(prefix=f"{source.stem}_yolomatic_"))
     futures = {}
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        for idx, row in image_rows:
-            url = row.get("url")
-            if not url:
-                warnings.append(f"Skipped Ultralytics NDJSON row {idx}: missing image url")
-                continue
-            file_name = Path(str(row.get("file") or Path(urlparse(str(url)).path).name or f"row_{idx:06d}.jpg")).name
-            target = temp_dir / _dedupe_filename(file_name, used_names)
-            futures[executor.submit(_download_ndjson_image, str(url), target)] = (idx, row, target)
+    parse_executor: ProcessPoolExecutor | ThreadPoolExecutor
+    if use_multiprocessing and max_workers > 1:
+        parse_executor = ProcessPoolExecutor(max_workers=max_workers)
+    else:
+        parse_executor = ThreadPoolExecutor(max_workers=max(1, max_workers))
 
-        for future in as_completed(futures):
-            idx, row, image_path = futures[future]
-            ok, reason = future.result()
-            if not ok:
-                warnings.append(f"Skipped Ultralytics NDJSON row {idx}: {reason or 'image download failed'}")
-                continue
-            try:
-                width = int(float(row.get("width") or 0))
-                height = int(float(row.get("height") or 0))
-            except (TypeError, ValueError):
-                width = height = 0
-            if width <= 0 or height <= 0:
-                try:
-                    width, height = _image_size(image_path)
-                except Exception:
-                    warnings.append(f"Skipped Ultralytics NDJSON row {idx}: image size missing and downloaded image could not be inspected")
+    parse_futures = {}
+    with parse_executor:
+        with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
+            for idx, row in image_rows:
+                parse_futures[idx] = parse_executor.submit(
+                    _parse_ultralytics_annotation_payload,
+                    row.get("annotations"),
+                )
+                url = row.get("url")
+                if not url:
+                    warnings.append(f"Skipped Ultralytics NDJSON row {idx}: missing image url")
                     continue
-            annotations, row_has_seg = _ultralytics_annotations(row, classes)
-            has_seg = has_seg or row_has_seg
-            records.append(ImageRecord(image_path, image_path.name, int(width), int(height), annotations))
+                file_name = Path(str(row.get("file") or Path(urlparse(str(url)).path).name or f"row_{idx:06d}.jpg")).name
+                target = temp_dir / _dedupe_filename(file_name, used_names)
+                futures[executor.submit(_download_ndjson_image, str(url), target)] = (idx, row, target)
+
+            for future in as_completed(futures):
+                idx, row, image_path = futures[future]
+                ok, reason = future.result()
+                if not ok:
+                    warnings.append(f"Skipped Ultralytics NDJSON row {idx}: {reason or 'image download failed'}")
+                    continue
+                try:
+                    width = int(float(row.get("width") or 0))
+                    height = int(float(row.get("height") or 0))
+                except (TypeError, ValueError):
+                    width = height = 0
+                if width <= 0 or height <= 0:
+                    try:
+                        width, height = _image_size(image_path)
+                    except Exception:
+                        warnings.append(f"Skipped Ultralytics NDJSON row {idx}: image size missing and downloaded image could not be inspected")
+                        continue
+                annotations, row_has_seg, max_class_id = parse_futures[idx].result()
+                _ensure_class_names(classes, max_class_id)
+                has_seg = has_seg or row_has_seg
+                records.append(ImageRecord(image_path, image_path.name, int(width), int(height), annotations))
 
     return records, classes, "segment" if has_seg else "detect"
 
@@ -498,12 +513,24 @@ def _download_ndjson_image(url: str, output_path: Path, *, retries: int = 2) -> 
     return False, last_error or "download failed"
 
 
-def _read_ndjson_records(source: Path, warnings: list[str], *, max_workers: int) -> tuple[list[ImageRecord], list[str], str]:
+def _read_ndjson_records(
+    source: Path,
+    warnings: list[str],
+    *,
+    max_workers: int,
+    use_multiprocessing: bool,
+) -> tuple[list[ImageRecord], list[str], str]:
     from PIL import Image
 
     rows = [json.loads(line) for line in source.read_text("utf-8").splitlines() if line.strip()]
     if any(row.get("type") == "image" for row in rows):
-        return _read_ultralytics_ndjson_records(rows, source, warnings, max_workers=max_workers)
+        return _read_ultralytics_ndjson_records(
+            rows,
+            source,
+            warnings,
+            max_workers=max_workers,
+            use_multiprocessing=use_multiprocessing,
+        )
 
     import tempfile
 
@@ -578,7 +605,12 @@ def _load_records(config: PrepareDatasetConfig, warnings: list[str]) -> tuple[li
     if not source.exists():
         raise FileNotFoundError(f"Source path does not exist: {source}")
     if source.is_file() and source.suffix.lower() == ".ndjson":
-        records, classes, task = _read_ndjson_records(source, warnings, max_workers=config.max_workers)
+        records, classes, task = _read_ndjson_records(
+            source,
+            warnings,
+            max_workers=config.max_workers,
+            use_multiprocessing=config.use_multiprocessing,
+        )
         return records, classes, task, "ndjson"
     source_format = detect_dataset_format(source)
     if source_format == "unknown":
@@ -1005,6 +1037,8 @@ def prepare_dataset(
     manifest = stats.to_dict()
     manifest["split_ratios"] = asdict(config.split_config)
     manifest["split_strategy"] = config.split_strategy
+    manifest["max_workers"] = config.max_workers
+    manifest["use_multiprocessing"] = config.use_multiprocessing
     manifest["seed"] = config.seed
     manifest["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

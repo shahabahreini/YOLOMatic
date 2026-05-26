@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
     download_dataset.add_argument("--test", type=float, default=0.10)
     download_dataset.add_argument("--seed", type=int, default=42)
     download_dataset.add_argument("--smart-split", action="store_true")
+    download_dataset.add_argument("--max-workers", type=int, default=10, help="Concurrent workers for NDJSON image downloads.")
+    download_dataset.add_argument(
+        "--multiprocessing",
+        action="store_true",
+        help="Use worker processes for Ultralytics NDJSON annotation parsing.",
+    )
 
     upload_dataset = subparsers.add_parser("upload-dataset", help="Archive and upload a prepared dataset directory.")
     upload_dataset.add_argument("dataset_path", type=Path)
@@ -250,6 +256,8 @@ def download_dataset(args: argparse.Namespace) -> None:
             split_config=PrepareSplitConfig(args.train, args.val, args.test),
             split_strategy="smart_balanced" if args.smart_split else "class_balanced",
             seed=args.seed,
+            max_workers=args.max_workers,
+            use_multiprocessing=args.multiprocessing,
         )
     )
     console.print(f"[bold green]Prepared dataset:[/bold green] [cyan]{stats.output_path}[/cyan]")
@@ -374,6 +382,36 @@ def _flow_download_dataset(args: argparse.Namespace) -> None:
     if use_smart in (NAV_BACK, "Back"):
         return
 
+    raw_workers = get_parameter_value_input(
+        ParameterDefinition(
+            "max_workers",
+            "ultralytics",
+            10,
+            "int",
+            "Download workers",
+            "Concurrent workers for signed image downloads.",
+            min_value=1,
+            max_value=64,
+        ),
+        10,
+    )
+    if raw_workers in (None, NAV_BACK):
+        return
+
+    raw_multiprocessing = get_parameter_value_input(
+        ParameterDefinition(
+            "multiprocessing",
+            "ultralytics",
+            True,
+            "bool",
+            "Multiprocessing parse",
+            "Use worker processes for large segmentation annotation parsing.",
+        ),
+        True,
+    )
+    if raw_multiprocessing in (None, NAV_BACK):
+        return
+
     args.dataset_id = dataset_id
     args.version = int(raw_version) or None
     args.output_root = Path(load_settings().get("ultralytics", {}).get("default_output_root", "datasets"))
@@ -382,6 +420,8 @@ def _flow_download_dataset(args: argparse.Namespace) -> None:
     args.train, args.val, args.test = 0.70, 0.20, 0.10
     args.seed = 42
     args.smart_split = use_smart == "Smart Balanced"
+    args.max_workers = int(raw_workers)
+    args.multiprocessing = bool(raw_multiprocessing)
 
     render_summary_panel(
         "Download Plan",
@@ -391,6 +431,8 @@ def _flow_download_dataset(args: argparse.Namespace) -> None:
             "Output Format": args.format,
             "Output Root": args.output_root,
             "Strategy": "smart_balanced" if args.smart_split else "class_balanced",
+            "Workers": args.max_workers,
+            "Multiprocessing": "enabled" if args.multiprocessing else "disabled",
         },
     )
     confirm = get_user_choice(

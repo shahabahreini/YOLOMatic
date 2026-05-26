@@ -213,11 +213,16 @@ class PrepareDatasetTest(unittest.TestCase):
                     output_slug="ultralytics_ready",
                     output_format="YOLO Segmentation",
                     split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+                    max_workers=2,
+                    use_multiprocessing=True,
                 )
             )
 
         self.assertEqual(stats.source_format, "ndjson")
         self.assertEqual(stats.classes, ["vegetation"])
+        manifest = json.loads((Path(stats.output_path) / "manifest.json").read_text(encoding="utf-8"))
+        self.assertTrue(manifest["use_multiprocessing"])
+        self.assertEqual(manifest["max_workers"], 2)
         label = Path(stats.output_path) / "train" / "labels" / "tile.txt"
         self.assertTrue(label.exists())
         self.assertTrue(label.read_text(encoding="utf-8").startswith("0 0.250000 0.250000"))

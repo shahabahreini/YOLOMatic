@@ -339,7 +339,7 @@ def _collect_output_settings(
     source: Path,
     split_config: PrepareSplitConfig,
     strategy: str,
-) -> tuple[str, int] | None:
+) -> tuple[str, int, int, bool] | None:
     default_slug = slugify(source.stem if source.is_file() else source.name)
     raw_slug = get_parameter_value_input(
         ParameterDefinition(
@@ -369,7 +369,40 @@ def _collect_output_settings(
     )
     if raw_seed in (None, NAV_BACK):
         return None
-    return slugify(str(raw_slug)), int(raw_seed)
+    max_workers = 10
+    use_multiprocessing = False
+    if source.is_file() and source.suffix.lower() == ".ndjson":
+        raw_workers = get_parameter_value_input(
+            ParameterDefinition(
+                "max_workers",
+                "performance",
+                10,
+                "int",
+                "Download workers",
+                "Concurrent workers for NDJSON image downloads. Increase for large exports when your network can handle it.",
+                min_value=1,
+                max_value=64,
+            ),
+            10,
+        )
+        if raw_workers in (None, NAV_BACK):
+            return None
+        raw_multiprocessing = get_parameter_value_input(
+            ParameterDefinition(
+                "use_multiprocessing",
+                "performance",
+                False,
+                "bool",
+                "Multiprocessing annotation parse",
+                "Uses worker processes for large Ultralytics NDJSON segmentation annotations while downloads remain concurrent.",
+            ),
+            False,
+        )
+        if raw_multiprocessing in (None, NAV_BACK):
+            return None
+        max_workers = int(raw_workers)
+        use_multiprocessing = bool(raw_multiprocessing)
+    return slugify(str(raw_slug)), int(raw_seed), max_workers, use_multiprocessing
 
 
 def _run_with_progress(config: PrepareDatasetConfig) -> PrepareDatasetStats | None:
@@ -460,7 +493,7 @@ def interactive_main() -> None:
     output_settings = _collect_output_settings(source, split_config, split_strategy)
     if output_settings is None:
         return
-    slug, seed = output_settings
+    slug, seed, max_workers, use_multiprocessing = output_settings
 
     try:
         output_path, version = resolve_versioned_output(Path("datasets"), slug)
@@ -483,6 +516,8 @@ def interactive_main() -> None:
             "Split": _format_split_label(split_config),
             "Split Strategy": split_strategy.replace("_", " "),
             "Seed": seed,
+            "Workers": max_workers,
+            "Multiprocessing": "enabled" if use_multiprocessing else "disabled",
             "Output": format_path(str(output_path), max_chars=64),
             "Version": f"v{version:03d}",
         },
@@ -509,6 +544,8 @@ def interactive_main() -> None:
             split_config=split_config,
             split_strategy=split_strategy,
             seed=seed,
+            max_workers=max_workers,
+            use_multiprocessing=use_multiprocessing,
         )
     )
     input("\nPress Enter to return to main menu...")
@@ -524,6 +561,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val", type=float, default=0.20, help="Validation split ratio.")
     parser.add_argument("--test", type=float, default=0.10, help="Test split ratio.")
     parser.add_argument("--seed", type=int, default=42, help="Deterministic split seed.")
+    parser.add_argument("--max-workers", type=int, default=10, help="Concurrent workers for NDJSON image downloads.")
+    parser.add_argument(
+        "--multiprocessing",
+        action="store_true",
+        help="Use worker processes for Ultralytics NDJSON annotation parsing.",
+    )
     parser.add_argument(
         "--smart-split",
         action="store_true",
@@ -553,6 +596,8 @@ def main() -> None:
             split_strategy=args.split_strategy or ("smart_balanced" if args.smart_split else "class_balanced"),
             seed=args.seed,
             overwrite=args.overwrite,
+            max_workers=args.max_workers,
+            use_multiprocessing=args.multiprocessing,
         )
     )
     console.print(f"[bold green]Prepared dataset:[/bold green] [cyan]{stats.output_path}[/cyan]")
