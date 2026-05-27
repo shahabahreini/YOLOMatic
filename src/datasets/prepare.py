@@ -758,11 +758,10 @@ def _split_records_smart_balanced(
 ) -> dict[str, list[ImageRecord]]:
     rng = random.Random(seed)
     target = _target_counts(len(records), split_config)
+    enabled = [name for name in SPLIT_NAMES if target[name] > 0]
     result: dict[str, list[ImageRecord]] = {name: [] for name in SPLIT_NAMES}
-    split_class_counts: dict[str, Counter[int]] = {name: Counter() for name in SPLIT_NAMES}
-    split_size_counts: dict[str, Counter[str]] = {name: Counter() for name in SPLIT_NAMES}
-    split_object_counts: dict[str, int] = {name: 0 for name in SPLIT_NAMES}
-    split_unlabeled_counts: dict[str, int] = {name: 0 for name in SPLIT_NAMES}
+    if not enabled or not records:
+        return result
 
     class_totals = Counter(ann.class_id for record in records for ann in record.annotations)
     size_totals = Counter(bucket for record in records for bucket in record.object_size_buckets)
@@ -772,38 +771,89 @@ def _split_records_smart_balanced(
     total = len(records)
     progress_step = max(1, total // 100)
 
-    ordered = list(records)
+    split_class_counts: dict[str, Counter[int]] = {name: Counter() for name in SPLIT_NAMES}
+    split_size_counts: dict[str, Counter[str]] = {name: Counter() for name in SPLIT_NAMES}
+    split_object_counts: dict[str, int] = {name: 0 for name in SPLIT_NAMES}
+    split_unlabeled_counts: dict[str, int] = {name: 0 for name in SPLIT_NAMES}
+    assigned_ids: set[int] = set()
+
+    def _commit(record: ImageRecord, split_name: str) -> None:
+        result[split_name].append(record)
+        split_class_counts[split_name].update(ann.class_id for ann in record.annotations)
+        split_size_counts[split_name].update(record.object_size_buckets)
+        split_object_counts[split_name] += len(record.annotations)
+        if not record.annotations:
+            split_unlabeled_counts[split_name] += 1
+        assigned_ids.add(id(record))
+
     if progress_callback:
         progress_callback(0, total, "Preparing smart split order...")
-    rng.shuffle(ordered)
-    ordered.sort(
+
+    # ----- Phase 1: Rare-class coverage seeding -----
+    # Guarantee that every class with enough instances appears in every enabled
+    # split. Without this, a class with 2 instances at 70/20/10 could end up
+    # entirely in test, so the model never sees it during training.
+    # Priority order: train first (training needs it most), then val, then test.
+    split_priority = [name for name in ("train", "valid", "test") if name in enabled]
+    records_by_class: dict[int, list[ImageRecord]] = {}
+    for record in records:
+        for cls in record.class_ids:
+            records_by_class.setdefault(cls, []).append(record)
+
+    # Process classes from rarest to most common; among equally-rare classes the
+    # order is shuffled (seeded) so the choice doesn't favor lower class IDs.
+    rare_first = sorted(class_totals.keys(), key=lambda c: (class_totals[c], rng.random()))
+    for cls in rare_first:
+        # Among holders, prefer records with the FEWEST other classes so seeding
+        # for one rare class doesn't lopsidedly populate unrelated classes.
+        holders = sorted(
+            (r for r in records_by_class[cls] if id(r) not in assigned_ids),
+            key=lambda r: (len(r.class_ids), -len(r.annotations), r.file_name),
+        )
+        for split_name in split_priority:
+            if split_class_counts[split_name][cls] > 0:
+                continue
+            if len(result[split_name]) >= target[split_name]:
+                continue
+            holder = next((r for r in holders if id(r) not in assigned_ids), None)
+            if holder is None:
+                break
+            _commit(holder, split_name)
+
+    # ----- Phase 2: Greedy balanced assignment of remaining records -----
+    remaining = [r for r in records if id(r) not in assigned_ids]
+    rng.shuffle(remaining)
+    remaining.sort(
         key=lambda record: (
             0 if record.annotations else 1,
             -len(record.annotations),
-            min((class_totals[ann.class_id] for ann in record.annotations), default=len(records) + 1),
+            min((class_totals[ann.class_id] for ann in record.annotations), default=total + 1),
             record.file_name,
         )
     )
 
-    for idx, record in enumerate(ordered, start=1):
-        candidates = [name for name in SPLIT_NAMES if len(result[name]) < target[name]]
-        if not candidates:
-            candidates = list(SPLIT_NAMES)
+    processed = len(assigned_ids)
+    for record in remaining:
+        candidates = [name for name in enabled if len(result[name]) < target[name]] or list(enabled)
         record_class_counts = Counter(ann.class_id for ann in record.annotations)
         record_size_counts = Counter(record.object_size_buckets)
         record_unlabeled = 1 if not record.annotations else 0
 
-        def score(split_name: str) -> tuple[float, int, str]:
+        def score(split_name: str) -> tuple[float, float, float]:
             ratio = target[split_name] / total_images
             class_counts = split_class_counts[split_name] + record_class_counts
             size_counts = split_size_counts[split_name] + record_size_counts
             object_count = split_object_counts[split_name] + len(record.annotations)
             unlabeled_count = split_unlabeled_counts[split_name] + record_unlabeled
-            image_fill = abs((len(result[split_name]) + 1) - target[split_name]) / max(1, target[split_name])
+            img_after = len(result[split_name]) + 1
             object_desired = max(0.0001, total_objects * ratio)
             unlabeled_desired = max(0.0001, total_unlabeled * ratio)
             object_cost = abs(object_count - object_desired) / object_desired if total_objects else 0.0
             unlabeled_cost = abs(unlabeled_count - unlabeled_desired) / unlabeled_desired if total_unlabeled else 0.0
+            # Prefer the split with the lowest projected fill ratio (most room left).
+            # The previous formula used abs(img_after - target)/target which favored
+            # splits already close to capacity — exactly the opposite of intent.
+            image_fill = img_after / max(1, target[split_name])
             cost = (
                 _counter_cost(class_counts, class_totals, ratio, 3.0)
                 + _counter_cost(size_counts, size_totals, ratio, 2.0)
@@ -811,16 +861,14 @@ def _split_records_smart_balanced(
                 + unlabeled_cost
                 + image_fill
             )
-            return (cost, len(result[split_name]), split_name)
+            # Tiebreakers: most-underfilled first, then seeded random for fairness.
+            return (cost, img_after / max(1, target[split_name]), rng.random())
 
         chosen = min(candidates, key=score)
-        result[chosen].append(record)
-        split_class_counts[chosen].update(record_class_counts)
-        split_size_counts[chosen].update(record_size_counts)
-        split_object_counts[chosen] += len(record.annotations)
-        split_unlabeled_counts[chosen] += record_unlabeled
-        if progress_callback and (idx == total or idx % progress_step == 0):
-            progress_callback(idx, total, f"Smart balanced split assignment... {idx}/{total}")
+        _commit(record, chosen)
+        processed += 1
+        if progress_callback and (processed == total or processed % progress_step == 0):
+            progress_callback(processed, total, f"Smart balanced split assignment... {processed}/{total}")
 
     return result
 
@@ -873,7 +921,12 @@ def _split_warnings(
         if total_records < len(enabled_splits) * 2:
             warnings.append("Smart split degraded to deterministic best effort because the dataset is very small.")
         if total_annotations == 0:
-            warnings.append("Smart split found no annotations; only image and background balance could be optimized.")
+            warnings.append(
+                "Smart split found no annotations in any image — every label file is empty. "
+                "If you expected labels, your source likely failed to extract them (e.g. an "
+                "Ultralytics-format NDJSON converted with a Labelbox-only extractor). "
+                "Only image-count balance was optimized."
+            )
     return warnings
 
 
