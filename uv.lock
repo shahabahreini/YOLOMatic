@@ -3517,7 +3517,7 @@ requires-dist = [
     { name = "ruamel-yaml" },
     { name = "tabulate" },
     { name = "tensorboard" },
-    { name = "tensorflow", marker = "sys_platform != 'win32'", specifier = ">=2.16,<2.21" },
+    { name = "tensorflow", marker = "sys_platform != 'win32'", specifier = ">=2.16,<2.22" },
     { name = "termcolor" },
     { name = "terminaltables" },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
