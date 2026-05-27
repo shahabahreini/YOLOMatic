@@ -2057,8 +2057,7 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
     dataset_names = [Path(d["path"]) for d in datasets]
     name_to_path = {path.name: str(path) for path in dataset_names}
 
-    dataset_descriptions = {}
-    for d in datasets:
+    def _build_description(d: dict[str, Any]) -> tuple[str, str]:
         try:
             summary = summarize_dataset(d["path"])
             classes = ", ".join(summary.classes[:8]) or "No classes found"
@@ -2073,7 +2072,7 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             health = "Valid" if not summary.errors else "Blocking errors"
             if summary.warnings and not summary.errors:
                 health = "Warnings"
-            dataset_descriptions[d["name"]] = (
+            desc = (
                 f"[bold cyan]{d['name']}[/bold cyan]\n\n"
                 f"[bold]Format:[/bold] {summary.format.upper()}    "
                 f"[bold]Task:[/bold] {summary.task.title()}\n"
@@ -2091,11 +2090,17 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
                 f"[dim]{d['path']}[/dim]"
             )
         except Exception as error:
-            dataset_descriptions[d["name"]] = (
+            desc = (
                 f"[bold yellow]{d['name']}[/bold yellow]\n\n"
                 f"YOLOmatic could not inspect this dataset cleanly: {error}\n"
                 f"[dim]{d['path']}[/dim]"
             )
+        return d["name"], desc
+
+    dataset_descriptions: dict[str, str] = {}
+    with ThreadPoolExecutor() as executor:
+        for name, desc in executor.map(_build_description, datasets):
+            dataset_descriptions[name] = desc
     dataset_descriptions["Back"] = "Return to the previous menu."
 
     choice = get_user_choice(
