@@ -807,9 +807,10 @@ def _split_records_smart_balanced(
         # Among holders, prefer records with the FEWEST other classes so seeding
         # for one rare class doesn't lopsidedly populate unrelated classes.
         holders = sorted(
-            (r for r in records_by_class[cls] if id(r) not in assigned_ids),
-            key=lambda r: (len(r.class_ids), -len(r.annotations), r.file_name),
+            ((rng.random(), r) for r in records_by_class[cls] if id(r) not in assigned_ids),
+            key=lambda pair: (len(pair[1].class_ids), -len(pair[1].annotations), pair[0], pair[1].file_name),
         )
+        holders = [r for _, r in holders]
         for split_name in split_priority:
             if split_class_counts[split_name][cls] > 0:
                 continue
@@ -821,16 +822,21 @@ def _split_records_smart_balanced(
             _commit(holder, split_name)
 
     # ----- Phase 2: Greedy balanced assignment of remaining records -----
-    remaining = [r for r in records if id(r) not in assigned_ids]
-    rng.shuffle(remaining)
+    # Final sort key uses a seeded random tiebreaker AFTER file_name so two runs
+    # with different seeds actually produce different orderings. (A bare
+    # rng.shuffle before a stable sort gets fully cancelled out when file_name
+    # uniquely orders records, leaving the seed meaningless.)
+    remaining = [(rng.random(), r) for r in records if id(r) not in assigned_ids]
     remaining.sort(
-        key=lambda record: (
-            0 if record.annotations else 1,
-            -len(record.annotations),
-            min((class_totals[ann.class_id] for ann in record.annotations), default=total + 1),
-            record.file_name,
+        key=lambda pair: (
+            0 if pair[1].annotations else 1,
+            -len(pair[1].annotations),
+            min((class_totals[ann.class_id] for ann in pair[1].annotations), default=total + 1),
+            pair[0],
+            pair[1].file_name,
         )
     )
+    remaining = [r for _, r in remaining]
 
     processed = len(assigned_ids)
     for record in remaining:
