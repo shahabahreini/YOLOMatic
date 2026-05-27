@@ -2010,65 +2010,80 @@ def clone_config_filename(source_path: Path, dataset_name: str) -> str:
 
 def clone_saved_config_flow() -> bool:
     steps = ["Select Source YAML", "Select Target Dataset"]
-    source_path = select_saved_config_file(wizard_steps=steps, wizard_current_step=0)
-    if source_path is None:
-        return False
+    step = 0
+    source_path: Path | None = None
+    source_config: dict = {}
+    model_choice: str | None = None
+    dataset_choice: str | None = None
 
-    try:
-        with open(source_path, "r") as file:
-            source_config = yaml.safe_load(file) or {}
-    except yaml.YAMLError as error:
-        console.print(
-            Panel(
-                f"[bold red]Invalid YAML in {source_path.name}:[/bold red] {error}",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
+    while 0 <= step < 2:
+        if step == 0:
+            source_path = select_saved_config_file(wizard_steps=steps, wizard_current_step=0)
+            if source_path is None:
+                return False  # user backed out of first step → exit wizard
 
-    if "experiment" in source_config:
-        console.print(
-            Panel(
-                "[bold yellow]YOLO-NAS config cloning is not supported yet.[/bold yellow]\n\n"
-                "Clone regular Ultralytics YOLO configs from this flow. YOLO-NAS "
-                "configs use a different nested training schema.",
-                border_style="yellow",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
+            try:
+                with open(source_path, "r") as file:
+                    source_config = yaml.safe_load(file) or {}
+            except yaml.YAMLError as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Invalid YAML in {source_path.name}:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to select a different file...")
+                continue  # stay on step 0
 
-    model_choice = extract_regular_yolo_model_choice(source_config)
-    if not model_choice:
-        console.print(
-            Panel(
-                "[bold red]Could not find settings.model_type in the source config.[/bold red]\n\n"
-                "The clone flow needs a regular YOLO config with a model recorded "
-                "under the settings section.",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
+            if "experiment" in source_config:
+                console.print(
+                    Panel(
+                        "[bold yellow]YOLO-NAS config cloning is not supported yet.[/bold yellow]\n\n"
+                        "Clone regular Ultralytics YOLO configs from this flow. YOLO-NAS "
+                        "configs use a different nested training schema.",
+                        border_style="yellow",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to select a different file...")
+                continue  # stay on step 0
 
-    try:
-        dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=1)
-    except Exception as error:
-        console.print(
-            Panel(
-                f"[bold red]Failed to list datasets:[/bold red] {error}",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
-    if dataset_choice in ("Back", None):
-        return False
+            model_choice = extract_regular_yolo_model_choice(source_config)
+            if not model_choice:
+                console.print(
+                    Panel(
+                        "[bold red]Could not find settings.model_type in the source config.[/bold red]\n\n"
+                        "The clone flow needs a regular YOLO config with a model recorded "
+                        "under the settings section.",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to select a different file...")
+                continue  # stay on step 0
+
+            step = 1
+
+        else:  # step == 1
+            try:
+                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=1)
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Failed to list datasets:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to return to the main menu...")
+                return False
+            if dataset_choice == "Back":
+                step = 0  # go back to YAML selection
+                continue
+            if dataset_choice is None:
+                return False
+            step = 2  # exit loop normally
 
     dataset_path = Path(dataset_choice)
     dataset_name = dataset_path.name
@@ -2983,58 +2998,70 @@ def choose_regular_yolo_profiles(
         for key, details in profile_context["worker_profiles"].items()
     }
 
-    augmentation_choice = select_profile_option(
-        "Select Augmentation Profile",
-        f"{summary_text}\n\nChoose the augmentation intensity for this dataset:",
-        augmentation_options,
-        recommended_profiles["augmentation"],
-        [
-            "Minimum is the easiest to reason about and keeps the config close to core training values.",
-            "Low adds only basic robustness improvements.",
-            "Medium adds more color and geometric changes, which can improve generalization but also change training behavior more.",
-        ],
-        wizard_steps=wizard_steps,
-        wizard_current_step=wizard_current_step,
-    )
-    if augmentation_choice is None:
-        return None
+    # Step-machine so Back at sub-step N returns to sub-step N-1 with the
+    # previous choice pre-selected, rather than exiting the whole flow.
+    sub_state: dict[str, str] = {}
+    sub_step = 0
+    while 0 <= sub_step < 3:
+        if sub_step == 0:
+            result = select_profile_option(
+                "Select Augmentation Profile",
+                f"{summary_text}\n\nChoose the augmentation intensity for this dataset:",
+                augmentation_options,
+                recommended_profiles["augmentation"],
+                [
+                    "Minimum is the easiest to reason about and keeps the config close to core training values.",
+                    "Low adds only basic robustness improvements.",
+                    "Medium adds more color and geometric changes, which can improve generalization but also change training behavior more.",
+                ],
+                wizard_steps=wizard_steps,
+                wizard_current_step=wizard_current_step,
+                initial_selection=sub_state.get("augmentation"),
+            )
+        elif sub_step == 1:
+            result = select_profile_option(
+                "Select Compute Profile",
+                f"{summary_text}\n\nChoose how strongly YOLOmatic should push system resources:",
+                compute_options,
+                recommended_profiles["compute"],
+                [
+                    "This profile mainly affects batch aggressiveness and cache behavior.",
+                    "Conservative is better when GPU memory is tight or the model is heavy.",
+                    "Aggressive is best only when your RAM, GPU memory, and dataset pressure all look healthy.",
+                ],
+                wizard_steps=wizard_steps,
+                wizard_current_step=wizard_current_step,
+                initial_selection=sub_state.get("compute"),
+            )
+        else:
+            result = select_profile_option(
+                "Select Worker Profile",
+                f"{summary_text}\n\nChoose the dataloader worker profile:",
+                worker_options,
+                recommended_profiles["worker"],
+                [
+                    "Workers change throughput, not the optimization target, so higher values are not automatically better.",
+                    "Too many workers can reduce training quality indirectly by causing CPU contention, RAM pressure, disk thrashing, and less stable batch preparation.",
+                    "If you are unsure, keep the recommended worker profile and only raise it when the GPU is starved and the machine still has clear headroom.",
+                ],
+                wizard_steps=wizard_steps,
+                wizard_current_step=wizard_current_step,
+                initial_selection=sub_state.get("worker"),
+            )
 
-    compute_choice = select_profile_option(
-        "Select Compute Profile",
-        f"{summary_text}\n\nChoose how strongly YOLOmatic should push system resources:",
-        compute_options,
-        recommended_profiles["compute"],
-        [
-            "This profile mainly affects batch aggressiveness and cache behavior.",
-            "Conservative is better when GPU memory is tight or the model is heavy.",
-            "Aggressive is best only when your RAM, GPU memory, and dataset pressure all look healthy.",
-        ],
-        wizard_steps=wizard_steps,
-        wizard_current_step=wizard_current_step,
-    )
-    if compute_choice is None:
-        return None
+        if result is None:
+            sub_step -= 1
+        else:
+            sub_state[["augmentation", "compute", "worker"][sub_step]] = result
+            sub_step += 1
 
-    worker_choice = select_profile_option(
-        "Select Worker Profile",
-        f"{summary_text}\n\nChoose the dataloader worker profile:",
-        worker_options,
-        recommended_profiles["worker"],
-        [
-            "Workers change throughput, not the optimization target, so higher values are not automatically better.",
-            "Too many workers can reduce training quality indirectly by causing CPU contention, RAM pressure, disk thrashing, and less stable batch preparation.",
-            "If you are unsure, keep the recommended worker profile and only raise it when the GPU is starved and the machine still has clear headroom.",
-        ],
-        wizard_steps=wizard_steps,
-        wizard_current_step=wizard_current_step,
-    )
-    if worker_choice is None:
+    if sub_step < 0:
         return None
 
     return {
-        "augmentation": augmentation_choice,
-        "compute": compute_choice,
-        "worker": worker_choice,
+        "augmentation": sub_state["augmentation"],
+        "compute": sub_state["compute"],
+        "worker": sub_state["worker"],
     }
 
 
@@ -4438,60 +4465,85 @@ def _main_loop_iteration():
 
         elif main_choice == "Configure Fine-Tune":
             steps = ["Checkpoint Weights", "Strategy Selection", "Dataset Selection", "Profile Settings"]
-            candidate = select_finetune_candidate(wizard_steps=steps, wizard_current_step=0)
-            if candidate is None:
-                continue
+            ft_state: dict[str, Any] = {}
+            ft_step = 0
+            while 0 <= ft_step < 4:
+                if ft_step == 0:
+                    candidate = select_finetune_candidate(wizard_steps=steps, wizard_current_step=0)
+                    if candidate is None:
+                        break
+                    ft_state["candidate"] = candidate
+                    ft_step = 1
 
-            strategy = select_finetune_strategy(candidate, wizard_steps=steps, wizard_current_step=1)
-            if strategy is None:
-                continue
-
-            try:
-                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Failed to list datasets:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
+                elif ft_step == 1:
+                    strategy = select_finetune_strategy(
+                        ft_state["candidate"], wizard_steps=steps, wizard_current_step=1
                     )
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            if dataset_choice in ("Back", None):
-                continue
+                    if strategy is None:
+                        ft_step = 0
+                    else:
+                        ft_state["strategy"] = strategy
+                        ft_step = 2
 
-            model_choice = infer_finetune_profile_model(candidate)
-            print_summary(candidate.display_name, dataset_choice)
-            try:
-                if not update_config(
-                    model_choice,
-                    dataset_choice,
-                    finetune_source=candidate.source,
-                    finetune_strategy=strategy,
-                    wizard_steps=steps,
-                    wizard_current_step=3,
-                ):
-                    continue
-            except KeyboardInterrupt:
-                console.print(
-                    "\n[bold yellow]Fine-tune configuration cancelled by user.[/bold yellow]"
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Fine-tune configuration failed:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
-                    )
-                )
-                console.print(traceback.format_exc(), style="dim")
-                input("\nPress Enter to return to the main menu...")
-                continue
+                elif ft_step == 2:
+                    try:
+                        dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Failed to list datasets:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    if dataset_choice == "Back":
+                        ft_step = 1
+                    elif dataset_choice is None:
+                        break
+                    else:
+                        ft_state["dataset_choice"] = dataset_choice
+                        ft_step = 3
 
-            input("\nPress Enter to continue...")
+                elif ft_step == 3:
+                    _cand = ft_state["candidate"]
+                    _dataset = ft_state["dataset_choice"]
+                    _strategy = ft_state["strategy"]
+                    model_choice = infer_finetune_profile_model(_cand)
+                    print_summary(_cand.display_name, _dataset)
+                    try:
+                        if not update_config(
+                            model_choice,
+                            _dataset,
+                            finetune_source=_cand.source,
+                            finetune_strategy=_strategy,
+                            wizard_steps=steps,
+                            wizard_current_step=3,
+                        ):
+                            ft_step = 2
+                            continue
+                    except KeyboardInterrupt:
+                        console.print(
+                            "\n[bold yellow]Fine-tune configuration cancelled by user.[/bold yellow]"
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Fine-tune configuration failed:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        console.print(traceback.format_exc(), style="dim")
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    ft_step = 4
+
+            if ft_step >= 4:
+                input("\nPress Enter to continue...")
             continue
 
         elif main_choice == "About YOLOmatic":
@@ -4644,15 +4696,9 @@ def _main_loop_iteration():
 
         elif main_choice == "Configure Model":
             steps = ["Model Family", "Model Size", "Dataset Selection", "Profile Settings"]
-            # Get model choice
             model_types = get_model_menu()
-            model_choice = get_user_choice(
-                model_types,
-                title="Model Selector",
-                text="Choose a model family for your project:",
-                allow_back=True,
-                descriptions={
-                    "detectron2": (
+            _model_descriptions = {
+                "detectron2": (
                         "[bold cyan]Detectron2[/bold cyan]  [green]● Optional native COCO detection[/green]\n\n"
                         "Faster R-CNN and RetinaNet variants using Detectron2's model zoo. "
                         "Detectron2 is imported only when you train or predict with this family."
@@ -4856,76 +4902,97 @@ def _main_loop_iteration():
                         "  When a clean anchor-free baseline and training stability "
                         "are the primary requirements"
                     ),
-                },
-                breadcrumbs=["YOLOmatic", "Model Selection"],
-                wizard_steps=steps,
-                wizard_current_step=0,
-            )
-
-            if model_choice == "Back":
-                continue
-
-            variants = [model["Model"] for model in model_data_dict[model_choice]]
-            model_variant = get_user_choice(
-                variants,
-                allow_back=True,
-                title=f"Select {model_choice.upper()} Variant",
-                text="Choose the model size that fits your hardware:",
-                model_data=model_data_dict[model_choice],
-                breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
-                wizard_steps=steps,
-                wizard_current_step=1,
-            )
-
-            if model_variant == "Back":
-                continue
-
-            model_choice = model_variant
-
-            # Continue with dataset selection...
-            try:
-                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Failed to list datasets:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
+            }
+            cm_state: dict[str, Any] = {}
+            cm_step = 0
+            while 0 <= cm_step < 4:
+                if cm_step == 0:
+                    model_family = get_user_choice(
+                        model_types,
+                        title="Model Selector",
+                        text="Choose a model family for your project:",
+                        allow_back=True,
+                        descriptions=_model_descriptions,
+                        breadcrumbs=["YOLOmatic", "Model Selection"],
+                        wizard_steps=steps,
+                        wizard_current_step=0,
+                        initial_selection=cm_state.get("model_family"),
                     )
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            if dataset_choice == "Back":
-                continue
-            elif dataset_choice is None:
-                continue
+                    if model_family == "Back":
+                        break
+                    cm_state["model_family"] = model_family
+                    cm_step = 1
 
-            # Show summary and update config. Any failure during config
-            # generation must not tear down the TUI — report and return.
-            print_summary(model_choice, dataset_choice)
-            try:
-                if not update_config(model_choice, dataset_choice, wizard_steps=steps, wizard_current_step=3):
-                    continue
-            except KeyboardInterrupt:
-                console.print(
-                    "\n[bold yellow]Configuration cancelled by user.[/bold yellow]"
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Configuration failed:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
+                elif cm_step == 1:
+                    _family = cm_state["model_family"]
+                    variants = [model["Model"] for model in model_data_dict[_family]]
+                    model_variant = get_user_choice(
+                        variants,
+                        allow_back=True,
+                        title=f"Select {_family.upper()} Variant",
+                        text="Choose the model size that fits your hardware:",
+                        model_data=model_data_dict[_family],
+                        breadcrumbs=["YOLOmatic", "Model Selection", _family],
+                        wizard_steps=steps,
+                        wizard_current_step=1,
+                        initial_selection=cm_state.get("model_variant"),
                     )
-                )
-                console.print(traceback.format_exc(), style="dim")
-                input("\nPress Enter to return to the main menu...")
-                continue
+                    if model_variant == "Back":
+                        cm_step = 0
+                    else:
+                        cm_state["model_variant"] = model_variant
+                        cm_step = 2
 
-            # Ask if user wants to continue
-            input("\nPress Enter to continue...")
+                elif cm_step == 2:
+                    try:
+                        dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Failed to list datasets:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    if dataset_choice == "Back":
+                        cm_step = 1
+                    elif dataset_choice is None:
+                        break
+                    else:
+                        cm_state["dataset_choice"] = dataset_choice
+                        cm_step = 3
+
+                elif cm_step == 3:
+                    _model = cm_state["model_variant"]
+                    _dataset = cm_state["dataset_choice"]
+                    print_summary(_model, _dataset)
+                    try:
+                        if not update_config(_model, _dataset, wizard_steps=steps, wizard_current_step=3):
+                            cm_step = 2
+                            continue
+                    except KeyboardInterrupt:
+                        console.print(
+                            "\n[bold yellow]Configuration cancelled by user.[/bold yellow]"
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Configuration failed:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        console.print(traceback.format_exc(), style="dim")
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    cm_step = 4
+
+            if cm_step >= 4:
+                input("\nPress Enter to continue...")
 
 
 if __name__ == "__main__":
