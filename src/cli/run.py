@@ -2771,6 +2771,7 @@ def select_profile_option(
     hint_lines: list[str] | None = None,
     wizard_steps: list[str] | None = None,
     wizard_current_step: int | None = None,
+    initial_selection: str | None = None,
 ) -> str | None:
     option_map: dict[str, str] = {}
     option_labels: list[str] = []
@@ -2790,6 +2791,14 @@ def select_profile_option(
 
     descriptions["Back"] = "Return to the previous configuration step."
 
+    # Resolve raw key back to its display label for cursor pre-positioning
+    resolved_initial: str | None = None
+    if initial_selection is not None:
+        for label, key in option_map.items():
+            if key == initial_selection:
+                resolved_initial = label
+                break
+
     choice = get_user_choice(
         option_labels,
         allow_back=True,
@@ -2798,6 +2807,7 @@ def select_profile_option(
         descriptions=descriptions,
         wizard_steps=wizard_steps,
         wizard_current_step=wizard_current_step,
+        initial_selection=resolved_initial,
     )
     if choice == "Back":
         return None
@@ -4487,30 +4497,145 @@ def _main_loop_iteration():
         elif main_choice == "About YOLOmatic":
             clear_screen()
             from src.__version__ import __version__
+            import platform
+            import os
+            import sys
+            from rich.console import Group
+            from rich.text import Text
+            from src.utils.ml_dependencies import check_hf_auth
 
-            # Use a more structured layout for the About screen
-            about_table = Table.grid(padding=(0, 2))
-            about_table.add_column(style="bold cyan", justify="right")
-            about_table.add_column(style="white")
+            # --- Terminal Width ---
+            term_w = console.width
 
-            about_table.add_row("Product:", "YOLOmatic")
-            about_table.add_row("Version:", f"{__version__}")
-            about_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
-            about_table.add_row("Contact:", "shahabahreini@hotmail.com")
-            about_table.add_row("", "")
-            about_table.add_row(
-                "Description:", "A powerful CLI tool for automated YOLO and RF-DETR"
+            # --- System Environment Detection ---
+            os_system = platform.system()
+            os_release = platform.release()
+            os_display = f"{os_system} {os_release}"
+
+            py_version = platform.python_version()
+            py_arch = platform.architecture()[0]
+            py_display = f"{py_version} ({py_arch})"
+
+            venv_path = os.getenv("VIRTUAL_ENV")
+            if venv_path:
+                venv_display = os.path.basename(venv_path)
+            else:
+                venv_display = "None (System Python)"
+
+            gpu_info = "Checking..."
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_info = f"[#A3BE8C]Active[/#A3BE8C] ({gpu_name})"
+                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    gpu_info = "[#A3BE8C]Active[/#A3BE8C] (Apple MPS)"
+                else:
+                    gpu_info = "[#EBCB8B]Inactive[/#EBCB8B]"
+            except Exception:
+                gpu_info = "[#BF616A]Not Available[/#BF616A]"
+
+            # --- Integrations Status ---
+            try:
+                rf_status = roboflow_credential_status()
+                rf_info = "[#A3BE8C]Connected[/#A3BE8C]" if rf_status.get("api_key") else "[dim]Not Configured[/dim]"
+            except Exception:
+                rf_info = "[#BF616A]Error[/#BF616A]"
+
+            try:
+                ultralytics_status = ultralytics_credential_status()
+                ult_info = "[#A3BE8C]Connected[/#A3BE8C]" if ultralytics_status.get("api_key") else "[dim]Not Configured[/dim]"
+            except Exception:
+                ult_info = "[#BF616A]Error[/#BF616A]"
+
+            try:
+                hf_token = check_hf_auth()
+                hf_info = "[#A3BE8C]Connected[/#A3BE8C]" if hf_token else "[dim]Not Configured[/dim]"
+            except Exception:
+                hf_info = "[#BF616A]Error[/#BF616A]"
+
+            # --- Centered Logo & Subtitle ---
+            banner_lines = [
+                " __  ______  __    ____  __  ___  ____  __  ____  ",
+                " \\ \\/ / __ \\/ /   / __ \\/  |/  / / __ \\/ /_/ ___/  ",
+                "  \\  / /_/ / /___/ /_/ / /|_/ / / /_/ / __/ /__    ",
+                "  /_/\\____/_____/\\____/_/  /_/  /_/ /_/\\__/\\___/   "
+            ]
+            logo_width = max(len(l) for l in banner_lines)
+
+            if term_w >= logo_width + 8:
+                gradient_styles = [
+                    "bold #8FBCBB",
+                    "bold #88C0D0",
+                    "bold #81A1C1",
+                    "bold #5E81AC"
+                ]
+                banner_str = ""
+                for line, style in zip(banner_lines, gradient_styles):
+                    banner_str += f"[{style}]{line}[/{style}]\n"
+                header_element = Align.center(banner_str.strip())
+            else:
+                header_element = Align.center("[bold #8FBCBB]YOLOmatic[/bold #8FBCBB]")
+
+            subtitle_element = Align.center(
+                "[dim]Automated computer-vision training, configuration, and dataset management.[/dim]"
             )
-            about_table.add_row("", "training, configuration, and dataset management.")
 
-            console.print("\n" * 2)
+            # --- Quiet, Minimalist Table Layout ---
+            left_table = Table.grid(padding=(0, 2))
+            left_table.add_column(style="bold #81A1C1", justify="right", width=12)
+            left_table.add_column(style="white", width=28)
+
+            left_table.add_row("Product:", "YOLOmatic")
+            left_table.add_row("Version:", f"[bold #A3BE8C]{__version__}[/bold #A3BE8C]")
+            left_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
+            left_table.add_row("Contact:", "[#88C0D0]shahabahreini@hotmail.com[/#88C0D0]")
+            left_table.add_row("License:", "[#EBCB8B]Apache-2.0[/#EBCB8B]")
+
+            right_table = Table.grid(padding=(0, 2))
+            right_table.add_column(style="bold #81A1C1", justify="right", width=14)
+            right_table.add_column(style="white", width=26)
+
+            right_table.add_row("OS:", os_display)
+            right_table.add_row("Python:", py_display)
+            right_table.add_row("PyTorch GPU:", gpu_info)
+            right_table.add_row("Virtual Env:", f"[#88C0D0]{venv_display}[/#88C0D0]")
+            right_table.add_row("Roboflow:", rf_info)
+            right_table.add_row("Ultralytics:", ult_info)
+            right_table.add_row("Hugging Face:", hf_info)
+
+            # Split layout matching screen width
+            if term_w >= 90:
+                split_table = Table.grid(padding=(0, 6))
+                split_table.add_column(width=42)
+                split_table.add_column(width=42)
+                split_table.add_row(left_table, right_table)
+            else:
+                split_table = Table.grid(padding=(1, 0))
+                split_table.add_column(width=min(70, term_w - 4))
+                split_table.add_row(left_table)
+                split_table.add_row(Text(""))
+                split_table.add_row(right_table)
+
+            # Master layout
+            dashboard_content = Group(
+                header_element,
+                Text(""),
+                subtitle_element,
+                Text(""),
+                Text(""),
+                Align.center(split_table)
+            )
+
+            console.print("\n")
             console.print(
                 Panel(
-                    Align.center(about_table),
-                    title="[bold cyan]About YOLOmatic[/bold cyan]",
-                    border_style="cyan",
+                    dashboard_content,
+                    title="[bold #8FBCBB]About[/bold #8FBCBB]",
+                    border_style="grey37",
                     padding=(2, 4),
                     box=box.ROUNDED,
+                    expand=True
                 )
             )
             console.print("\n")

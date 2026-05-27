@@ -47,7 +47,7 @@ STATUS_HINTS: dict[str, list[tuple[str, str]]] = {
     "menu": [("↑↓", "Move"), ("Enter", "Select"), ("B", "Back"), ("Q", "Quit")],
     "menu_finish": [("↑↓", "Move"), ("Enter", "Select"), ("F", "Continue"), ("B", "Back"), ("Q", "Quit")],
     "confirmation": [("↑↓", "Move"), ("Enter", "Confirm"), ("B", "Back"), ("Q", "Cancel")],
-    "parameter_list": [("↑↓", "Move"), ("Space", "Toggle"), ("Enter/→", "Edit"), ("F", "Finish"), ("Q", "Back")],
+    "parameter_list": [("↑↓", "Move"), ("Space", "Toggle"), ("Enter/→", "Edit"), ("F", "Finish"), ("B/Q", "Back")],
     "parameter_input": [("Type", "Edit"), ("Enter", "Save"), ("Esc/←/B", "Back")],
     "progress": [("Ctrl+C", "Cancel")],
     "back": [("Enter", "Continue"), ("B", "Back")],
