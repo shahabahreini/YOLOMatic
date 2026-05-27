@@ -129,6 +129,24 @@ def _resolve_dataset_path(base: Path, value: str | None) -> Path | None:
     return (base / path).resolve()
 
 
+def _resolve_label_dir(image_dir: Path) -> Path | None:
+    """Find the labels directory that mirrors an images directory.
+
+    Swaps the rightmost 'images' path component with 'labels', then falls
+    back to a sibling 'labels/' directory next to image_dir.
+    """
+    parts = list(image_dir.parts)
+    for i in reversed(range(len(parts))):
+        if parts[i] == "images":
+            tail = parts[i + 1:]
+            candidate = Path(*parts[:i], "labels", *tail) if tail else Path(*parts[:i], "labels")
+            if candidate.exists():
+                return candidate
+            break
+    sibling = image_dir.parent / "labels"
+    return sibling if sibling.exists() else None
+
+
 def find_coco_annotation_files(dataset_path: str | Path) -> dict[str, Path]:
     root = Path(dataset_path)
     found: dict[str, Path] = {}
@@ -213,9 +231,7 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         images_path = _resolve_dataset_path(yaml_path.parent, value)
         labels_path = None
         if images_path is not None:
-            labels_path = Path(str(images_path).replace("/images", "/labels"))
-            if not labels_path.exists():
-                labels_path = images_path.parent / "labels"
+            labels_path = _resolve_label_dir(images_path) or images_path.parent / "labels"
         split = SplitSummary(canonical, str(images_path) if images_path else None, str(labels_path) if labels_path else None)
         images = _iter_images(images_path)[:sample_limit]
         split.image_count = len(images)
@@ -361,7 +377,7 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
                     "height": int(height),
                 }
             )
-            label_path = Path(str(images_path).replace("/images", "/labels")) / f"{image_path.stem}.txt"
+            label_path = (_resolve_label_dir(images_path) or images_path.parent / "labels") / f"{image_path.stem}.txt"
             if not label_path.exists():
                 continue
             for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):

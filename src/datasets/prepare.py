@@ -25,6 +25,7 @@ from src.datasets.core import (
     _read_json,
     _read_yaml,
     _resolve_dataset_path,
+    _resolve_label_dir,
     detect_dataset_format,
     find_coco_annotation_files,
     summarize_dataset,
@@ -218,6 +219,51 @@ def _coco_bbox_from_yolo(bbox: list[float], width: int, height: int) -> list[flo
     ]
 
 
+def _label_path_for(image_path: Path, image_dir: Path, label_dir: Path) -> Path:
+    """Return the label file path for an image, mirroring any subdirectory structure."""
+    try:
+        rel = image_path.relative_to(image_dir)
+        mirrored = label_dir / rel.with_suffix(".txt")
+        if mirrored.exists():
+            return mirrored
+    except ValueError:
+        pass
+    return label_dir / f"{image_path.stem}.txt"
+
+
+def _read_yolo_annotations(
+    image_path: Path,
+    image_dir: Path,
+    label_dir: Path,
+    warnings: list[str],
+) -> tuple[list[Annotation], int, int]:
+    """Read YOLO annotation lines for one image. Returns (annotations, bbox_hits, seg_hits)."""
+    label_path = _label_path_for(image_path, image_dir, label_dir)
+    annotations: list[Annotation] = []
+    bbox_hits = seg_hits = 0
+    if not label_path.exists():
+        return annotations, bbox_hits, seg_hits
+    for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):
+        parts = line.strip().split()
+        if not parts:
+            continue
+        try:
+            cls = int(float(parts[0]))
+            values = [float(v) for v in parts[1:]]
+        except ValueError:
+            warnings.append(f"Skipped invalid YOLO row {label_path}:{line_no}")
+            continue
+        if len(values) == 4:
+            bbox_hits += 1
+            annotations.append(Annotation(cls, bbox=values))
+        elif len(values) >= 6 and len(values) % 2 == 0:
+            seg_hits += 1
+            annotations.append(Annotation(cls, segmentation=values))
+        else:
+            warnings.append(f"Skipped invalid YOLO row {label_path}:{line_no}")
+    return annotations, bbox_hits, seg_hits
+
+
 def _read_yolo_records(source: Path, warnings: list[str]) -> tuple[list[ImageRecord], list[str], str]:
     yaml_path = source / "data.yaml"
     if not yaml_path.exists():
@@ -228,45 +274,45 @@ def _read_yolo_records(source: Path, warnings: list[str]) -> tuple[list[ImageRec
     used_names: set[str] = set()
     records: list[ImageRecord] = []
     seg_hits = bbox_hits = 0
+    seen_image_dirs: set[Path] = set()
 
-    for split_key, aliases in {
-        "train": ("train", "training"),
-        "valid": ("val", "valid", "validation"),
-        "test": ("test", "testing"),
-    }.items():
+    for aliases in (
+        ("train", "training"),
+        ("val", "valid", "validation"),
+        ("test", "testing"),
+    ):
         raw_path = next((data.get(alias) for alias in aliases if data.get(alias)), None)
         image_dir = _resolve_dataset_path(yaml_path.parent, raw_path)
         if image_dir is None or not image_dir.exists():
             continue
-        label_dir = Path(str(image_dir).replace("/images", "/labels"))
-        if not label_dir.exists():
-            label_dir = image_dir.parent / "labels"
+        image_dir = image_dir.resolve()
+        if image_dir in seen_image_dirs:
+            continue
+        seen_image_dirs.add(image_dir)
+
+        label_dir = _resolve_label_dir(image_dir) or image_dir.parent / "labels"
 
         for image_path in _iter_images(image_dir):
             width, height = _image_size(image_path)
             file_name = _dedupe_filename(image_path.name, used_names)
-            annotations: list[Annotation] = []
-            label_path = label_dir / f"{image_path.stem}.txt"
-            if label_path.exists():
-                for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):
-                    parts = line.strip().split()
-                    if not parts:
-                        continue
-                    try:
-                        cls = int(float(parts[0]))
-                        values = [float(value) for value in parts[1:]]
-                    except ValueError:
-                        warnings.append(f"Skipped invalid YOLO row {label_path}:{line_no}")
-                        continue
-                    if len(values) == 4:
-                        bbox_hits += 1
-                        annotations.append(Annotation(cls, bbox=values))
-                    elif len(values) >= 6 and len(values) % 2 == 0:
-                        seg_hits += 1
-                        annotations.append(Annotation(cls, segmentation=values))
-                    else:
-                        warnings.append(f"Skipped invalid YOLO row {label_path}:{line_no}")
-            records.append(ImageRecord(image_path, file_name, int(width), int(height), annotations))
+            anns, b, s = _read_yolo_annotations(image_path, image_dir, label_dir, warnings)
+            bbox_hits += b
+            seg_hits += s
+            records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
+
+    # Flat-structure fallback: if data.yaml has no split keys, scan images/ and labels/ at root
+    if not records:
+        flat_image_dir = (source / "images").resolve()
+        flat_label_dir = (source / "labels").resolve() if (source / "labels").exists() else None
+        if flat_image_dir.exists() and flat_image_dir not in seen_image_dirs:
+            label_dir = flat_label_dir or flat_image_dir.parent / "labels"
+            for image_path in _iter_images(flat_image_dir):
+                width, height = _image_size(image_path)
+                file_name = _dedupe_filename(image_path.name, used_names)
+                anns, b, s = _read_yolo_annotations(image_path, flat_image_dir, label_dir, warnings)
+                bbox_hits += b
+                seg_hits += s
+                records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
 
     if not task:
         task = "segment" if seg_hits and seg_hits >= bbox_hits else "detect"
