@@ -150,6 +150,78 @@ def _extract_labelbox_objects(row: dict[str, Any]) -> list[dict[str, Any]]:
     return objects
 
 
+def _ultralytics_class_names_from_header(rows: list[dict[str, Any]]) -> list[str]:
+    """Pull class names from the Ultralytics-platform NDJSON `dataset` header row."""
+    for row in rows:
+        if row.get("type") != "dataset":
+            continue
+        raw = row.get("class_names") or row.get("names") or {}
+        if isinstance(raw, dict):
+            names_by_id: dict[int, str] = {}
+            for key, value in raw.items():
+                try:
+                    names_by_id[int(key)] = str(value)
+                except (TypeError, ValueError):
+                    continue
+            if names_by_id:
+                max_id = max(names_by_id)
+                return [names_by_id.get(idx, f"class_{idx}") for idx in range(max_id + 1)]
+        if isinstance(raw, list):
+            return [str(name) for name in raw]
+    return []
+
+
+def _extract_ultralytics_objects(
+    row: dict[str, Any],
+    img_w: int,
+    img_h: int,
+    class_names: list[str],
+) -> list[dict[str, Any]]:
+    """Convert Ultralytics-platform NDJSON annotations to Labelbox-shaped pixel-space objects."""
+    payload = row.get("annotations")
+    if not isinstance(payload, dict):
+        return []
+    objects: list[dict[str, Any]] = []
+
+    def _name_for(class_id: int) -> str:
+        if 0 <= class_id < len(class_names):
+            return class_names[class_id]
+        return f"class_{class_id}"
+
+    for raw_segment in payload.get("segments") or []:
+        if not isinstance(raw_segment, list) or len(raw_segment) < 7:
+            continue
+        try:
+            class_id = int(float(raw_segment[0]))
+            coords = [float(v) for v in raw_segment[1:]]
+        except (TypeError, ValueError):
+            continue
+        if len(coords) < 6 or len(coords) % 2 != 0:
+            continue
+        points = [{"x": coords[i] * img_w, "y": coords[i + 1] * img_h} for i in range(0, len(coords), 2)]
+        objects.append({"name": _name_for(class_id), "polygon": points})
+
+    for raw_box in payload.get("boxes") or payload.get("bboxes") or []:
+        if not isinstance(raw_box, list) or len(raw_box) < 5:
+            continue
+        try:
+            class_id = int(float(raw_box[0]))
+            xc, yc, w, h = (float(v) for v in raw_box[1:5])
+        except (TypeError, ValueError):
+            continue
+        objects.append({
+            "name": _name_for(class_id),
+            "bounding_box": {
+                "left": (xc - w / 2) * img_w,
+                "top": (yc - h / 2) * img_h,
+                "width": w * img_w,
+                "height": h * img_h,
+            },
+        })
+
+    return objects
+
+
 def _class_id(classes: dict[str, int], name: str | None) -> int:
     key = str(name or "unnamed")
     if key not in classes:
@@ -316,7 +388,15 @@ def convert_ndjson_to_format(
         output_format=output_format,
         total_rows=len(rows),
     )
-    classes: dict[str, int] = {}
+    # Detect Ultralytics-platform NDJSON (presence of a dataset header row OR an image row with normalized annotations)
+    is_ultralytics = any(row.get("type") == "dataset" for row in rows) or any(
+        row.get("type") == "image" and isinstance(row.get("annotations"), dict)
+        and (row["annotations"].get("segments") or row["annotations"].get("boxes") or row["annotations"].get("bboxes"))
+        for row in rows
+    )
+    ultralytics_class_names = _ultralytics_class_names_from_header(rows) if is_ultralytics else []
+
+    classes: dict[str, int] = {name: idx for idx, name in enumerate(ultralytics_class_names)}
     coco_images: list[dict[str, Any]] = []
     coco_annotations: list[dict[str, Any]] = []
     next_annotation_id = 1
@@ -360,7 +440,10 @@ def convert_ndjson_to_format(
                     progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
                 continue
 
-            objects = _extract_labelbox_objects(row)
+            if is_ultralytics:
+                objects = _extract_ultralytics_objects(row, int(img_w), int(img_h), ultralytics_class_names)
+            else:
+                objects = _extract_labelbox_objects(row)
             if output_format.startswith("YOLO"):
                 stats.total_annotations += _write_yolo_label(
                     labels_dir / f"{Path(filename).stem}.txt",
