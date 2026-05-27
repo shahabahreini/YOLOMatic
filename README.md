@@ -14,7 +14,7 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-teal?style=flat-square)](https://shahabahreini.github.io/YOLOMatic/)
 [![Discussions](https://img.shields.io/badge/discussions-open-orange?style=flat-square)](https://github.com/shahabahreini/YOLOMatic/discussions)
 
-![YOLOmatic terminal wizard](docs/assets/demo.gif)
+![YOLOmatic terminal wizard](docs/assets/demgo.gif)
 
 </div>
 
@@ -129,10 +129,6 @@ the upload TUI or optional post-training upload config.
 | Configure Model                                                               | Smart Split                                                           |
 | ----------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | ![Configure model wizard](docs/assets/screenshots/wizard-configure-model.png) | ![Smart split wizard](docs/assets/screenshots/wizard-smart-split.png) |
-
-| Training                                                         | Benchmark                                                          |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------ |
-| ![Training live view](docs/assets/screenshots/training-live.png) | ![Benchmark report](docs/assets/screenshots/benchmark-results.png) |
 
 ## Links
 
