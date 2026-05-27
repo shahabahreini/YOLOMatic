@@ -14,7 +14,7 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-teal?style=flat-square)](https://shahabahreini.github.io/YOLOMatic/)
 [![Discussions](https://img.shields.io/badge/discussions-open-orange?style=flat-square)](https://github.com/shahabahreini/YOLOMatic/discussions)
 
-![YOLOmatic terminal wizard](docs/assets/screenshots/wizard-configure-model.png)
+![YOLOmatic terminal wizard](docs/assets/demo.gif)
 
 </div>
 
@@ -63,28 +63,28 @@ uv run yolomatic-tensorboard
 
 ## Feature Matrix
 
-| Area | YOLOmatic support |
-| --- | --- |
+| Area           | YOLOmatic support                                                                     |
+| -------------- | ------------------------------------------------------------------------------------- |
 | Model families | YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, Detectron2 |
-| Tasks | Detection, segmentation, classification, pose, OBB, open-vocabulary segmentation |
-| Data | YOLO folders, COCO JSON, Labelbox NDJSON, Ultralytics-platform NDJSON |
-| Training | Fresh training, checkpoint fine-tuning, resume, hardware preflight |
-| Evaluation | mAP, F1, per-image rankings, UMAP vector analysis, interactive HTML report |
-| Integrations | Roboflow, ClearML, TensorBoard, HuggingFace, Ultralytics |
+| Tasks          | Detection, segmentation, classification, pose, OBB, open-vocabulary segmentation      |
+| Data           | YOLO folders, COCO JSON, Labelbox NDJSON, Ultralytics-platform NDJSON                 |
+| Training       | Fresh training, checkpoint fine-tuning, resume, hardware preflight                    |
+| Evaluation     | mAP, F1, per-image rankings, UMAP vector analysis, interactive HTML report            |
+| Integrations   | Roboflow, ClearML, TensorBoard, HuggingFace, Ultralytics                              |
 
 ## Comparison
 
-| Capability | YOLOmatic | Ultralytics CLI | Roboflow | Hosted YOLO tools |
-| --- | --- | --- | --- | --- |
-| Interactive terminal wizard | Yes | Limited | Web UI | Web UI |
-| Multiple YOLO generations | Yes | Yes | Export/deploy focused | Varies |
-| Native RF-DETR training | Yes | No | Deploy focused | Varies |
-| SAM 3.1 workflows | Yes | No | Limited | Varies |
-| Detectron2 training | Yes | No | No | Varies |
-| Hardware-aware config generation | Yes | Manual | Abstracted | Abstracted |
-| Labelbox/Ultralytics NDJSON conversion | Yes | No | Import focused | Varies |
-| Local benchmark HTML reports | Yes | Partial metrics | Hosted analytics | Varies |
-| Fully local workflow | Yes | Yes | No | No |
+| Capability                             | YOLOmatic | Ultralytics CLI | Roboflow              | Hosted YOLO tools |
+| -------------------------------------- | --------- | --------------- | --------------------- | ----------------- |
+| Interactive terminal wizard            | Yes       | Limited         | Web UI                | Web UI            |
+| Multiple YOLO generations              | Yes       | Yes             | Export/deploy focused | Varies            |
+| Native RF-DETR training                | Yes       | No              | Deploy focused        | Varies            |
+| SAM 3.1 workflows                      | Yes       | No              | Limited               | Varies            |
+| Detectron2 training                    | Yes       | No              | No                    | Varies            |
+| Hardware-aware config generation       | Yes       | Manual          | Abstracted            | Abstracted        |
+| Labelbox/Ultralytics NDJSON conversion | Yes       | No              | Import focused        | Varies            |
+| Local benchmark HTML reports           | Yes       | Partial metrics | Hosted analytics      | Varies            |
+| Fully local workflow                   | Yes       | Yes             | No                    | No                |
 
 ## FAQ
 
@@ -126,12 +126,12 @@ the upload TUI or optional post-training upload config.
 
 ## Screenshots
 
-| Configure Model | Smart Split |
-| --- | --- |
+| Configure Model                                                               | Smart Split                                                           |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | ![Configure model wizard](docs/assets/screenshots/wizard-configure-model.png) | ![Smart split wizard](docs/assets/screenshots/wizard-smart-split.png) |
 
-| Training | Benchmark |
-| --- | --- |
+| Training                                                         | Benchmark                                                          |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------ |
 | ![Training live view](docs/assets/screenshots/training-live.png) | ![Benchmark report](docs/assets/screenshots/benchmark-results.png) |
 
 ## Links
