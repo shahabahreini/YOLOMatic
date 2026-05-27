@@ -189,8 +189,16 @@ def load_dataset_config(dataset_name: str, datasets_root: str | Path = "datasets
 
     dataset_config = load_yaml_file(data_yaml_path)
     yaml_directory = data_yaml_path.parent
+
+    # Normalise 'valid' → 'val' so callers always see 'val'
+    if "val" not in dataset_config and "valid" in dataset_config:
+        dataset_config["val"] = dataset_config.pop("valid")
+
     for key in ("train", "val", "test"):
-        configured_path = str(dataset_config[key])
+        raw = dataset_config.get(key)
+        if raw is None:
+            continue
+        configured_path = str(raw)
         normalized_configured_path = configured_path.replace("\\", "/")
 
         if Path(configured_path).is_absolute():
@@ -207,12 +215,9 @@ def load_dataset_config(dataset_name: str, datasets_root: str | Path = "datasets
 
 def verify_dataset_directories(dataset_config: dict[str, Any]) -> list[str]:
     missing_dirs: list[str] = []
-    for dir_type, dir_path in [
-        ("Training", dataset_config["train"]),
-        ("Validation", dataset_config["val"]),
-        ("Test", dataset_config["test"]),
-    ]:
-        if not Path(dir_path).exists():
+    checks = [("Training", dataset_config.get("train")), ("Validation", dataset_config.get("val")), ("Test", dataset_config.get("test"))]
+    for dir_type, dir_path in checks:
+        if dir_path and not Path(dir_path).exists():
             missing_dirs.append(f"{dir_type} directory: {dir_path}")
     return missing_dirs
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import signal
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Sequence
@@ -17,6 +18,29 @@ from rich.text import Text
 # Initialize shared resources
 TUI_CONSOLE = Console()
 TUI_TERM = Terminal()
+
+# Terminal dimension cache — updated on SIGWINCH to avoid per-frame syscalls
+_term_w: int = 80
+_term_h: int = 24
+
+
+def _refresh_term_size(*_: Any) -> None:
+    global _term_w, _term_h
+    _term_w = TUI_TERM.width
+    _term_h = TUI_TERM.height
+
+
+signal.signal(signal.SIGWINCH, _refresh_term_size)
+_refresh_term_size()
+
+# Module-level imports — avoid repeated sys.modules lookups inside render methods
+from src.models.data import model_data_dict  # noqa: E402
+from src.__version__ import __version__  # noqa: E402
+
+# Layout geometry constants — named to make intent clear and simplify resize tuning
+_SIDEBAR_HEIGHT_OFFSET = 15   # rows reserved for chrome above/below option list
+_CONTENT_HEIGHT_OFFSET = 12   # rows reserved for chrome in multi-select sidebar
+_SIDEBAR_LABEL_OFFSET = 8     # columns reserved for selection prefix / borders
 
 # Navigation signals
 NAV_BACK = "__BACK__"
@@ -206,6 +230,30 @@ def print_header(text: str) -> None:
     TUI_CONSOLE.print(make_panel(header, state=TUIState.INFO, padding=(0, 2)))
 
 
+def _render_wizard_stepper(
+    title: str,
+    wizard_steps: list[str],
+    wizard_current_step: int,
+) -> Panel:
+    """Build the wizard progress header, shared between MenuRenderer and MultiSelectRenderer."""
+    header_text = Text()
+    header_text.append(title + "\n", style="bold cyan")
+    header_text.append("Wizard Progress:  ", style="dim white")
+    for i, step in enumerate(wizard_steps):
+        is_active = i == wizard_current_step
+        is_completed = i < wizard_current_step
+        if is_active:
+            bullet, style = "●", "bold yellow"
+        elif is_completed:
+            bullet, style = "✓", "bold green"
+        else:
+            bullet, style = "○", "dim white"
+        header_text.append(f"{bullet} {step}", style=style)
+        if i < len(wizard_steps) - 1:
+            header_text.append(" ── ", style="green" if is_completed else "dim")
+    return make_panel(header_text, state=TUIState.INFO, padding=(0, 1))
+
+
 class MenuRenderer:
     """Handles the rendering of the interactive menu using a modern split layout."""
 
@@ -236,6 +284,9 @@ class MenuRenderer:
         self.finish_option = finish_option
         self.wizard_steps = wizard_steps
         self.wizard_current_step = wizard_current_step
+        # Layout cache — invalidated on any state change to avoid rebuilding every frame
+        self._layout_dirty: bool = True
+        self._cached_layout: Layout | None = None
 
     def _is_header(self, option: str) -> bool:
         """Check if an option is a header (non-selectable)."""
@@ -247,9 +298,7 @@ class MenuRenderer:
         if total_options == 0:
             return 0, 0
 
-        # Leave room for the panel border, title, layout chrome, and overflow
-        # indicators so Rich does not clip the selected row outside the box.
-        visible_items = max(3, min(total_options, TUI_TERM.height - 15))
+        visible_items = max(3, min(total_options, _term_h - _SIDEBAR_HEIGHT_OFFSET))
         half_window = visible_items // 2
         start = max(
             0,
@@ -260,8 +309,7 @@ class MenuRenderer:
 
     def _sidebar_label_width(self) -> int:
         """Estimate available label width in the left navigation column."""
-        # Using ~40% of width (ratio 2:3)
-        return max(12, min(64, (TUI_TERM.width * 2 // 5) - 8))
+        return max(12, min(64, (_term_w * 2 // 5) - _SIDEBAR_LABEL_OFFSET))
 
     def _render_sidebar(self) -> Panel:
         """Render the list of options in a sidebar with grouping support."""
@@ -273,11 +321,9 @@ class MenuRenderer:
 
         for i, option in enumerate(self.options[start:end], start=start):
             if self._is_header(option):
-                # Header item
                 header_text = option[1:-1].upper()
                 items.append(Text(f"\n {header_text}", style="bold cyan dim"))
             elif i == self.current_selection:
-                # Active selection
                 prefix = "➤ "
                 text = Text(
                     f"{prefix}{shorten_middle(option, max_chars=label_width)}",
@@ -339,8 +385,6 @@ class MenuRenderer:
 
     def _render_family_charts(self, family_key: str) -> RenderableType | None:
         """Build stacked horizontal bar charts (mAP and Params) for a model family."""
-        from src.models.data import model_data_dict
-
         rows = model_data_dict.get(family_key)
         if not rows:
             return None
@@ -367,7 +411,6 @@ class MenuRenderer:
                     name = name[: -len(sfx)]
                     task_tag = sfx
                     break
-            # last character(s) are the size identifier
             label = name[-1:].upper() if name else full
             return label + task_tag.replace("-seg", "")
 
@@ -442,8 +485,9 @@ class MenuRenderer:
         for header in headers:
             table.add_column(header, justify="center")
 
+        safe_selection = min(self.current_selection, len(self.options) - 1)
         for row in self.model_data:
-            current_opt = self.options[self.current_selection]
+            current_opt = self.options[safe_selection]
             is_selected = current_opt == row.get("Model")
 
             style = "bold yellow" if is_selected else "dim"
@@ -453,8 +497,6 @@ class MenuRenderer:
 
     def _render_status_bar(self) -> Panel:
         """Render a small status bar with keyboard hints and app version."""
-        from src.__version__ import __version__
-
         hints_text = render_hints("menu_finish" if self.finish_option else "menu")
         version_text = Text(f"v{__version__}", style="dim cyan")
 
@@ -494,7 +536,8 @@ class MenuRenderer:
             padding=(0, 1),
         )
 
-    def __rich__(self) -> Layout:
+    def _build_layout(self) -> Layout:
+        """Build the full Rich layout from current renderer state."""
         layout = Layout()
         show_stepper = self.wizard_steps and self.wizard_current_step is not None
         header_size = 5 if show_stepper else 3
@@ -504,36 +547,9 @@ class MenuRenderer:
             Layout(name="footer", size=3),
         )
 
-        # Header
         if show_stepper:
-            header_text = Text()
-            header_text.append(self.title + "\n", style="bold cyan")
-            header_text.append("Wizard Progress:  ", style="dim white")
-            for i, step in enumerate(self.wizard_steps):
-                is_active = i == self.wizard_current_step
-                is_completed = i < self.wizard_current_step
-                
-                if is_active:
-                    bullet = "●"
-                    style = "bold yellow"
-                elif is_completed:
-                    bullet = "✓"
-                    style = "bold green"
-                else:
-                    bullet = "○"
-                    style = "dim white"
-                
-                header_text.append(f"{bullet} {step}", style=style)
-                if i < len(self.wizard_steps) - 1:
-                    line_style = "green" if is_completed else "dim"
-                    header_text.append(" ── ", style=line_style)
-            
             layout["header"].update(
-                make_panel(
-                    header_text,
-                    state=TUIState.INFO,
-                    padding=(0, 1),
-                )
+                _render_wizard_stepper(self.title, self.wizard_steps, self.wizard_current_step)
             )
         else:
             layout["header"].update(
@@ -544,16 +560,14 @@ class MenuRenderer:
                 )
             )
 
-        # Body - Split into Sidebar and Content
         layout["body"].split_row(
             Layout(name="sidebar", ratio=2),
             Layout(name="content", ratio=3),
         )
 
-        # Sidebar
         layout["body"]["sidebar"].update(self._render_sidebar())
 
-        current_option = self.options[self.current_selection]
+        current_option = self.options[min(self.current_selection, len(self.options) - 1)]
         is_header = current_option.startswith("[") and current_option.endswith("]")
         if is_header:
             default_description = (
@@ -575,15 +589,12 @@ class MenuRenderer:
                 )
         description = self.descriptions.get(current_option, default_description)
 
-        # Compute context panel size: 2 rows of content + 2 rows of chrome
-        # (more if status_fields are provided).
         breadcrumb_line = self._render_breadcrumbs()
         ctx_size = 2 + (1 if breadcrumb_line.plain else 0)
         ctx_size += len(self.status_fields)
-        ctx_size += 2  # panel borders + padding
+        ctx_size += 2
         ctx_size = max(4, ctx_size)
 
-        # Right column layout: Context (compact) + Main (flex) + Tip (optional)
         show_tip = self.tip is not None
         content_layout = Layout()
         splits = [
@@ -591,16 +602,12 @@ class MenuRenderer:
             Layout(name="main"),
         ]
         if show_tip:
-            # Reserve 3 rows plus however many wrapped lines the tip needs;
-            # cap at a third of the screen so the main panel keeps dominance.
             tip_lines = max(1, self.tip.count("\n") + 1)
             splits.append(Layout(name="tip", size=min(tip_lines + 3, 8)))
         content_layout.split_column(*splits)
 
-        # Context
         content_layout["ctx"].update(self._render_context_panel(current_option))
 
-        # Main — instruction rendered with markup + per-option description
         model_table = self._render_model_table()
         family_charts = self._render_family_charts(
             self._family_key_for_option(current_option)
@@ -633,8 +640,6 @@ class MenuRenderer:
             )
         )
 
-        # Optional tip panel — only render when the caller passed one, so
-        # screens without a specific tip aren't padded with filler text.
         if show_tip:
             content_layout["tip"].update(
                 make_panel(
@@ -648,6 +653,13 @@ class MenuRenderer:
         layout["body"]["content"].update(content_layout)
         layout["footer"].update(self._render_status_bar())
         return layout
+
+    def __rich__(self) -> Layout:
+        if self._cached_layout is not None and not self._layout_dirty:
+            return self._cached_layout
+        self._layout_dirty = False
+        self._cached_layout = self._build_layout()
+        return self._cached_layout
 
 
 def get_user_choice(
@@ -679,27 +691,22 @@ def get_user_choice(
         selectable_options.append("Back")
     finish_option = resolve_finish_option(selectable_options, finish_options)
 
-    # Filter out headers for navigation, but keep them for rendering
-    # Actually, we need to know which indices are selectable
     navigable_indices = [
         i
         for i, opt in enumerate(selectable_options)
         if not (opt.startswith("[") and opt.endswith("]"))
     ]
 
-    # Map current_selection (index in navigable_indices) to actual index in selectable_options
     current_nav_idx = 0
     if initial_selection is not None:
         if isinstance(initial_selection, int):
             if 0 <= initial_selection < len(navigable_indices):
                 current_nav_idx = initial_selection
         elif isinstance(initial_selection, str):
-            # Try exact match first
             actual_idx = -1
             if initial_selection in selectable_options:
                 actual_idx = selectable_options.index(initial_selection)
             else:
-                # Try matching by stripping common TUI marks
                 stripped_initial = initial_selection.lstrip("✓ ").strip()
                 for i, opt in enumerate(selectable_options):
                     if opt.lstrip("✓ ").strip() == stripped_initial:
@@ -707,7 +714,6 @@ def get_user_choice(
                         break
 
             if actual_idx != -1:
-                # Find the closest navigable index
                 closest_nav = 0
                 min_dist = float("inf")
                 for i, nav_idx in enumerate(navigable_indices):
@@ -736,42 +742,54 @@ def get_user_choice(
         )
 
         with Live(
-            renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True
+            renderer, console=TUI_CONSOLE, refresh_per_second=4, screen=True
         ) as live:
-            while True:
-                key = TUI_TERM.inkey(timeout=0.1)
+            try:
+                while True:
+                    key = TUI_TERM.inkey(timeout=0.1)
+                    if not key:
+                        continue
 
-                if key.name == "KEY_UP" or key.lower() == "k":
-                    current_nav_idx = (current_nav_idx - 1) % len(navigable_indices)
-                elif key.name == "KEY_DOWN" or key.lower() == "j":
-                    current_nav_idx = (current_nav_idx + 1) % len(navigable_indices)
-                elif key.name == "KEY_PGUP":
-                    visible_items = max(3, min(len(selectable_options), TUI_TERM.height - 15))
-                    current_nav_idx = max(0, current_nav_idx - visible_items)
-                elif key.name == "KEY_PGDN":
-                    visible_items = max(3, min(len(selectable_options), TUI_TERM.height - 15))
-                    current_nav_idx = min(len(navigable_indices) - 1, current_nav_idx + visible_items)
-                elif key.name == "KEY_HOME":
-                    current_nav_idx = 0
-                elif key.name == "KEY_END":
-                    current_nav_idx = len(navigable_indices) - 1
-                elif is_enter_key(key):
-                    return selectable_options[navigable_indices[current_nav_idx]]
-                elif key.lower() == "f" and finish_option is not None:
-                    return finish_option
-                elif key.lower() == "b" and "Back" in selectable_options:
-                    return "Back"
-                elif key.lower() == "q" or key.name == "KEY_ESCAPE":
-                    if "Exit" in selectable_options:
-                        return "Exit"
-                    if "Back" in selectable_options:
+                    key_name = key.name
+                    key_lower = key.lower()
+
+                    if key_name == "KEY_UP" or key_lower == "k":
+                        current_nav_idx = (current_nav_idx - 1) % len(navigable_indices)
+                    elif key_name == "KEY_DOWN" or key_lower == "j":
+                        current_nav_idx = (current_nav_idx + 1) % len(navigable_indices)
+                    elif key_name == "KEY_PGUP":
+                        visible_items = max(3, min(len(selectable_options), _term_h - _SIDEBAR_HEIGHT_OFFSET))
+                        current_nav_idx = max(0, current_nav_idx - visible_items)
+                    elif key_name == "KEY_PGDN":
+                        visible_items = max(3, min(len(selectable_options), _term_h - _SIDEBAR_HEIGHT_OFFSET))
+                        current_nav_idx = min(len(navigable_indices) - 1, current_nav_idx + visible_items)
+                    elif key_name == "KEY_HOME":
+                        current_nav_idx = 0
+                    elif key_name == "KEY_END":
+                        current_nav_idx = len(navigable_indices) - 1
+                    elif is_enter_key(key):
+                        return selectable_options[navigable_indices[current_nav_idx]]
+                    elif key_lower == "f" and finish_option is not None:
+                        return finish_option
+                    elif key_lower == "b" and "Back" in selectable_options:
                         return "Back"
-                    return NAV_BACK
+                    elif key_lower == "q" or key_name == "KEY_ESCAPE":
+                        if "Exit" in selectable_options:
+                            return "Exit"
+                        if "Back" in selectable_options:
+                            return "Back"
+                        return NAV_BACK
+                    else:
+                        continue
 
-                # Update renderer state
-                current_selection = navigable_indices[current_nav_idx]
-                renderer.current_selection = current_selection
-                live.update(renderer)
+                    current_selection = navigable_indices[current_nav_idx]
+                    renderer.current_selection = current_selection
+                    renderer._layout_dirty = True
+                    live.update(renderer)
+            except Exception:
+                pass
+
+    return NAV_BACK
 
 
 def render_table(
@@ -956,9 +974,11 @@ class MultiSelectRenderer:
         self.focus = focus
         self.input_buffer = input_buffer
         self.validation_error = validation_error
-        self.filtered_params = parameters
         self.wizard_steps = wizard_steps
         self.wizard_current_step = wizard_current_step
+        # Layout cache — invalidated on any state change to avoid rebuilding every frame
+        self._layout_dirty: bool = True
+        self._cached_layout: Layout | None = None
 
     def _render_checkbox(self, param: ParameterDefinition, is_active: bool) -> Text:
         checked = "[x]" if param.name in self.selected else "[ ]"
@@ -974,14 +994,13 @@ class MultiSelectRenderer:
         if is_active and self.focus == "list":
             text.stylize("on blue")
             return Text("➤ ", style="bold yellow") + text
-        
+
         return Text("  ") + text
 
     def _render_sidebar(self) -> Panel:
-        total_items = len(self.filtered_params)
+        total_items = len(self.parameters)
 
-        # Windowing logic
-        visible_items = max(4, min(total_items, TUI_TERM.height - 12))
+        visible_items = max(4, min(total_items, _term_h - _CONTENT_HEIGHT_OFFSET))
         half_window = visible_items // 2
         start_idx = max(0, min(self.current_index - half_window, total_items - visible_items))
         end_idx = min(start_idx + visible_items, total_items)
@@ -992,7 +1011,7 @@ class MultiSelectRenderer:
 
         current_category: str | None = None
         for i in range(start_idx, end_idx):
-            param = self.filtered_params[i]
+            param = self.parameters[i]
             if param.category != current_category:
                 current_category = param.category
                 if items and not (start_idx > 0 and len(items) == 1):
@@ -1016,10 +1035,10 @@ class MultiSelectRenderer:
         )
 
     def _render_content(self) -> Panel:
-        if not self.filtered_params or self.current_index >= len(self.filtered_params):
+        if not self.parameters or self.current_index >= len(self.parameters):
             return Panel(Text("No parameters available"), border_style="dim")
 
-        param = self.filtered_params[self.current_index]
+        param = self.parameters[self.current_index]
         current_val = self.values.get(param.name, param.default)
 
         info_lines = [
@@ -1102,25 +1121,21 @@ class MultiSelectRenderer:
                 ]
             )
 
-        # Input Area
         info_lines.append(Text(""))
         title_prefix = "➤ " if self.focus == "input" else ""
-        
+
         input_content = []
         if param.value_type == "bool":
-            # Simple toggle display
             input_content.append(Text("Value: ", style="bold"))
             display_val = self.input_buffer if self.focus == "input" else str(current_val)
             input_content.append(Text(str(display_val), style="bold yellow"))
             input_content.append(Text(" (Enter/Space toggles and saves)", style="dim"))
         elif param.allowed_values:
-            # Cycle display
             display_val = self.input_buffer if self.focus == "input" else str(current_val)
             input_content.append(Text("Value: ", style="bold"))
             input_content.append(Text(str(display_val), style="bold yellow"))
             input_content.append(Text(" (Up/Down cycles, typing allowed, Enter saves)", style="dim"))
         else:
-            # Text input display
             display_val = self.input_buffer if self.focus == "input" else str(current_val)
             input_content.append(Text("Value: ", style="bold"))
             input_content.append(Text(display_val, style="bold yellow"))
@@ -1149,7 +1164,7 @@ class MultiSelectRenderer:
         if self.focus == "list":
             hints_text = render_hints("parameter_list")
         else:
-            param = self.filtered_params[self.current_index]
+            param = self.parameters[self.current_index]
             if param.value_type == "bool":
                 hints_text = Text.from_markup(
                     "[bold yellow]Enter/Space[/bold yellow] Toggle + Save  •  "
@@ -1175,7 +1190,8 @@ class MultiSelectRenderer:
 
         return Panel(status_table, border_style="dim", padding=(0, 1))
 
-    def __rich__(self) -> Layout:
+    def _build_layout(self) -> Layout:
+        """Build the full Rich layout from current renderer state."""
         layout = Layout()
         show_stepper = self.wizard_steps and self.wizard_current_step is not None
         header_size = 5 if show_stepper else 3
@@ -1185,36 +1201,9 @@ class MultiSelectRenderer:
             Layout(name="footer", size=3),
         )
 
-        # Header
         if show_stepper:
-            header_text = Text()
-            header_text.append(self.title + "\n", style="bold cyan")
-            header_text.append("Wizard Progress:  ", style="dim white")
-            for i, step in enumerate(self.wizard_steps):
-                is_active = i == self.wizard_current_step
-                is_completed = i < self.wizard_current_step
-                
-                if is_active:
-                    bullet = "●"
-                    style = "bold yellow"
-                elif is_completed:
-                    bullet = "✓"
-                    style = "bold green"
-                else:
-                    bullet = "○"
-                    style = "dim white"
-                
-                header_text.append(f"{bullet} {step}", style=style)
-                if i < len(self.wizard_steps) - 1:
-                    line_style = "green" if is_completed else "dim"
-                    header_text.append(" ── ", style=line_style)
-            
             layout["header"].update(
-                make_panel(
-                    header_text,
-                    state=TUIState.INFO,
-                    padding=(0, 1),
-                )
+                _render_wizard_stepper(self.title, self.wizard_steps, self.wizard_current_step)
             )
         else:
             layout["header"].update(
@@ -1235,6 +1224,13 @@ class MultiSelectRenderer:
         layout["footer"].update(self._render_status_bar())
 
         return layout
+
+    def __rich__(self) -> Layout:
+        if self._cached_layout is not None and not self._layout_dirty:
+            return self._cached_layout
+        self._layout_dirty = False
+        self._cached_layout = self._build_layout()
+        return self._cached_layout
 
 
 def get_user_multi_select(
@@ -1310,121 +1306,145 @@ def get_user_multi_select(
             wizard_current_step=wizard_current_step,
         )
 
-        with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
-            while True:
-                key = TUI_TERM.inkey(timeout=0.1)
-                param = parameters[current_index]
+        with Live(renderer, console=TUI_CONSOLE, refresh_per_second=4, screen=True) as live:
+            try:
+                while True:
+                    key = TUI_TERM.inkey(timeout=0.1)
+                    if not key:
+                        continue
 
-                if focus == "list":
-                    if key.name == "KEY_UP" or key.lower() == "k":
-                        current_index = (current_index - 1) % len(parameters)
-                        validation_error = None
-                    elif key.name == "KEY_DOWN" or key.lower() == "j":
-                        current_index = (current_index + 1) % len(parameters)
-                        validation_error = None
-                    elif key.name == "KEY_PGUP":
-                        visible_items = max(4, min(len(parameters), TUI_TERM.height - 12))
-                        current_index = max(0, current_index - visible_items)
-                        validation_error = None
-                    elif key.name == "KEY_PGDN":
-                        visible_items = max(4, min(len(parameters), TUI_TERM.height - 12))
-                        current_index = min(len(parameters) - 1, current_index + visible_items)
-                        validation_error = None
-                    elif key.name == "KEY_HOME":
-                        current_index = 0
-                        validation_error = None
-                    elif key.name == "KEY_END":
-                        current_index = len(parameters) - 1
-                        validation_error = None
-                    elif key == " ":
-                        if param.name in selected:
-                            selected.remove(param.name)
-                        else:
-                            selected.add(param.name)
-                        validation_error = None
-                    elif key.name == "KEY_RIGHT" or is_enter_key(key):
-                        focus = "input"
-                        input_buffer = current_buffer_value(param)
-                        typed_input_started = False
-                        validation_error = None
-                    elif key.lower() == "a":
-                        selected = {p.name for p in parameters}
-                        validation_error = None
-                    elif key.lower() == "n":
-                        selected = set()
-                        validation_error = None
-                    elif key.lower() == "f":  # Finish
-                        return selected, values
-                    elif key.lower() == "q" or key.name == "KEY_ESCAPE":
-                        return None
-                
-                elif focus == "input":
-                    is_string_param = param.value_type in {"str", "optional_str", "bool_or_str"}
-                    should_exit_input = (
-                        key.name == "KEY_ESCAPE"
-                        or key.name == "KEY_LEFT"
-                        or (not is_string_param and key.lower() == "b")
-                    )
-                    if should_exit_input:
-                        focus = "list"
-                        validation_error = None
-                    elif param.value_type == "bool":
-                        if key == " " or is_enter_key(key) or key.name in {
-                            "KEY_UP",
-                            "KEY_DOWN",
-                            "KEY_RIGHT",
-                        }:
-                            try:
-                                current_bool = parse_parameter_value(
-                                    param,
-                                    input_buffer,
-                                )
-                            except ValueError:
-                                current_bool = bool(param.default)
-                            values[param.name] = not current_bool
-                            selected.add(param.name)
-                            input_buffer = str(values[param.name])
+                    param = parameters[current_index]
+                    key_name = key.name
+                    key_lower = key.lower()
+                    state_changed = False
+
+                    if focus == "list":
+                        if key_name == "KEY_UP" or key_lower == "k":
+                            current_index = (current_index - 1) % len(parameters)
                             validation_error = None
+                            state_changed = True
+                        elif key_name == "KEY_DOWN" or key_lower == "j":
+                            current_index = (current_index + 1) % len(parameters)
+                            validation_error = None
+                            state_changed = True
+                        elif key_name == "KEY_PGUP":
+                            visible_items = max(4, min(len(parameters), _term_h - _CONTENT_HEIGHT_OFFSET))
+                            current_index = max(0, current_index - visible_items)
+                            validation_error = None
+                            state_changed = True
+                        elif key_name == "KEY_PGDN":
+                            visible_items = max(4, min(len(parameters), _term_h - _CONTENT_HEIGHT_OFFSET))
+                            current_index = min(len(parameters) - 1, current_index + visible_items)
+                            validation_error = None
+                            state_changed = True
+                        elif key_name == "KEY_HOME":
+                            current_index = 0
+                            validation_error = None
+                            state_changed = True
+                        elif key_name == "KEY_END":
+                            current_index = len(parameters) - 1
+                            validation_error = None
+                            state_changed = True
+                        elif key == " ":
+                            if param.name in selected:
+                                selected.remove(param.name)
+                            else:
+                                selected.add(param.name)
+                            validation_error = None
+                            state_changed = True
+                        elif key_name == "KEY_RIGHT" or is_enter_key(key):
+                            focus = "input"
+                            input_buffer = current_buffer_value(param)
+                            typed_input_started = False
+                            validation_error = None
+                            state_changed = True
+                        elif key_lower == "a":
+                            selected = {p.name for p in parameters}
+                            validation_error = None
+                            state_changed = True
+                        elif key_lower == "n":
+                            selected = set()
+                            validation_error = None
+                            state_changed = True
+                        elif key_lower == "f":
+                            return selected, values
+                        elif key_lower == "q" or key_name == "KEY_ESCAPE":
+                            return None
+
+                    elif focus == "input":
+                        is_string_param = param.value_type in {"str", "optional_str", "bool_or_str"}
+                        should_exit_input = (
+                            key_name == "KEY_ESCAPE"
+                            or key_name == "KEY_LEFT"
+                            or (not is_string_param and key_lower == "b")
+                        )
+                        if should_exit_input:
                             focus = "list"
-                    elif param.allowed_values:
-                        if key.name in {"KEY_UP", "KEY_DOWN", "KEY_RIGHT"}:
-                            step = -1 if key.name == "KEY_UP" else 1
-                            input_buffer = cycle_allowed_value(
-                                param,
-                                input_buffer,
-                                step,
-                            )
                             validation_error = None
+                            state_changed = True
+                        elif param.value_type == "bool":
+                            if key == " " or is_enter_key(key) or key_name in {
+                                "KEY_UP",
+                                "KEY_DOWN",
+                                "KEY_RIGHT",
+                            }:
+                                try:
+                                    current_bool = parse_parameter_value(param, input_buffer)
+                                except ValueError:
+                                    current_bool = bool(param.default)
+                                values[param.name] = not current_bool
+                                selected.add(param.name)
+                                input_buffer = str(values[param.name])
+                                validation_error = None
+                                focus = "list"
+                                state_changed = True
+                        elif param.allowed_values:
+                            if key_name in {"KEY_UP", "KEY_DOWN", "KEY_RIGHT"}:
+                                step = -1 if key_name == "KEY_UP" else 1
+                                input_buffer = cycle_allowed_value(param, input_buffer, step)
+                                validation_error = None
+                                state_changed = True
+                            elif is_enter_key(key):
+                                save_input_value(param)
+                                state_changed = True
+                            elif key_name == "KEY_BACKSPACE":
+                                input_buffer = input_buffer[:-1]
+                                typed_input_started = True
+                                validation_error = None
+                                state_changed = True
+                            elif key and not key.is_sequence:
+                                if typed_input_started:
+                                    input_buffer += key
+                                else:
+                                    input_buffer = str(key)
+                                typed_input_started = True
+                                validation_error = None
+                                state_changed = True
                         elif is_enter_key(key):
                             save_input_value(param)
-                        elif key.name == "KEY_BACKSPACE":
+                            state_changed = True
+                        elif key_name == "KEY_BACKSPACE":
                             input_buffer = input_buffer[:-1]
-                            typed_input_started = True
                             validation_error = None
+                            state_changed = True
                         elif key and not key.is_sequence:
-                            if typed_input_started:
-                                input_buffer += key
-                            else:
-                                input_buffer = str(key)
-                            typed_input_started = True
+                            input_buffer += key
                             validation_error = None
-                    elif is_enter_key(key):
-                        save_input_value(param)
-                    elif key.name == "KEY_BACKSPACE":
-                        input_buffer = input_buffer[:-1]
-                        validation_error = None
-                    elif key and not key.is_sequence:
-                        input_buffer += key
-                        validation_error = None
+                            state_changed = True
 
-                # Sync renderer
-                renderer.current_index = current_index
-                renderer.selected = selected
-                renderer.values = values
-                renderer.focus = focus
-                renderer.input_buffer = input_buffer
-                renderer.validation_error = validation_error
-                live.update(renderer)
+                    if state_changed:
+                        renderer.current_index = current_index
+                        renderer.selected = selected
+                        renderer.values = values
+                        renderer.focus = focus
+                        renderer.input_buffer = input_buffer
+                        renderer.validation_error = validation_error
+                        renderer._layout_dirty = True
+                        live.update(renderer)
+            except Exception:
+                pass
+
+    return None
 
 
 def get_parameter_value_input(
