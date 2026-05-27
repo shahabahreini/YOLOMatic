@@ -15,7 +15,7 @@ dependencies = [
   "torch",
   "torchvision",
   "tensorboard",
-  "tensorflow>=2.16,<2.21; sys_platform != 'win32'",
+  "tensorflow>=2.16,<2.22; sys_platform != 'win32'",
   "onnx",
   "onnxslim>=0.1.71",
   "onnxruntime",
