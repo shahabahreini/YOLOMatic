@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/logo.png" alt="YOLOmatic logo" width="520">
+
 # YOLOmatic
 
 **Interactive computer-vision training for YOLO, RF-DETR, SAM 3.1, and Detectron2.**

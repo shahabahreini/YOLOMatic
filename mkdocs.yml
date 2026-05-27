@@ -8,8 +8,9 @@ copyright: Copyright &copy; 2026 Shahab Bahreini Jangjoo
 
 theme:
   name: material
-  logo: assets/logo.svg
-  favicon: assets/favicon.ico
+  logo: assets/logo.png
+  favicon: assets/favicon/favicon.ico
+  custom_dir: docs/overrides
   features:
     - navigation.instant
     - navigation.sections

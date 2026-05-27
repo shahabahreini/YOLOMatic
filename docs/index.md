@@ -4,6 +4,8 @@ description: YOLOmatic is an interactive Python CLI/TUI for training YOLO, RF-DE
 
 # YOLOmatic
 
+![YOLOmatic logo](assets/logo.png){ width="520" }
+
 Automated computer-vision training for YOLO26, YOLOv12, YOLO11, YOLOv10,
 YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, and Detectron2.
 
