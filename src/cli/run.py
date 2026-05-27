@@ -4765,7 +4765,6 @@ def _main_loop_iteration():
             from src.__version__ import __version__
             import platform
             import os
-            import sys
             from rich.console import Group
             from rich.text import Text
             from src.utils.ml_dependencies import check_hf_auth

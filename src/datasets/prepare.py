@@ -17,7 +17,6 @@ import requests
 import yaml
 
 from src.datasets.core import (
-    IMAGE_EXTENSIONS,
     DatasetValidationError,
     _image_size,
     _iter_images,
