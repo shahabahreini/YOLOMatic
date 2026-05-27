@@ -659,6 +659,11 @@ def _run_with_progress(ndjson_path: Path, output_format: str, output_dir: Path, 
 
 
 def _render_result(stats: ConversionStats) -> None:
+    try:
+        elapsed = f"{float(stats.elapsed_seconds):.1f}s"
+    except (TypeError, ValueError):
+        elapsed = str(stats.elapsed_seconds)
+
     render_summary_panel(
         "Converted Dataset",
         {
@@ -670,7 +675,7 @@ def _render_result(stats: ConversionStats) -> None:
             "Classes": f"{len(stats.classes)} ({', '.join(stats.classes[:6])}{'...' if len(stats.classes) > 6 else ''})",
             "Skipped": stats.skipped_rows,
             "Warnings": len(stats.warnings),
-            "Time": f"{stats.elapsed_seconds:.1f}s",
+            "Time": elapsed,
         },
     )
     if stats.warnings:
