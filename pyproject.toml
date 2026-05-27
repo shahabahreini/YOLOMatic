@@ -49,13 +49,11 @@ keywords = [
   "yolov8",
   "yolox",
   "rf-detr",
-  "rfdetr",
   "sam-3.1",
-  "sam2",
+  "segment-anything",
+  "detectron2",
   "object-detection",
   "instance-segmentation",
-  "pose-estimation",
-  "oriented-object-detection",
   "computer-vision",
   "deep-learning",
   "machine-learning",
@@ -66,11 +64,12 @@ keywords = [
   "tui",
   "clearml",
   "roboflow",
-  "tensorboard",
   "coco",
   "ndjson",
   "labelbox",
   "dataset-tools",
+  "dataset-augmentation",
+  "model-benchmarking",
   "model-training",
   "automated-training",
   "edge-deployment",
@@ -101,10 +100,19 @@ requires-python = ">=3.12,<3.13"
 version = "4.4.0"
 
 [project.urls]
+Changelog = "https://github.com/shahabahreini/YOLOMatic/blob/main/CHANGELOG.md"
+Documentation = "https://shahabahreini.github.io/YOLOMatic/"
+Funding = "https://github.com/sponsors"
 Homepage = "https://github.com/shahabahreini/YOLOMatic"
-Documentation = "https://github.com/shahabahreini/YOLOMatic#readme"
 Issues = "https://github.com/shahabahreini/YOLOMatic/issues"
 Repository = "https://github.com/shahabahreini/YOLOMatic"
+
+[project.optional-dependencies]
+docs = [
+  "mkdocs>=1.6",
+  "mkdocs-material[imaging]>=9.5",
+  "pymdown-extensions>=10.8",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

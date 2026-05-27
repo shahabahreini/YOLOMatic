@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="YOLOmatic logo">
+  <rect width="64" height="64" rx="12" fill="#0b1020"/>
+  <path d="M14 18h36v10H14z" fill="#2dd4bf"/>
+  <path d="M14 36h16v10H14zM36 36h14v10H36z" fill="#f59e0b"/>
+  <path d="M20 23h24M20 41h4M40 41h4" stroke="#0b1020" stroke-width="3" stroke-linecap="round"/>
+</svg>

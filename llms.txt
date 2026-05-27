@@ -1,8 +1,24 @@
 # YOLOmatic
 
-> Automated YOLO, RF-DETR, SAM 3.1, and Detectron2 training CLI for configuring, training, fine-tuning, predicting, benchmarking, augmenting, monitoring, combining datasets, converting formats, and uploading computer-vision models.
+> Automated computer-vision training CLI/TUI for YOLO26, YOLOv12, YOLO11,
+> YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, and Detectron2.
 
-YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance segmentation, image classification, pose estimation, oriented object detection, and open-vocabulary segmentation workflows. It supports Ultralytics YOLO model families, native RF-DETR training, Meta SAM 3.1 inference and fine-tuning, and Detectron2 training, with hardware-aware config generation, offline Albumentations augmentation, Labelbox NDJSON conversion, interactive benchmark reports with UMAP vector analysis, TensorBoard logging, ClearML tracking, CUDA repair guidance, dataset utilities, prediction helpers, and Roboflow deployment support.
+Install:
+
+```sh
+uv tool install yolomatic
+yolomatic
+```
+
+Full LLM context: [llms-full.txt](llms-full.txt)
+
+Docs: https://shahabahreini.github.io/YOLOMatic/
+
+YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance
+segmentation, image classification, pose estimation, oriented object detection,
+and open-vocabulary segmentation workflows. It supports Ultralytics YOLO model
+families, native RF-DETR training, Meta SAM 3.1 inference and fine-tuning, and
+Detectron2 training.
 
 ## Primary Use Cases
 
@@ -32,9 +48,11 @@ YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance s
 
 ## Documentation Map
 
-- [README.md](README.md) — installation, supported models, usage guide, troubleshooting, and integration summary.
-- [YOLO_GUIDE.md](YOLO_GUIDE.md) — model-selection guidance, deployment scenarios, export options, and operational notes.
-- [MODELS.md](MODELS.md) — supported model families, benchmark tables, task support, and model recommendations.
+- [README.md](README.md) — concise project landing page.
+- [Documentation site](https://shahabahreini.github.io/YOLOMatic/) — rendered guides, reference pages, FAQ, comparison, changelog, and citation.
+- [llms-full.txt](llms-full.txt) — expanded LLM-oriented project context.
+- [YOLO guide](https://shahabahreini.github.io/YOLOMatic/guides/yolo/) — model-selection guidance, deployment scenarios, export options, and operational notes.
+- [Models guide](https://shahabahreini.github.io/YOLOMatic/guides/models/) — supported model families, benchmark tables, task support, and model recommendations.
 - [pyproject.toml](pyproject.toml) — package metadata, dependencies, Python version, and console scripts.
 - [tests/](tests/) — unit and smoke tests for imports, prediction helpers, config generation, trainer helpers, settings, TUI parameters, and preflight checks.
 

@@ -1,0 +1,101 @@
+site_name: YOLOmatic
+site_description: Automated computer-vision training CLI for YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, and Detectron2.
+site_url: https://shahabahreini.github.io/YOLOMatic/
+repo_url: https://github.com/shahabahreini/YOLOMatic
+repo_name: shahabahreini/YOLOMatic
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; 2026 Shahab Bahreini Jangjoo
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.ico
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - tags
+  - social:
+      cards_layout_options:
+        background_color: "#0b1020"
+        color: "#ffffff"
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/shahabahreini/YOLOMatic
+  generator: false
+
+extra_css:
+  - assets/stylesheets/extra.css
+
+extra_javascript:
+  - assets/javascripts/schema.js
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Install: getting-started/install.md
+      - Quickstart: getting-started/quickstart.md
+      - First Training Run: getting-started/first-training-run.md
+  - Guides:
+      - Datasets: guides/datasets.md
+      - Models: guides/models.md
+      - YOLO: guides/yolo.md
+      - RF-DETR: guides/rf-detr.md
+      - SAM 3.1: guides/sam.md
+      - Benchmarking: guides/benchmarking.md
+      - Cloud Upload: guides/cloud-upload.md
+  - Reference:
+      - CLI Commands: reference/cli-commands.md
+      - Configuration: reference/configuration.md
+      - Smart Split: reference/smart-split.md
+      - NDJSON Conversion: reference/ndjson-conversion.md
+  - FAQ: faq.md
+  - Comparison: comparison.md
+  - Citation: citation.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
