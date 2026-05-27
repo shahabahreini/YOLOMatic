@@ -170,8 +170,6 @@ def _select_remote_item(
     for item in items:
         identifier = _row_id(item) or "(unknown)"
         name = _row_name(item)
-        label = f"{name}  [dim]({identifier})[/dim]"
-        # Strip rich markup when registering as menu option (rich strips automatically)
         clean = f"{name}  ({identifier})"
         labels.append(clean)
         by_label[clean] = item

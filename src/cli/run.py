@@ -4826,7 +4826,7 @@ def _main_loop_iteration():
                 "  \\  / /_/ / /___/ /_/ / /|_/ / / /_/ / __/ /__    ",
                 "  /_/\\____/_____/\\____/_/  /_/  /_/ /_/\\__/\\___/   "
             ]
-            logo_width = max(len(l) for l in banner_lines)
+            logo_width = max(len(line) for line in banner_lines)
 
             if term_w >= logo_width + 8:
                 gradient_styles = [
