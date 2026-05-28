@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -130,11 +132,17 @@ def find_run_directories(base_dir: str | Path) -> list[Path]:
 
 
 def calculate_folder_size(folder_path: str | Path) -> int:
-    total_size = 0
-    for path in Path(folder_path).rglob("*"):
-        if path.is_file():
-            total_size += path.stat().st_size
-    return total_size
+    total = 0
+    try:
+        for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(folder_path)):
+            for fname in filenames:
+                try:
+                    total += os.stat(fname, dir_fd=dirfd).st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
 
 
 def format_size(size_in_bytes: int | float) -> str:
@@ -155,18 +163,16 @@ def list_dataset_directories(
     if not root.exists():
         return []
 
-    datasets: list[dict[str, Any]] = []
-    for folder in sorted(root.iterdir()):
-        if not folder.is_dir():
-            continue
-        dataset = {
-            "name": folder.name,
-            "path": folder.resolve(),
-        }
+    folders = sorted(f for f in root.iterdir() if f.is_dir())
+
+    def _process(folder: Path) -> dict[str, Any]:
+        entry: dict[str, Any] = {"name": folder.name, "path": folder.resolve()}
         if include_size:
-            dataset["size"] = format_size(calculate_folder_size(folder))
-        datasets.append(dataset)
-    return datasets
+            entry["size"] = format_size(calculate_folder_size(folder))
+        return entry
+
+    with ThreadPoolExecutor() as executor:
+        return list(executor.map(_process, folders))
 
 
 def load_yaml_file(file_path: str | Path) -> dict[str, Any]:
@@ -189,8 +195,16 @@ def load_dataset_config(dataset_name: str, datasets_root: str | Path = "datasets
 
     dataset_config = load_yaml_file(data_yaml_path)
     yaml_directory = data_yaml_path.parent
+
+    # Normalise 'valid' → 'val' so callers always see 'val'
+    if "val" not in dataset_config and "valid" in dataset_config:
+        dataset_config["val"] = dataset_config.pop("valid")
+
     for key in ("train", "val", "test"):
-        configured_path = str(dataset_config[key])
+        raw = dataset_config.get(key)
+        if raw is None:
+            continue
+        configured_path = str(raw)
         normalized_configured_path = configured_path.replace("\\", "/")
 
         if Path(configured_path).is_absolute():
@@ -207,12 +221,9 @@ def load_dataset_config(dataset_name: str, datasets_root: str | Path = "datasets
 
 def verify_dataset_directories(dataset_config: dict[str, Any]) -> list[str]:
     missing_dirs: list[str] = []
-    for dir_type, dir_path in [
-        ("Training", dataset_config["train"]),
-        ("Validation", dataset_config["val"]),
-        ("Test", dataset_config["test"]),
-    ]:
-        if not Path(dir_path).exists():
+    checks = [("Training", dataset_config.get("train")), ("Validation", dataset_config.get("val")), ("Test", dataset_config.get("test"))]
+    for dir_type, dir_path in checks:
+        if dir_path and not Path(dir_path).exists():
             missing_dirs.append(f"{dir_type} directory: {dir_path}")
     return missing_dirs
 

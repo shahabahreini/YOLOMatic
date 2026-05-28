@@ -1,0 +1,22 @@
+name: Question
+description: Ask for help using YOLOmatic.
+title: "question: "
+labels: ["question", "needs-triage"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What do you need help with?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include command output, model family, dataset format, and platform details.
+  - type: input
+    id: version
+    attributes:
+      label: YOLOmatic version or commit
+      placeholder: "4.4.0 or git SHA"

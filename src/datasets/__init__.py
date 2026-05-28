@@ -10,6 +10,13 @@ from src.datasets.core import (
     read_yaml_file,
     summarize_dataset,
 )
+from src.datasets.prepare import (
+    PrepareDatasetConfig,
+    PrepareDatasetStats,
+    PrepareSplitConfig,
+    SPLIT_STRATEGIES,
+    prepare_dataset,
+)
 
 __all__ = [
     "DatasetAnalyzer",
@@ -22,4 +29,9 @@ __all__ = [
     "prepare_dataset_for_family",
     "read_yaml_file",
     "summarize_dataset",
+    "PrepareDatasetConfig",
+    "PrepareDatasetStats",
+    "PrepareSplitConfig",
+    "SPLIT_STRATEGIES",
+    "prepare_dataset",
 ]

@@ -22,7 +22,7 @@ training-cli
 machine-learning
 roboflow
 clearml
-tensorboard
+sam
 onnx
 edge-deployment
 python

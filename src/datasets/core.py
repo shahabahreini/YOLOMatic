@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -129,6 +130,24 @@ def _resolve_dataset_path(base: Path, value: str | None) -> Path | None:
     return (base / path).resolve()
 
 
+def _resolve_label_dir(image_dir: Path) -> Path | None:
+    """Find the labels directory that mirrors an images directory.
+
+    Swaps the rightmost 'images' path component with 'labels', then falls
+    back to a sibling 'labels/' directory next to image_dir.
+    """
+    parts = list(image_dir.parts)
+    for i in reversed(range(len(parts))):
+        if parts[i] == "images":
+            tail = parts[i + 1:]
+            candidate = Path(*parts[:i], "labels", *tail) if tail else Path(*parts[:i], "labels")
+            if candidate.exists():
+                return candidate
+            break
+    sibling = image_dir.parent / "labels"
+    return sibling if sibling.exists() else None
+
+
 def find_coco_annotation_files(dataset_path: str | Path) -> dict[str, Path]:
     root = Path(dataset_path)
     found: dict[str, Path] = {}
@@ -173,7 +192,14 @@ def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> 
         summary.errors.append("Dataset path does not exist.")
         return summary
     try:
-        summary.total_size_bytes = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
+        total = 0
+        for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(root)):
+            for fname in filenames:
+                try:
+                    total += os.stat(fname, dir_fd=dirfd).st_size
+                except OSError:
+                    pass
+        summary.total_size_bytes = total
     except OSError:
         summary.warnings.append("Some files could not be inspected.")
 
@@ -213,9 +239,7 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         images_path = _resolve_dataset_path(yaml_path.parent, value)
         labels_path = None
         if images_path is not None:
-            labels_path = Path(str(images_path).replace("/images", "/labels"))
-            if not labels_path.exists():
-                labels_path = images_path.parent / "labels"
+            labels_path = _resolve_label_dir(images_path) or images_path.parent / "labels"
         split = SplitSummary(canonical, str(images_path) if images_path else None, str(labels_path) if labels_path else None)
         images = _iter_images(images_path)[:sample_limit]
         split.image_count = len(images)
@@ -243,6 +267,45 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         split.unlabeled_image_count = max(0, split.image_count - split.labeled_image_count)
         split.status = "valid" if split.image_count and (split.annotation_count or split.empty_label_count) else "warning"
         summary.splits[canonical] = split
+
+    # Flat-structure fallback for datasets with bare images/ + labels/ at root
+    # (e.g. NDJSON-converted datasets that have no train/val/test split keys in data.yaml)
+    if not any(s.image_count > 0 for s in summary.splits.values()):
+        flat_images = root / "images"
+        if flat_images.exists():
+            flat_labels = _resolve_label_dir(flat_images)
+            flat_images_list = _iter_images(flat_images)[:sample_limit]
+            flat_split = SplitSummary(
+                "train",
+                str(flat_images),
+                str(flat_labels) if flat_labels else None,
+            )
+            flat_split.image_count = len(flat_images_list)
+            if flat_labels and flat_labels.exists():
+                flat_labeled_stems: set[str] = set()
+                for label_file in sorted(flat_labels.glob("*.txt"))[:sample_limit]:
+                    try:
+                        lines = [ln.strip() for ln in label_file.read_text(encoding="utf-8").splitlines() if ln.strip()]
+                    except OSError:
+                        flat_split.missing_file_count += 1
+                        continue
+                    if not lines:
+                        flat_split.empty_label_count += 1
+                    else:
+                        flat_labeled_stems.add(label_file.stem)
+                    for ln in lines:
+                        parts_ln = ln.split()
+                        if len(parts_ln) == 5:
+                            detection_hits += 1
+                        elif len(parts_ln) >= 7 and (len(parts_ln) - 1) % 2 == 0:
+                            segmentation_hits += 1
+                        flat_split.annotation_count += 1
+                image_stems_flat = {p.stem for p in flat_images_list}
+                flat_split.labeled_image_count = len(image_stems_flat & flat_labeled_stems)
+                flat_split.unlabeled_image_count = max(0, flat_split.image_count - flat_split.labeled_image_count)
+            flat_split.status = "valid" if flat_split.image_count else "warning"
+            summary.splits["train"] = flat_split
+
     _rollup(summary)
     if segmentation_hits and detection_hits:
         summary.task = "mixed"
@@ -361,7 +424,7 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
                     "height": int(height),
                 }
             )
-            label_path = Path(str(images_path).replace("/images", "/labels")) / f"{image_path.stem}.txt"
+            label_path = (_resolve_label_dir(images_path) or images_path.parent / "labels") / f"{image_path.stem}.txt"
             if not label_path.exists():
                 continue
             for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):

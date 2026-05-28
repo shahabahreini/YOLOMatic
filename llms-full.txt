@@ -1,0 +1,119 @@
+# YOLOmatic
+
+> Automated computer-vision training CLI/TUI for YOLO26, YOLOv12, YOLO11,
+> YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, and Detectron2.
+
+Install:
+
+```sh
+uv tool install yolomatic
+yolomatic
+```
+
+Repository development:
+
+```sh
+git clone https://github.com/shahabahreini/YOLOMatic.git
+cd YOLOMatic
+uv sync
+uv run yolomatic
+```
+
+## What it does
+
+YOLOmatic helps practitioners and researchers configure, train, fine-tune,
+predict, benchmark, augment, convert, monitor, and upload computer-vision models
+without writing repetitive training boilerplate.
+
+Concrete examples:
+
+- Generate a YOLO26, YOLO11, YOLOv8, YOLOX, RF-DETR, SAM 3.1, or Detectron2
+  training config from an interactive terminal wizard.
+- Fine-tune `.pt`, `.pth`, or HuggingFace checkpoints on a custom dataset.
+- Convert Labelbox or Ultralytics-platform NDJSON exports to YOLO or COCO.
+- Benchmark checkpoints with mAP, F1, per-image rankings, and UMAP vectors.
+- Run SAM 3.1 auto, text-prompted, or box-prompted segmentation.
+- Upload YOLO checkpoints or deploy RF-DETR checkpoints to Roboflow.
+
+## Documentation index
+
+- README: https://github.com/shahabahreini/YOLOMatic#readme — concise project landing page.
+- Docs home: https://shahabahreini.github.io/YOLOMatic/ — rendered documentation site.
+- Install: https://shahabahreini.github.io/YOLOMatic/getting-started/install/ — install with uv and configure optional credentials.
+- Quickstart: https://shahabahreini.github.io/YOLOMatic/getting-started/quickstart/ — launch the TUI and run common commands.
+- First training run: https://shahabahreini.github.io/YOLOMatic/getting-started/first-training-run/ — generate a config and train.
+- Datasets: https://shahabahreini.github.io/YOLOMatic/guides/datasets/ — YOLO, COCO, Labelbox, and Ultralytics-platform data.
+- Models: https://shahabahreini.github.io/YOLOMatic/guides/models/ — supported model families and benchmark tables.
+- YOLO guide: https://shahabahreini.github.io/YOLOMatic/guides/yolo/ — model selection, export, and deployment guidance.
+- RF-DETR: https://shahabahreini.github.io/YOLOMatic/guides/rf-detr/ — RF-DETR training and fine-tuning.
+- SAM 3.1: https://shahabahreini.github.io/YOLOMatic/guides/sam/ — SAM inference and fine-tuning.
+- Benchmarking: https://shahabahreini.github.io/YOLOMatic/guides/benchmarking/ — HTML reports, mAP, F1, and UMAP.
+- Cloud upload: https://shahabahreini.github.io/YOLOMatic/guides/cloud-upload/ — Roboflow upload and deployment.
+- CLI commands: https://shahabahreini.github.io/YOLOMatic/reference/cli-commands/ — command entrypoint reference.
+- Configuration: https://shahabahreini.github.io/YOLOMatic/reference/configuration/ — generated YAML config reference.
+- Smart split: https://shahabahreini.github.io/YOLOMatic/reference/smart-split/ — rare-class-aware dataset splitting.
+- NDJSON conversion: https://shahabahreini.github.io/YOLOMatic/reference/ndjson-conversion/ — Labelbox and Ultralytics NDJSON conversion.
+- FAQ: https://shahabahreini.github.io/YOLOMatic/faq/ — common questions.
+- Comparison: https://shahabahreini.github.io/YOLOMatic/comparison/ — YOLOmatic vs Ultralytics CLI, Roboflow, and hosted tools.
+- Citation: https://shahabahreini.github.io/YOLOMatic/citation/ — CFF and BibTeX citation metadata.
+- Changelog: https://shahabahreini.github.io/YOLOMatic/changelog/ — release history.
+- Contributing: https://shahabahreini.github.io/YOLOMatic/contributing/ — development setup and PR conventions.
+
+## Supported model families
+
+- YOLO26: detection, segmentation, classification, pose, and OBB variants where
+  supported by Ultralytics.
+- YOLOv12: attention-centric YOLO family, useful for research and benchmarking.
+- YOLO11: stable production YOLO family.
+- YOLOv10: NMS-free detection family.
+- YOLOv9: detection and segmentation variants.
+- YOLOv8: detection, segmentation, classification, pose, and OBB variants.
+- YOLOX: detection variants.
+- RF-DETR: native detection and segmentation training with `.pth` checkpoints.
+- SAM 3.1: open-vocabulary segmentation and mask decoder fine-tuning.
+- Detectron2: Faster R-CNN, RetinaNet, and Mask R-CNN configs.
+
+## Common questions
+
+### What is YOLOmatic?
+
+YOLOmatic is a Python 3.12 command-line toolkit with an interactive terminal UI
+for computer-vision training workflows.
+
+### Is YOLOmatic only for YOLO?
+
+No. It supports multiple YOLO generations plus RF-DETR, SAM 3.1, and Detectron2.
+
+### Does YOLOmatic require CUDA?
+
+No. CUDA is recommended for training, but CPU and Apple Silicon MPS fallbacks are
+supported. The TUI detects common CUDA/PyTorch mismatches.
+
+### Can YOLOmatic convert Labelbox NDJSON?
+
+Yes. It converts Labelbox and Ultralytics-platform NDJSON exports to YOLO or
+COCO.
+
+### Can YOLOmatic fine-tune RF-DETR?
+
+Yes. It discovers `.pth` checkpoints and routes RF-DETR configs to the native
+RF-DETR trainer.
+
+### Can YOLOmatic upload to Roboflow?
+
+Yes. YOLO checkpoints can be uploaded and RF-DETR checkpoints can be deployed
+through the Roboflow upload workflow.
+
+## Citation
+
+```bibtex
+@software{bahreini_jangjoo_yolomatic_2026,
+  author = {Bahreini Jangjoo, Shahab},
+  title = {{YOLOmatic}: automated computer-vision training CLI for YOLO, RF-DETR, SAM, and Detectron2},
+  year = {2026},
+  version = {4.4.0},
+  license = {Apache-2.0},
+  url = {https://github.com/shahabahreini/YOLOMatic},
+  note = {Python CLI/TUI for configuring, training, fine-tuning, predicting, benchmarking, and uploading computer-vision models}
+}
+```

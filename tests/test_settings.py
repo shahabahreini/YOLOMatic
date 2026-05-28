@@ -27,6 +27,7 @@ class SettingsTests(unittest.TestCase):
             self.assertFalse(settings["clearml"]["enabled"])
             self.assertEqual(settings["clearml"]["task_name_format"], "%Y-%m-%d-%H-%M")
             self.assertIn("roboflow", settings)
+            self.assertIn("ultralytics", settings)
 
     def test_invalid_narrative_mode_falls_back_to_guided(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -58,6 +59,12 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(clearml["project_name"], "YOLO Training - YOLO11N")
         self.assertNotIn("api_key", roboflow)
         self.assertIn("upload", roboflow)
+
+    def test_ultralytics_settings_do_not_include_api_key(self) -> None:
+        settings = load_settings(Path("/tmp/does-not-exist-yolomatic-settings.yaml"))
+
+        self.assertIn("ultralytics", settings)
+        self.assertNotIn("api_key", settings["ultralytics"])
 
 
 if __name__ == "__main__":

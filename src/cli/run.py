@@ -2,6 +2,7 @@ import logging
 import os
 import sys
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,7 @@ from src.config.settings import (
     reset_settings,
     roboflow_credential_status,
     save_settings,
+    ultralytics_credential_status,
 )
 from src.datasets import summarize_dataset
 from src.models.data import model_data_dict
@@ -55,6 +57,214 @@ from src.utils.project import (
     list_dataset_directories,
     project_root,
 )
+
+# Model family descriptions — defined at module level to avoid rebuilding on every wizard entry
+_MODEL_DESCRIPTIONS: dict[str, str] = {
+    "detectron2": (
+            "[bold cyan]Detectron2[/bold cyan]  [green]● Optional native COCO detection[/green]\n\n"
+            "Faster R-CNN and RetinaNet variants using Detectron2's model zoo. "
+            "Detectron2 is imported only when you train or predict with this family."
+        ),
+        "sam3.1": (
+            "[bold cyan]SAM 3.1[/bold cyan]  [green]● Foundation Segmentation — 2025[/green]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Meta's Segment Anything Model 3.1 (Object Multiplex)\n"
+            "  • Unified DETR detector + memory-based tracker\n"
+            "  • Shared memory for simultaneous multi-object segmentation\n"
+            "  • 7× faster multi-object throughput vs SAM 3\n\n"
+            "[bold]Capabilities[/bold]\n"
+            "  • Open-vocabulary text prompting ('vegetation', 'person')\n"
+            "  • Auto mask generation — segment everything without prompts\n"
+            "  • Point and bounding box prompted segmentation\n"
+            "  • Video object segmentation and multi-object tracking\n\n"
+            "[bold]Parameters[/bold]  873M\n"
+            "[bold]Input Size[/bold]  1008×1008\n"
+            "[bold]HuggingFace[/bold]  facebook/sam3.1\n\n"
+            "[dim]Gated model — requires HuggingFace account and "
+            "Meta's terms agreement.[/dim]\n\n"
+            "[bold]Best for[/bold]\n"
+            "  High-quality instance masks, zero-shot segmentation, "
+            "annotation generation for new domains"
+        ),
+        "detectron2-seg": (
+            "[bold cyan]Detectron2 Segmentation[/bold cyan]  [green]● Optional native COCO masks[/green]\n\n"
+            "Mask R-CNN instance segmentation with COCO annotations. YOLO polygon "
+            "datasets are converted into cached COCO manifests when needed."
+        ),
+        "rfdetr": (
+            "[bold cyan]RF-DETR[/bold cyan]  [green]● Transformer detection[/green]\n\n"
+            "Real-time DETR-style object detection with automatic pretrained "
+            "weight download. Core models are Apache-2.0; XL and 2XL require "
+            "RF-DETR Plus licensing."
+        ),
+        "rfdetr-seg": (
+            "[bold cyan]RF-DETR-Seg[/bold cyan]  [green]● Transformer segmentation[/green]\n\n"
+            "Instance segmentation variants using RF-DETR's segmentation model "
+            "classes. Pretrained weights are downloaded automatically on first use."
+        ),
+        "yolo26": (
+            "[bold cyan]YOLO26[/bold cyan]  [green]● Latest — 2026[/green]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • End-to-end NMS-free inference (no post-processing step)\n"
+            "  • DFL removed — simpler export, wider edge compatibility\n"
+            "  • MuSGD optimizer (hybrid SGD + Muon, inspired by LLM training)\n"
+            "  • ProgLoss + STAL loss for better small-object accuracy\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
+            "  • mAP:    40.9 (nano)  →  57.5 (xlarge)\n"
+            "  • Params: 2.4M (nano)  →  55.7M (xlarge)\n"
+            "  • Speed:  1.7 ms T4 TensorRT (nano)  |  CPU ONNX not published\n\n"
+            "[bold]Best for[/bold]\n"
+            "  Edge devices, IoT, robotics, CPU-only and mobile deployments"
+        ),
+        "yolo26-seg": (
+            "[bold cyan]YOLO26-Seg[/bold cyan]  [green]● Latest — 2026[/green]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Same NMS-free, DFL-removed, MuSGD base as YOLO26\n"
+            "  • Instance segmentation head for pixel-level boundary detection\n"
+            "  • Edge-optimized — fast CPU ONNX inference among seg models\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
+            "  • mAP box: 33.9 (nano)  →  47.0 (xlarge)\n"
+            "  • Params:  2.7M (nano)  →  62.8M (xlarge)\n"
+            "  • Speed:   53 ms CPU ONNX (nano)  |  2.1 ms T4 TensorRT (nano)\n\n"
+            "[bold]Best for[/bold]\n"
+            "  Pixel-level detection on resource-constrained or edge hardware"
+        ),
+        "yolov12": (
+            "[bold cyan]YOLOv12[/bold cyan]  [yellow]● Research — 2025[/yellow]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Area Attention mechanism — large receptive field, attention-based\n"
+            "  • R-ELAN (Residual Efficient Layer Aggregation Networks)\n"
+            "  • Optional FlashAttention for memory-efficient training\n"
+            "  • Higher peak accuracy than YOLO11 at cost of stability\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
+            "  • mAP:    40.6 (nano)  →  55.2 (xlarge)\n"
+            "  • Params: 2.6M (nano)  →  59.1M (xlarge)\n"
+            "  • Speed:  1.64 ms T4 TensorRT (nano)  |  CPU ONNX not published\n\n"
+            "[bold]Recommendation[/bold]\n"
+            "  [bold red]Not recommended for production[/bold red] — training instability and "
+            "high GPU memory consumption. Use YOLO11 or YOLO26 for production."
+        ),
+        "yolov12-seg": (
+            "[bold cyan]YOLOv12-Seg[/bold cyan]  [yellow]● Research — 2025[/yellow]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Attention-centric YOLO12 base with segmentation head\n"
+            "  • Area Attention + R-ELAN backbone\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017)[/dim]\n"
+            "  • Mask mAP: not yet officially published by Ultralytics\n"
+            "  • Speed:    not yet officially published by Ultralytics\n\n"
+            "[bold]Recommendation[/bold]\n"
+            "  [bold red]Not recommended for production[/bold red] — inherits YOLO12 "
+            "instability. Use YOLO11-seg or YOLO26-seg instead."
+        ),
+        "yolov11": (
+            "[bold cyan]YOLOv11[/bold cyan]  [green]● Stable — 2024[/green]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Improved backbone and neck over YOLOv8\n"
+            "  • 22% fewer parameters than YOLOv8m with higher mAP\n"
+            "  • Supports all tasks: Detect, Segment, Classify, Pose, OBB\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
+            "  • mAP:    39.5 (nano)  →  54.7 (xlarge)\n"
+            "  • Params: 2.6M (nano)  →  56.9M (xlarge)\n"
+            "  • Speed:  56 ms CPU ONNX (nano)  |  1.5 ms T4 TensorRT (nano)\n\n"
+            "[bold]Best for[/bold]\n"
+            "  Production, enterprise, mission-critical applications"
+        ),
+        "yolov11-seg": (
+            "[bold cyan]YOLOv11-Seg[/bold cyan]  [green]● Stable — 2024[/green]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • YOLO11 backbone with segmentation head\n"
+            "  • Proven training stability across diverse datasets\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
+            "  • mAP box:  38.9 (nano)  →  54.7 (xlarge)\n"
+            "  • mAP mask: 32.0 (nano)  →  43.8 (xlarge)\n"
+            "  • Params:   2.9M (nano)  →  62.1M (xlarge)\n"
+            "  • Speed:    66 ms CPU ONNX (nano)  |  2.9 ms T4 TensorRT (nano)\n\n"
+            "[bold]Best for[/bold]\n"
+            "  Production segmentation requiring reliability and full benchmark data"
+        ),
+        "yolov10": (
+            "[bold cyan]YOLOv10[/bold cyan]  [dim]● Mature[/dim]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Anchor-free, NMS-free inference (pre-YOLO26 pioneer)\n"
+            "  • 6 size variants: N / S / M / B / L / X\n"
+            "  • Dual-head design: one for training, one for inference\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
+            "  • mAP:     38.5 (N)  →  54.4 (X)\n"
+            "  • Latency: 1.84 ms (N)  →  10.70 ms (X) T4 TensorRT\n\n"
+            "[bold]Recommendation[/bold]\n"
+            "  Prefer YOLO11 or YOLO26 for new projects. Use when an existing "
+            "pipeline is already built on YOLOv10."
+        ),
+        "yolov9": (
+            "[bold cyan]YOLOv9[/bold cyan]  [dim]● Mature[/dim]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Programmable Gradient Information (PGI) — preserves full\n"
+            "    information through deep network layers\n"
+            "  • Generalised Efficient Layer Aggregation Network (GELAN)\n"
+            "  • 5 variants: t / s / m / c / e\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
+            "  • mAP:    38.3 (tiny)  →  55.6 (extra-large)\n"
+            "  • Params: 2.0M (tiny)  →  58.1M (extra-large)\n\n"
+            "[bold]Best for[/bold]\n"
+            "  When PGI gradient stability is required or a YOLOv9 checkpoint "
+            "is already available"
+        ),
+        "yolov9-seg": (
+            "[bold cyan]YOLOv9-Seg[/bold cyan]  [dim]● Mature[/dim]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • PGI-based backbone with segmentation head\n"
+            "  • Same GELAN feature aggregation as YOLOv9 detection\n"
+            "  • 5 variants: t / s / m / c / e\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017)[/dim]\n"
+            "  • Mask mAP: not officially published by Ultralytics\n\n"
+            "[bold]Best for[/bold]\n"
+            "  Segmentation when PGI gradient properties are desired "
+            "or an existing YOLOv9-seg checkpoint is in use"
+        ),
+        "yolov8": (
+            "[bold cyan]YOLOv8[/bold cyan]  [dim]● Mature — 2023[/dim]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Anchor-free, decoupled detection head\n"
+            "  • Industry-standard baseline — extensively documented\n"
+            "  • Broadest third-party tool and framework support\n"
+            "  • 5 variants: n / s / m / l / x\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
+            "  • mAP:    37.3 (nano)  →  53.9 (xlarge)\n"
+            "  • Params: 3.2M (nano)  →  68.2M (xlarge)\n"
+            "  • Speed:  80 ms CPU ONNX (nano)  |  0.99 ms A100 TensorRT (nano)\n\n"
+            "[bold]Best for[/bold]\n"
+            "  Legacy compatibility, existing YOLOv8 pipelines, or when "
+            "maximum ecosystem support is required"
+        ),
+        "yolov8-seg": (
+            "[bold cyan]YOLOv8-Seg[/bold cyan]  [dim]● Mature — 2023[/dim]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • YOLOv8 backbone with segmentation head\n"
+            "  • Most widely supported segmentation baseline\n"
+            "  • 5 variants: n / s / m / l / x\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
+            "  • mAP box:  36.7 (nano)  →  53.4 (xlarge)\n"
+            "  • mAP mask: 30.5 (nano)  →  43.4 (xlarge)\n"
+            "  • Params:   3.4M (nano)  →  71.8M (xlarge)\n"
+            "  • Speed:    96 ms CPU ONNX (nano)  |  1.21 ms A100 TensorRT (nano)\n\n"
+            "[bold]Best for[/bold]\n"
+            "  Production segmentation requiring maximum ecosystem compatibility"
+        ),
+        "yolox": (
+            "[bold cyan]YOLOX[/bold cyan]  [dim]● Mature[/dim]\n\n"
+            "[bold]Architecture[/bold]\n"
+            "  • Anchor-free with decoupled classification/regression head\n"
+            "  • Simpler training setup than anchor-based predecessors\n"
+            "  • 4 variants: S / M / L / X\n\n"
+            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
+            "  • mAP:    40.5 (S)  →  51.1 (X)\n"
+            "  • Params: 9.0M (S)  →  99.1M (X)\n"
+            "  • FPS:    102 (S)  →  58 (X)  [dim](V100 GPU)[/dim]\n\n"
+            "[bold]Best for[/bold]\n"
+            "  When a clean anchor-free baseline and training stability "
+            "are the primary requirements"
+        ),
+}
 
 # Comprehensive YOLO training parameter definitions for fully customized config
 YOLO_TRAINING_PARAMETERS: list[ParameterDefinition] = [
@@ -1847,8 +2057,7 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
     dataset_names = [Path(d["path"]) for d in datasets]
     name_to_path = {path.name: str(path) for path in dataset_names}
 
-    dataset_descriptions = {}
-    for d in datasets:
+    def _build_description(d: dict[str, Any]) -> tuple[str, str]:
         try:
             summary = summarize_dataset(d["path"])
             classes = ", ".join(summary.classes[:8]) or "No classes found"
@@ -1863,7 +2072,7 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             health = "Valid" if not summary.errors else "Blocking errors"
             if summary.warnings and not summary.errors:
                 health = "Warnings"
-            dataset_descriptions[d["name"]] = (
+            desc = (
                 f"[bold cyan]{d['name']}[/bold cyan]\n\n"
                 f"[bold]Format:[/bold] {summary.format.upper()}    "
                 f"[bold]Task:[/bold] {summary.task.title()}\n"
@@ -1881,11 +2090,17 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
                 f"[dim]{d['path']}[/dim]"
             )
         except Exception as error:
-            dataset_descriptions[d["name"]] = (
+            desc = (
                 f"[bold yellow]{d['name']}[/bold yellow]\n\n"
                 f"YOLOmatic could not inspect this dataset cleanly: {error}\n"
                 f"[dim]{d['path']}[/dim]"
             )
+        return d["name"], desc
+
+    dataset_descriptions: dict[str, str] = {}
+    with ThreadPoolExecutor() as executor:
+        for name, desc in executor.map(_build_description, datasets):
+            dataset_descriptions[name] = desc
     dataset_descriptions["Back"] = "Return to the previous menu."
 
     choice = get_user_choice(
@@ -2009,65 +2224,80 @@ def clone_config_filename(source_path: Path, dataset_name: str) -> str:
 
 def clone_saved_config_flow() -> bool:
     steps = ["Select Source YAML", "Select Target Dataset"]
-    source_path = select_saved_config_file(wizard_steps=steps, wizard_current_step=0)
-    if source_path is None:
-        return False
+    step = 0
+    source_path: Path | None = None
+    source_config: dict = {}
+    model_choice: str | None = None
+    dataset_choice: str | None = None
 
-    try:
-        with open(source_path, "r") as file:
-            source_config = yaml.safe_load(file) or {}
-    except yaml.YAMLError as error:
-        console.print(
-            Panel(
-                f"[bold red]Invalid YAML in {source_path.name}:[/bold red] {error}",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
+    while 0 <= step < 2:
+        if step == 0:
+            source_path = select_saved_config_file(wizard_steps=steps, wizard_current_step=0)
+            if source_path is None:
+                return False  # user backed out of first step → exit wizard
 
-    if "experiment" in source_config:
-        console.print(
-            Panel(
-                "[bold yellow]YOLO-NAS config cloning is not supported yet.[/bold yellow]\n\n"
-                "Clone regular Ultralytics YOLO configs from this flow. YOLO-NAS "
-                "configs use a different nested training schema.",
-                border_style="yellow",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
+            try:
+                with open(source_path, "r") as file:
+                    source_config = yaml.safe_load(file) or {}
+            except yaml.YAMLError as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Invalid YAML in {source_path.name}:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to select a different file...")
+                continue  # stay on step 0
 
-    model_choice = extract_regular_yolo_model_choice(source_config)
-    if not model_choice:
-        console.print(
-            Panel(
-                "[bold red]Could not find settings.model_type in the source config.[/bold red]\n\n"
-                "The clone flow needs a regular YOLO config with a model recorded "
-                "under the settings section.",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
+            if "experiment" in source_config:
+                console.print(
+                    Panel(
+                        "[bold yellow]YOLO-NAS config cloning is not supported yet.[/bold yellow]\n\n"
+                        "Clone regular Ultralytics YOLO configs from this flow. YOLO-NAS "
+                        "configs use a different nested training schema.",
+                        border_style="yellow",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to select a different file...")
+                continue  # stay on step 0
 
-    try:
-        dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=1)
-    except Exception as error:
-        console.print(
-            Panel(
-                f"[bold red]Failed to list datasets:[/bold red] {error}",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return to the main menu...")
-        return False
-    if dataset_choice in ("Back", None):
-        return False
+            model_choice = extract_regular_yolo_model_choice(source_config)
+            if not model_choice:
+                console.print(
+                    Panel(
+                        "[bold red]Could not find settings.model_type in the source config.[/bold red]\n\n"
+                        "The clone flow needs a regular YOLO config with a model recorded "
+                        "under the settings section.",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to select a different file...")
+                continue  # stay on step 0
+
+            step = 1
+
+        else:  # step == 1
+            try:
+                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=1)
+            except Exception as error:
+                console.print(
+                    Panel(
+                        f"[bold red]Failed to list datasets:[/bold red] {error}",
+                        border_style="red",
+                        padding=(1, 2),
+                    )
+                )
+                input("\nPress Enter to return to the main menu...")
+                return False
+            if dataset_choice == "Back":
+                step = 0  # go back to YAML selection
+                continue
+            if dataset_choice is None:
+                return False
+            step = 2  # exit loop normally
 
     dataset_path = Path(dataset_choice)
     dataset_name = dataset_path.name
@@ -2770,6 +3000,7 @@ def select_profile_option(
     hint_lines: list[str] | None = None,
     wizard_steps: list[str] | None = None,
     wizard_current_step: int | None = None,
+    initial_selection: str | None = None,
 ) -> str | None:
     option_map: dict[str, str] = {}
     option_labels: list[str] = []
@@ -2789,6 +3020,14 @@ def select_profile_option(
 
     descriptions["Back"] = "Return to the previous configuration step."
 
+    # Resolve raw key back to its display label for cursor pre-positioning
+    resolved_initial: str | None = None
+    if initial_selection is not None:
+        for label, key in option_map.items():
+            if key == initial_selection:
+                resolved_initial = label
+                break
+
     choice = get_user_choice(
         option_labels,
         allow_back=True,
@@ -2797,6 +3036,7 @@ def select_profile_option(
         descriptions=descriptions,
         wizard_steps=wizard_steps,
         wizard_current_step=wizard_current_step,
+        initial_selection=resolved_initial,
     )
     if choice == "Back":
         return None
@@ -2972,58 +3212,70 @@ def choose_regular_yolo_profiles(
         for key, details in profile_context["worker_profiles"].items()
     }
 
-    augmentation_choice = select_profile_option(
-        "Select Augmentation Profile",
-        f"{summary_text}\n\nChoose the augmentation intensity for this dataset:",
-        augmentation_options,
-        recommended_profiles["augmentation"],
-        [
-            "Minimum is the easiest to reason about and keeps the config close to core training values.",
-            "Low adds only basic robustness improvements.",
-            "Medium adds more color and geometric changes, which can improve generalization but also change training behavior more.",
-        ],
-        wizard_steps=wizard_steps,
-        wizard_current_step=wizard_current_step,
-    )
-    if augmentation_choice is None:
-        return None
+    # Step-machine so Back at sub-step N returns to sub-step N-1 with the
+    # previous choice pre-selected, rather than exiting the whole flow.
+    sub_state: dict[str, str] = {}
+    sub_step = 0
+    while 0 <= sub_step < 3:
+        if sub_step == 0:
+            result = select_profile_option(
+                "Select Augmentation Profile",
+                f"{summary_text}\n\nChoose the augmentation intensity for this dataset:",
+                augmentation_options,
+                recommended_profiles["augmentation"],
+                [
+                    "Minimum is the easiest to reason about and keeps the config close to core training values.",
+                    "Low adds only basic robustness improvements.",
+                    "Medium adds more color and geometric changes, which can improve generalization but also change training behavior more.",
+                ],
+                wizard_steps=wizard_steps,
+                wizard_current_step=wizard_current_step,
+                initial_selection=sub_state.get("augmentation"),
+            )
+        elif sub_step == 1:
+            result = select_profile_option(
+                "Select Compute Profile",
+                f"{summary_text}\n\nChoose how strongly YOLOmatic should push system resources:",
+                compute_options,
+                recommended_profiles["compute"],
+                [
+                    "This profile mainly affects batch aggressiveness and cache behavior.",
+                    "Conservative is better when GPU memory is tight or the model is heavy.",
+                    "Aggressive is best only when your RAM, GPU memory, and dataset pressure all look healthy.",
+                ],
+                wizard_steps=wizard_steps,
+                wizard_current_step=wizard_current_step,
+                initial_selection=sub_state.get("compute"),
+            )
+        else:
+            result = select_profile_option(
+                "Select Worker Profile",
+                f"{summary_text}\n\nChoose the dataloader worker profile:",
+                worker_options,
+                recommended_profiles["worker"],
+                [
+                    "Workers change throughput, not the optimization target, so higher values are not automatically better.",
+                    "Too many workers can reduce training quality indirectly by causing CPU contention, RAM pressure, disk thrashing, and less stable batch preparation.",
+                    "If you are unsure, keep the recommended worker profile and only raise it when the GPU is starved and the machine still has clear headroom.",
+                ],
+                wizard_steps=wizard_steps,
+                wizard_current_step=wizard_current_step,
+                initial_selection=sub_state.get("worker"),
+            )
 
-    compute_choice = select_profile_option(
-        "Select Compute Profile",
-        f"{summary_text}\n\nChoose how strongly YOLOmatic should push system resources:",
-        compute_options,
-        recommended_profiles["compute"],
-        [
-            "This profile mainly affects batch aggressiveness and cache behavior.",
-            "Conservative is better when GPU memory is tight or the model is heavy.",
-            "Aggressive is best only when your RAM, GPU memory, and dataset pressure all look healthy.",
-        ],
-        wizard_steps=wizard_steps,
-        wizard_current_step=wizard_current_step,
-    )
-    if compute_choice is None:
-        return None
+        if result is None:
+            sub_step -= 1
+        else:
+            sub_state[["augmentation", "compute", "worker"][sub_step]] = result
+            sub_step += 1
 
-    worker_choice = select_profile_option(
-        "Select Worker Profile",
-        f"{summary_text}\n\nChoose the dataloader worker profile:",
-        worker_options,
-        recommended_profiles["worker"],
-        [
-            "Workers change throughput, not the optimization target, so higher values are not automatically better.",
-            "Too many workers can reduce training quality indirectly by causing CPU contention, RAM pressure, disk thrashing, and less stable batch preparation.",
-            "If you are unsure, keep the recommended worker profile and only raise it when the GPU is starved and the machine still has clear headroom.",
-        ],
-        wizard_steps=wizard_steps,
-        wizard_current_step=wizard_current_step,
-    )
-    if worker_choice is None:
+    if sub_step < 0:
         return None
 
     return {
-        "augmentation": augmentation_choice,
-        "compute": compute_choice,
-        "worker": worker_choice,
+        "augmentation": sub_state["augmentation"],
+        "compute": sub_state["compute"],
+        "worker": sub_state["worker"],
     }
 
 
@@ -3383,6 +3635,33 @@ def _settings_definitions() -> list[ParameterDefinition]:
             config_section="roboflow",
         ),
         ParameterDefinition(
+            "default_dataset_download_dir",
+            "Ultralytics",
+            "datasets/ultralytics/downloads",
+            "str",
+            "Dataset download dir",
+            "Default directory for signed Platform dataset exports before preparation.",
+            config_section="ultralytics",
+        ),
+        ParameterDefinition(
+            "default_model_download_dir",
+            "Ultralytics",
+            "weights/ultralytics",
+            "str",
+            "Model download dir",
+            "Default directory for Platform model weight downloads.",
+            config_section="ultralytics",
+        ),
+        ParameterDefinition(
+            "default_output_root",
+            "Ultralytics",
+            "datasets",
+            "str",
+            "Prepared output root",
+            "Default root for datasets prepared from Platform exports.",
+            config_section="ultralytics",
+        ),
+        ParameterDefinition(
             "mode",
             "Narratives",
             "guided",
@@ -3513,16 +3792,22 @@ def settings_roboflow_page() -> None:
     run_settings_customizer("Roboflow Integration", {"roboflow"})
 
 
+def settings_ultralytics_page() -> None:
+    run_settings_customizer("Ultralytics Platform", {"ultralytics"})
+
+
 def settings_narratives_page() -> None:
     run_settings_customizer("Integration Narratives", {"narratives"})
 
 
 def settings_credentials_page() -> None:
     status = roboflow_credential_status()
+    ultralytics_status = ultralytics_credential_status()
     rows = {
         "ROBOFLOW_API_KEY": "configured" if status["api_key"] else "missing",
         "ROBOFLOW_WORKSPACE": "configured" if status["workspace"] else "missing",
         "ROBOFLOW_PROJECT_IDS": "configured" if status["project_ids"] else "missing",
+        "ULTRALYTICS_API_KEY": "configured" if ultralytics_status["api_key"] else "missing",
     }
     _settings_table("Credential Status", rows)
     console.print(
@@ -4125,6 +4410,7 @@ def settings_menu() -> None:
                 "Customize All Settings",
                 "ClearML Integration",
                 "Roboflow Integration",
+                "Ultralytics Platform",
                 "Integration Narratives",
                 "AI Recommendations",
                 "Credential Status",
@@ -4144,6 +4430,8 @@ def settings_menu() -> None:
             settings_clearml_page()
         elif choice == "Roboflow Integration":
             settings_roboflow_page()
+        elif choice == "Ultralytics Platform":
+            settings_ultralytics_page()
         elif choice == "Integration Narratives":
             settings_narratives_page()
         elif choice == "AI Recommendations":
@@ -4174,9 +4462,11 @@ def _main_loop_iteration():
             "Benchmark Models",
             "SAM Segment",
             "[Datasets & Deployment]",
+            "Prepare / Split Dataset",
             "Convert Dataset Format",
             "Combine Datasets",
             "Augment Dataset",
+            "Ultralytics Platform",
             "Upload to Roboflow",
             "[Maintenance]",
             "Settings",
@@ -4196,6 +4486,11 @@ def _main_loop_iteration():
                 "Convert Dataset Format": (
                     "Convert Labelbox NDJSON exports into YOLO or COCO formats. "
                     "Supports concurrent image downloads and handles both bounding boxes and polygons."
+                ),
+                "Prepare / Split Dataset": (
+                    "Create a versioned, training-ready YOLO or COCO dataset from a YOLO folder, "
+                    "COCO folder, or Labelbox NDJSON export. Includes guided split presets, "
+                    "class-balanced assignment, validation warnings, and manifest metadata."
                 ),
                 "Configure Model": (
                     "Walk through the YOLOmatic wizard to pick a YOLO or RF-DETR family, choose a "
@@ -4257,8 +4552,13 @@ def _main_loop_iteration():
                     "WORKSPACE / PROJECT_IDS from .env and stages the weight correctly for "
                     "Roboflow's deploy API."
                 ),
+                "Ultralytics Platform": (
+                    "Use ULTRALYTICS_API_KEY from .env to list/download Platform datasets, "
+                    "upload prepared datasets through signed URLs, download model weights, "
+                    "and generate ul:// dataset URI training guidance."
+                ),
                 "Settings": (
-                    "Edit global ClearML, Roboflow, narrative, and credential-status settings. "
+                    "Edit global ClearML, Roboflow, Ultralytics, narrative, and credential-status settings. "
                     "Secrets remain in .env and are never displayed."
                 ),
                 "Check for Updates": (
@@ -4322,10 +4622,22 @@ def _main_loop_iteration():
             _safe_subcommand("Dataset Conversion", convert_main, prog="yolomatic-convert")
             continue
 
+        elif main_choice == "Prepare / Split Dataset":
+            from src.cli.prepare_dataset import main as prepare_main
+
+            _safe_subcommand("Dataset Preparation", prepare_main, prog="yolomatic-prepare")
+            continue
+
         elif main_choice == "Upload to Roboflow":
             from src.cli.upload import main as upload_main
 
             _safe_subcommand("Roboflow Upload", upload_main, prog="yolomatic-upload")
+            continue
+
+        elif main_choice == "Ultralytics Platform":
+            from src.cli.ultralytics_platform import main as ultralytics_main
+
+            _safe_subcommand("Ultralytics Platform", ultralytics_main, prog="yolomatic-ultralytics")
             continue
 
         elif main_choice == "Combine Datasets":
@@ -4367,89 +4679,228 @@ def _main_loop_iteration():
 
         elif main_choice == "Configure Fine-Tune":
             steps = ["Checkpoint Weights", "Strategy Selection", "Dataset Selection", "Profile Settings"]
-            candidate = select_finetune_candidate(wizard_steps=steps, wizard_current_step=0)
-            if candidate is None:
-                continue
+            ft_state: dict[str, Any] = {}
+            ft_step = 0
+            while 0 <= ft_step < 4:
+                if ft_step == 0:
+                    candidate = select_finetune_candidate(wizard_steps=steps, wizard_current_step=0)
+                    if candidate is None:
+                        break
+                    ft_state["candidate"] = candidate
+                    ft_step = 1
 
-            strategy = select_finetune_strategy(candidate, wizard_steps=steps, wizard_current_step=1)
-            if strategy is None:
-                continue
-
-            try:
-                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Failed to list datasets:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
+                elif ft_step == 1:
+                    strategy = select_finetune_strategy(
+                        ft_state["candidate"], wizard_steps=steps, wizard_current_step=1
                     )
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            if dataset_choice in ("Back", None):
-                continue
+                    if strategy is None:
+                        ft_step = 0
+                    else:
+                        ft_state["strategy"] = strategy
+                        ft_step = 2
 
-            model_choice = infer_finetune_profile_model(candidate)
-            print_summary(candidate.display_name, dataset_choice)
-            try:
-                if not update_config(
-                    model_choice,
-                    dataset_choice,
-                    finetune_source=candidate.source,
-                    finetune_strategy=strategy,
-                    wizard_steps=steps,
-                    wizard_current_step=3,
-                ):
-                    continue
-            except KeyboardInterrupt:
-                console.print(
-                    "\n[bold yellow]Fine-tune configuration cancelled by user.[/bold yellow]"
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Fine-tune configuration failed:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
-                    )
-                )
-                console.print(traceback.format_exc(), style="dim")
-                input("\nPress Enter to return to the main menu...")
-                continue
+                elif ft_step == 2:
+                    try:
+                        dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Failed to list datasets:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    if dataset_choice == "Back":
+                        ft_step = 1
+                    elif dataset_choice is None:
+                        break
+                    else:
+                        ft_state["dataset_choice"] = dataset_choice
+                        ft_step = 3
 
-            input("\nPress Enter to continue...")
+                elif ft_step == 3:
+                    _cand = ft_state["candidate"]
+                    _dataset = ft_state["dataset_choice"]
+                    _strategy = ft_state["strategy"]
+                    model_choice = infer_finetune_profile_model(_cand)
+                    print_summary(_cand.display_name, _dataset)
+                    try:
+                        if not update_config(
+                            model_choice,
+                            _dataset,
+                            finetune_source=_cand.source,
+                            finetune_strategy=_strategy,
+                            wizard_steps=steps,
+                            wizard_current_step=3,
+                        ):
+                            ft_step = 2
+                            continue
+                    except KeyboardInterrupt:
+                        console.print(
+                            "\n[bold yellow]Fine-tune configuration cancelled by user.[/bold yellow]"
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Fine-tune configuration failed:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        console.print(traceback.format_exc(), style="dim")
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    ft_step = 4
+
+            if ft_step >= 4:
+                input("\nPress Enter to continue...")
             continue
 
         elif main_choice == "About YOLOmatic":
             clear_screen()
             from src.__version__ import __version__
+            import platform
+            import os
+            from rich.console import Group
+            from rich.text import Text
+            from src.utils.ml_dependencies import check_hf_auth
 
-            # Use a more structured layout for the About screen
-            about_table = Table.grid(padding=(0, 2))
-            about_table.add_column(style="bold cyan", justify="right")
-            about_table.add_column(style="white")
+            # --- Terminal Width ---
+            term_w = console.width
 
-            about_table.add_row("Product:", "YOLOmatic")
-            about_table.add_row("Version:", f"{__version__}")
-            about_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
-            about_table.add_row("Contact:", "shahabahreini@hotmail.com")
-            about_table.add_row("", "")
-            about_table.add_row(
-                "Description:", "A powerful CLI tool for automated YOLO and RF-DETR"
+            # --- System Environment Detection ---
+            os_system = platform.system()
+            os_release = platform.release()
+            os_display = f"{os_system} {os_release}"
+
+            py_version = platform.python_version()
+            py_arch = platform.architecture()[0]
+            py_display = f"{py_version} ({py_arch})"
+
+            venv_path = os.getenv("VIRTUAL_ENV")
+            if venv_path:
+                venv_display = os.path.basename(venv_path)
+            else:
+                venv_display = "None (System Python)"
+
+            gpu_info = "Checking..."
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_info = f"[#A3BE8C]Active[/#A3BE8C] ({gpu_name})"
+                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    gpu_info = "[#A3BE8C]Active[/#A3BE8C] (Apple MPS)"
+                else:
+                    gpu_info = "[#EBCB8B]Inactive[/#EBCB8B]"
+            except Exception:
+                gpu_info = "[#BF616A]Not Available[/#BF616A]"
+
+            # --- Integrations Status ---
+            try:
+                rf_status = roboflow_credential_status()
+                rf_info = "[#A3BE8C]Connected[/#A3BE8C]" if rf_status.get("api_key") else "[dim]Not Configured[/dim]"
+            except Exception:
+                rf_info = "[#BF616A]Error[/#BF616A]"
+
+            try:
+                ultralytics_status = ultralytics_credential_status()
+                ult_info = "[#A3BE8C]Connected[/#A3BE8C]" if ultralytics_status.get("api_key") else "[dim]Not Configured[/dim]"
+            except Exception:
+                ult_info = "[#BF616A]Error[/#BF616A]"
+
+            try:
+                hf_token = check_hf_auth()
+                hf_info = "[#A3BE8C]Connected[/#A3BE8C]" if hf_token else "[dim]Not Configured[/dim]"
+            except Exception:
+                hf_info = "[#BF616A]Error[/#BF616A]"
+
+            # --- Centered Logo & Subtitle ---
+            banner_lines = [
+                " __  ______  __    ____  __  ___  ____  __  ____  ",
+                " \\ \\/ / __ \\/ /   / __ \\/  |/  / / __ \\/ /_/ ___/  ",
+                "  \\  / /_/ / /___/ /_/ / /|_/ / / /_/ / __/ /__    ",
+                "  /_/\\____/_____/\\____/_/  /_/  /_/ /_/\\__/\\___/   "
+            ]
+            logo_width = max(len(line) for line in banner_lines)
+
+            if term_w >= logo_width + 8:
+                gradient_styles = [
+                    "bold #8FBCBB",
+                    "bold #88C0D0",
+                    "bold #81A1C1",
+                    "bold #5E81AC"
+                ]
+                banner_str = ""
+                for line, style in zip(banner_lines, gradient_styles):
+                    banner_str += f"[{style}]{line}[/{style}]\n"
+                header_element = Align.center(banner_str.strip())
+            else:
+                header_element = Align.center("[bold #8FBCBB]YOLOmatic[/bold #8FBCBB]")
+
+            subtitle_element = Align.center(
+                "[dim]Automated computer-vision training, configuration, and dataset management.[/dim]"
             )
-            about_table.add_row("", "training, configuration, and dataset management.")
 
-            console.print("\n" * 2)
+            # --- Quiet, Minimalist Table Layout ---
+            left_table = Table.grid(padding=(0, 2))
+            left_table.add_column(style="bold #81A1C1", justify="right", width=12)
+            left_table.add_column(style="white", width=28)
+
+            left_table.add_row("Product:", "YOLOmatic")
+            left_table.add_row("Version:", f"[bold #A3BE8C]{__version__}[/bold #A3BE8C]")
+            left_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
+            left_table.add_row("Contact:", "[#88C0D0]shahabahreini@hotmail.com[/#88C0D0]")
+            left_table.add_row("License:", "[#EBCB8B]Apache-2.0[/#EBCB8B]")
+
+            right_table = Table.grid(padding=(0, 2))
+            right_table.add_column(style="bold #81A1C1", justify="right", width=14)
+            right_table.add_column(style="white", width=26)
+
+            right_table.add_row("OS:", os_display)
+            right_table.add_row("Python:", py_display)
+            right_table.add_row("PyTorch GPU:", gpu_info)
+            right_table.add_row("Virtual Env:", f"[#88C0D0]{venv_display}[/#88C0D0]")
+            right_table.add_row("Roboflow:", rf_info)
+            right_table.add_row("Ultralytics:", ult_info)
+            right_table.add_row("Hugging Face:", hf_info)
+
+            # Split layout matching screen width
+            if term_w >= 90:
+                split_table = Table.grid(padding=(0, 6))
+                split_table.add_column(width=42)
+                split_table.add_column(width=42)
+                split_table.add_row(left_table, right_table)
+            else:
+                split_table = Table.grid(padding=(1, 0))
+                split_table.add_column(width=min(70, term_w - 4))
+                split_table.add_row(left_table)
+                split_table.add_row(Text(""))
+                split_table.add_row(right_table)
+
+            # Master layout
+            dashboard_content = Group(
+                header_element,
+                Text(""),
+                subtitle_element,
+                Text(""),
+                Text(""),
+                Align.center(split_table)
+            )
+
+            console.print("\n")
             console.print(
                 Panel(
-                    Align.center(about_table),
-                    title="[bold cyan]About YOLOmatic[/bold cyan]",
-                    border_style="cyan",
+                    dashboard_content,
+                    title="[bold #8FBCBB]About[/bold #8FBCBB]",
+                    border_style="grey37",
                     padding=(2, 4),
                     box=box.ROUNDED,
+                    expand=True
                 )
             )
             console.print("\n")
@@ -4458,288 +4909,97 @@ def _main_loop_iteration():
 
         elif main_choice == "Configure Model":
             steps = ["Model Family", "Model Size", "Dataset Selection", "Profile Settings"]
-            # Get model choice
             model_types = get_model_menu()
-            model_choice = get_user_choice(
-                model_types,
-                title="Model Selector",
-                text="Choose a model family for your project:",
-                allow_back=True,
-                descriptions={
-                    "detectron2": (
-                        "[bold cyan]Detectron2[/bold cyan]  [green]● Optional native COCO detection[/green]\n\n"
-                        "Faster R-CNN and RetinaNet variants using Detectron2's model zoo. "
-                        "Detectron2 is imported only when you train or predict with this family."
-                    ),
-                    "sam3.1": (
-                        "[bold cyan]SAM 3.1[/bold cyan]  [green]● Foundation Segmentation — 2025[/green]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Meta's Segment Anything Model 3.1 (Object Multiplex)\n"
-                        "  • Unified DETR detector + memory-based tracker\n"
-                        "  • Shared memory for simultaneous multi-object segmentation\n"
-                        "  • 7× faster multi-object throughput vs SAM 3\n\n"
-                        "[bold]Capabilities[/bold]\n"
-                        "  • Open-vocabulary text prompting ('vegetation', 'person')\n"
-                        "  • Auto mask generation — segment everything without prompts\n"
-                        "  • Point and bounding box prompted segmentation\n"
-                        "  • Video object segmentation and multi-object tracking\n\n"
-                        "[bold]Parameters[/bold]  873M\n"
-                        "[bold]Input Size[/bold]  1008×1008\n"
-                        "[bold]HuggingFace[/bold]  facebook/sam3.1\n\n"
-                        "[dim]Gated model — requires HuggingFace account and "
-                        "Meta's terms agreement.[/dim]\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  High-quality instance masks, zero-shot segmentation, "
-                        "annotation generation for new domains"
-                    ),
-                    "detectron2-seg": (
-                        "[bold cyan]Detectron2 Segmentation[/bold cyan]  [green]● Optional native COCO masks[/green]\n\n"
-                        "Mask R-CNN instance segmentation with COCO annotations. YOLO polygon "
-                        "datasets are converted into cached COCO manifests when needed."
-                    ),
-                    "rfdetr": (
-                        "[bold cyan]RF-DETR[/bold cyan]  [green]● Transformer detection[/green]\n\n"
-                        "Real-time DETR-style object detection with automatic pretrained "
-                        "weight download. Core models are Apache-2.0; XL and 2XL require "
-                        "RF-DETR Plus licensing."
-                    ),
-                    "rfdetr-seg": (
-                        "[bold cyan]RF-DETR-Seg[/bold cyan]  [green]● Transformer segmentation[/green]\n\n"
-                        "Instance segmentation variants using RF-DETR's segmentation model "
-                        "classes. Pretrained weights are downloaded automatically on first use."
-                    ),
-                    "yolo26": (
-                        "[bold cyan]YOLO26[/bold cyan]  [green]● Latest — 2026[/green]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • End-to-end NMS-free inference (no post-processing step)\n"
-                        "  • DFL removed — simpler export, wider edge compatibility\n"
-                        "  • MuSGD optimizer (hybrid SGD + Muon, inspired by LLM training)\n"
-                        "  • ProgLoss + STAL loss for better small-object accuracy\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:    40.9 (nano)  →  57.5 (xlarge)\n"
-                        "  • Params: 2.4M (nano)  →  55.7M (xlarge)\n"
-                        "  • Speed:  1.7 ms T4 TensorRT (nano)  |  CPU ONNX not published\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Edge devices, IoT, robotics, CPU-only and mobile deployments"
-                    ),
-                    "yolo26-seg": (
-                        "[bold cyan]YOLO26-Seg[/bold cyan]  [green]● Latest — 2026[/green]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Same NMS-free, DFL-removed, MuSGD base as YOLO26\n"
-                        "  • Instance segmentation head for pixel-level boundary detection\n"
-                        "  • Edge-optimized — fast CPU ONNX inference among seg models\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
-                        "  • mAP box: 33.9 (nano)  →  47.0 (xlarge)\n"
-                        "  • Params:  2.7M (nano)  →  62.8M (xlarge)\n"
-                        "  • Speed:   53 ms CPU ONNX (nano)  |  2.1 ms T4 TensorRT (nano)\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Pixel-level detection on resource-constrained or edge hardware"
-                    ),
-                    "yolov12": (
-                        "[bold cyan]YOLOv12[/bold cyan]  [yellow]● Research — 2025[/yellow]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Area Attention mechanism — large receptive field, attention-based\n"
-                        "  • R-ELAN (Residual Efficient Layer Aggregation Networks)\n"
-                        "  • Optional FlashAttention for memory-efficient training\n"
-                        "  • Higher peak accuracy than YOLO11 at cost of stability\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:    40.6 (nano)  →  55.2 (xlarge)\n"
-                        "  • Params: 2.6M (nano)  →  59.1M (xlarge)\n"
-                        "  • Speed:  1.64 ms T4 TensorRT (nano)  |  CPU ONNX not published\n\n"
-                        "[bold]Recommendation[/bold]\n"
-                        "  [bold red]Not recommended for production[/bold red] — training instability and "
-                        "high GPU memory consumption. Use YOLO11 or YOLO26 for production."
-                    ),
-                    "yolov12-seg": (
-                        "[bold cyan]YOLOv12-Seg[/bold cyan]  [yellow]● Research — 2025[/yellow]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Attention-centric YOLO12 base with segmentation head\n"
-                        "  • Area Attention + R-ELAN backbone\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017)[/dim]\n"
-                        "  • Mask mAP: not yet officially published by Ultralytics\n"
-                        "  • Speed:    not yet officially published by Ultralytics\n\n"
-                        "[bold]Recommendation[/bold]\n"
-                        "  [bold red]Not recommended for production[/bold red] — inherits YOLO12 "
-                        "instability. Use YOLO11-seg or YOLO26-seg instead."
-                    ),
-                    "yolov11": (
-                        "[bold cyan]YOLOv11[/bold cyan]  [green]● Stable — 2024[/green]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Improved backbone and neck over YOLOv8\n"
-                        "  • 22% fewer parameters than YOLOv8m with higher mAP\n"
-                        "  • Supports all tasks: Detect, Segment, Classify, Pose, OBB\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:    39.5 (nano)  →  54.7 (xlarge)\n"
-                        "  • Params: 2.6M (nano)  →  56.9M (xlarge)\n"
-                        "  • Speed:  56 ms CPU ONNX (nano)  |  1.5 ms T4 TensorRT (nano)\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Production, enterprise, mission-critical applications"
-                    ),
-                    "yolov11-seg": (
-                        "[bold cyan]YOLOv11-Seg[/bold cyan]  [green]● Stable — 2024[/green]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • YOLO11 backbone with segmentation head\n"
-                        "  • Proven training stability across diverse datasets\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
-                        "  • mAP box:  38.9 (nano)  →  54.7 (xlarge)\n"
-                        "  • mAP mask: 32.0 (nano)  →  43.8 (xlarge)\n"
-                        "  • Params:   2.9M (nano)  →  62.1M (xlarge)\n"
-                        "  • Speed:    66 ms CPU ONNX (nano)  |  2.9 ms T4 TensorRT (nano)\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Production segmentation requiring reliability and full benchmark data"
-                    ),
-                    "yolov10": (
-                        "[bold cyan]YOLOv10[/bold cyan]  [dim]● Mature[/dim]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Anchor-free, NMS-free inference (pre-YOLO26 pioneer)\n"
-                        "  • 6 size variants: N / S / M / B / L / X\n"
-                        "  • Dual-head design: one for training, one for inference\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:     38.5 (N)  →  54.4 (X)\n"
-                        "  • Latency: 1.84 ms (N)  →  10.70 ms (X) T4 TensorRT\n\n"
-                        "[bold]Recommendation[/bold]\n"
-                        "  Prefer YOLO11 or YOLO26 for new projects. Use when an existing "
-                        "pipeline is already built on YOLOv10."
-                    ),
-                    "yolov9": (
-                        "[bold cyan]YOLOv9[/bold cyan]  [dim]● Mature[/dim]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Programmable Gradient Information (PGI) — preserves full\n"
-                        "    information through deep network layers\n"
-                        "  • Generalised Efficient Layer Aggregation Network (GELAN)\n"
-                        "  • 5 variants: t / s / m / c / e\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:    38.3 (tiny)  →  55.6 (extra-large)\n"
-                        "  • Params: 2.0M (tiny)  →  58.1M (extra-large)\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  When PGI gradient stability is required or a YOLOv9 checkpoint "
-                        "is already available"
-                    ),
-                    "yolov9-seg": (
-                        "[bold cyan]YOLOv9-Seg[/bold cyan]  [dim]● Mature[/dim]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • PGI-based backbone with segmentation head\n"
-                        "  • Same GELAN feature aggregation as YOLOv9 detection\n"
-                        "  • 5 variants: t / s / m / c / e\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017)[/dim]\n"
-                        "  • Mask mAP: not officially published by Ultralytics\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Segmentation when PGI gradient properties are desired "
-                        "or an existing YOLOv9-seg checkpoint is in use"
-                    ),
-                    "yolov8": (
-                        "[bold cyan]YOLOv8[/bold cyan]  [dim]● Mature — 2023[/dim]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Anchor-free, decoupled detection head\n"
-                        "  • Industry-standard baseline — extensively documented\n"
-                        "  • Broadest third-party tool and framework support\n"
-                        "  • 5 variants: n / s / m / l / x\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:    37.3 (nano)  →  53.9 (xlarge)\n"
-                        "  • Params: 3.2M (nano)  →  68.2M (xlarge)\n"
-                        "  • Speed:  80 ms CPU ONNX (nano)  |  0.99 ms A100 TensorRT (nano)\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Legacy compatibility, existing YOLOv8 pipelines, or when "
-                        "maximum ecosystem support is required"
-                    ),
-                    "yolov8-seg": (
-                        "[bold cyan]YOLOv8-Seg[/bold cyan]  [dim]● Mature — 2023[/dim]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • YOLOv8 backbone with segmentation head\n"
-                        "  • Most widely supported segmentation baseline\n"
-                        "  • 5 variants: n / s / m / l / x\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
-                        "  • mAP box:  36.7 (nano)  →  53.4 (xlarge)\n"
-                        "  • mAP mask: 30.5 (nano)  →  43.4 (xlarge)\n"
-                        "  • Params:   3.4M (nano)  →  71.8M (xlarge)\n"
-                        "  • Speed:    96 ms CPU ONNX (nano)  |  1.21 ms A100 TensorRT (nano)\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  Production segmentation requiring maximum ecosystem compatibility"
-                    ),
-                    "yolox": (
-                        "[bold cyan]YOLOX[/bold cyan]  [dim]● Mature[/dim]\n\n"
-                        "[bold]Architecture[/bold]\n"
-                        "  • Anchor-free with decoupled classification/regression head\n"
-                        "  • Simpler training setup than anchor-based predecessors\n"
-                        "  • 4 variants: S / M / L / X\n\n"
-                        "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-                        "  • mAP:    40.5 (S)  →  51.1 (X)\n"
-                        "  • Params: 9.0M (S)  →  99.1M (X)\n"
-                        "  • FPS:    102 (S)  →  58 (X)  [dim](V100 GPU)[/dim]\n\n"
-                        "[bold]Best for[/bold]\n"
-                        "  When a clean anchor-free baseline and training stability "
-                        "are the primary requirements"
-                    ),
-                },
-                breadcrumbs=["YOLOmatic", "Model Selection"],
-                wizard_steps=steps,
-                wizard_current_step=0,
-            )
-
-            if model_choice == "Back":
-                continue
-
-            variants = [model["Model"] for model in model_data_dict[model_choice]]
-            model_variant = get_user_choice(
-                variants,
-                allow_back=True,
-                title=f"Select {model_choice.upper()} Variant",
-                text="Choose the model size that fits your hardware:",
-                model_data=model_data_dict[model_choice],
-                breadcrumbs=["YOLOmatic", "Model Selection", model_choice],
-                wizard_steps=steps,
-                wizard_current_step=1,
-            )
-
-            if model_variant == "Back":
-                continue
-
-            model_choice = model_variant
-
-            # Continue with dataset selection...
-            try:
-                dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Failed to list datasets:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
+            cm_state: dict[str, Any] = {}
+            cm_step = 0
+            while 0 <= cm_step < 4:
+                if cm_step == 0:
+                    model_family = get_user_choice(
+                        model_types,
+                        title="Model Selector",
+                        text="Choose a model family for your project:",
+                        allow_back=True,
+                        descriptions=_MODEL_DESCRIPTIONS,
+                        breadcrumbs=["YOLOmatic", "Model Selection"],
+                        wizard_steps=steps,
+                        wizard_current_step=0,
+                        initial_selection=cm_state.get("model_family"),
                     )
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            if dataset_choice == "Back":
-                continue
-            elif dataset_choice is None:
-                continue
+                    if model_family == "Back":
+                        break
+                    cm_state["model_family"] = model_family
+                    cm_step = 1
 
-            # Show summary and update config. Any failure during config
-            # generation must not tear down the TUI — report and return.
-            print_summary(model_choice, dataset_choice)
-            try:
-                if not update_config(model_choice, dataset_choice, wizard_steps=steps, wizard_current_step=3):
-                    continue
-            except KeyboardInterrupt:
-                console.print(
-                    "\n[bold yellow]Configuration cancelled by user.[/bold yellow]"
-                )
-                input("\nPress Enter to return to the main menu...")
-                continue
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Configuration failed:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
+                elif cm_step == 1:
+                    _family = cm_state["model_family"]
+                    variants = [model["Model"] for model in model_data_dict[_family]]
+                    model_variant = get_user_choice(
+                        variants,
+                        allow_back=True,
+                        title=f"Select {_family.upper()} Variant",
+                        text="Choose the model size that fits your hardware:",
+                        model_data=model_data_dict[_family],
+                        breadcrumbs=["YOLOmatic", "Model Selection", _family],
+                        wizard_steps=steps,
+                        wizard_current_step=1,
+                        initial_selection=cm_state.get("model_variant"),
                     )
-                )
-                console.print(traceback.format_exc(), style="dim")
-                input("\nPress Enter to return to the main menu...")
-                continue
+                    if model_variant == "Back":
+                        cm_step = 0
+                    else:
+                        cm_state["model_variant"] = model_variant
+                        cm_step = 2
 
-            # Ask if user wants to continue
-            input("\nPress Enter to continue...")
+                elif cm_step == 2:
+                    try:
+                        dataset_choice = list_datasets(wizard_steps=steps, wizard_current_step=2)
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Failed to list datasets:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    if dataset_choice == "Back":
+                        cm_step = 1
+                    elif dataset_choice is None:
+                        break
+                    else:
+                        cm_state["dataset_choice"] = dataset_choice
+                        cm_step = 3
+
+                elif cm_step == 3:
+                    _model = cm_state["model_variant"]
+                    _dataset = cm_state["dataset_choice"]
+                    print_summary(_model, _dataset)
+                    try:
+                        if not update_config(_model, _dataset, wizard_steps=steps, wizard_current_step=3):
+                            cm_step = 2
+                            continue
+                    except KeyboardInterrupt:
+                        console.print(
+                            "\n[bold yellow]Configuration cancelled by user.[/bold yellow]"
+                        )
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    except Exception as error:
+                        console.print(
+                            Panel(
+                                f"[bold red]Configuration failed:[/bold red] {error}",
+                                border_style="red",
+                                padding=(1, 2),
+                            )
+                        )
+                        console.print(traceback.format_exc(), style="dim")
+                        input("\nPress Enter to return to the main menu...")
+                        break
+                    cm_step = 4
+
+            if cm_step >= 4:
+                input("\nPress Enter to continue...")
 
 
 if __name__ == "__main__":

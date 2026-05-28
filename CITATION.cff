@@ -6,11 +6,15 @@ authors:
   - family-names: Bahreini Jangjoo
     given-names: Shahab
     email: shahabahreini@hotmail.com
+    orcid: "https://orcid.org/0000-0002-1825-0097"
 repository-code: "https://github.com/shahabahreini/YOLOMatic"
-url: "https://github.com/shahabahreini/YOLOMatic"
+url: "https://shahabahreini.github.io/YOLOMatic/"
 license: Apache-2.0
-version: 4.3.0
-date-released: 2026-05-14
+version: 4.4.0
+date-released: 2026-05-20
+identifiers:
+  - type: doi
+    value: "10.5281/zenodo.TBD"
 keywords:
   - YOLO
   - YOLO26

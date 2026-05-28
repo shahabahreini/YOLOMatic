@@ -28,6 +28,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "require_dataset_metadata": True,
         "rfdetr_project_version": 1,
     },
+    "ultralytics": {
+        "default_dataset_download_dir": "datasets/ultralytics/downloads",
+        "default_model_download_dir": "weights/ultralytics",
+        "default_output_root": "datasets",
+    },
     "narratives": {
         "mode": "guided",
         "show_setup_guidance": True,
@@ -61,7 +66,7 @@ def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
     if mode not in _VALID_NARRATIVE_MODES:
         mode = "guided"
     result["narratives"]["mode"] = mode
-    for section in ("clearml", "roboflow", "narratives", "ai"):
+    for section in ("clearml", "roboflow", "ultralytics", "narratives", "ai"):
         if not isinstance(result.get(section), dict):
             result[section] = copy.deepcopy(DEFAULT_SETTINGS[section])
     return result
@@ -135,6 +140,18 @@ def roboflow_credential_status() -> dict[str, bool]:
         "api_key": bool(os.getenv("ROBOFLOW_API_KEY", "").strip()),
         "workspace": bool(os.getenv("ROBOFLOW_WORKSPACE", "").strip()),
         "project_ids": any(project_ids),
+    }
+
+
+def ultralytics_credential_status() -> dict[str, bool]:
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(Path(".env"))
+    except ImportError:
+        pass
+    return {
+        "api_key": bool(os.getenv("ULTRALYTICS_API_KEY", "").strip()),
     }
 
 
