@@ -6,9 +6,9 @@ description: Practical YOLOmatic workflow guide for model selection, training co
 
 > Practical workflow guide — model selection, deployment scenarios, training configuration, export options, and operational reference.
 
-**YOLOmatic Version:** 5.0.0  
-**Last Updated:** May 28, 2026  
-**Status:** ✅ Fully Supported and Integrated
+**YOLOmatic Version:** 5.0.0
+**Last Updated:** May 28, 2026
+**Status:** Fully Supported and Integrated
 
 ---
 
@@ -156,17 +156,17 @@ roboflow:
 
 ## Model Selection Guide
 
-### YOLO26 — Latest Edge Optimizer 🚀
+### YOLO26 — Latest Edge Optimizer
 
 **Best For:** Edge devices, CPU inference, real-time mobile apps
 
 **Advantages:**
 
-- ⚡ 43% faster CPU inference
-- 🎯 Higher accuracy on small objects
-- 📦 Smaller model sizes
-- 🚀 NMS-free end-to-end inference
-- 🔋 Perfect for IoT and robotics
+- 43% faster CPU inference
+- Higher accuracy on small objects
+- Smaller model sizes
+- NMS-free end-to-end inference
+- Perfect for IoT and robotics
 
 **Performance:**
 
@@ -180,10 +180,10 @@ roboflow:
 
 **When to Choose:**
 
-- ✅ Deploying on edge devices
-- ✅ Need fast CPU inference
-- ✅ Memory constrained
-- ✅ Mobile/IoT applications
+- Deploying on edge devices
+- Need fast CPU inference
+- Memory constrained
+- Mobile/IoT applications
 
 ---
 
@@ -193,10 +193,10 @@ roboflow:
 
 **Key Features:**
 
-- 🧠 Area Attention Mechanism
-- 🔗 R-ELAN architecture
-- 💡 FlashAttention support (optional)
-- 📊 Highest YOLO accuracy potential
+- Area Attention Mechanism
+- R-ELAN architecture
+- FlashAttention support (optional)
+- Highest YOLO accuracy potential
 
 **Performance:**
 
@@ -208,12 +208,12 @@ roboflow:
 | Large | 53.7 | 26.4M | 6.77ms |
 | XLarge | 55.2 | 59.1M | 11.79ms |
 
-⚠️ **Warnings:**
+**Warnings:**
 
-- ❌ Training instability
-- ❌ Higher memory consumption
-- ❌ Slower CPU throughput
-- ❌ Not recommended for production
+- Training instability
+- Higher memory consumption
+- Slower CPU throughput
+- Not recommended for production
 
 ---
 
@@ -223,11 +223,11 @@ roboflow:
 
 **Advantages:**
 
-- ✅ Proven stability
-- ✅ 22% fewer params than YOLOv8m (with higher accuracy)
-- ✅ Fast CPU inference
-- ✅ All task types supported
-- ✅ Excellent documentation
+- Proven stability
+- 22% fewer params than YOLOv8m (with higher accuracy)
+- Fast CPU inference
+- All task types supported
+- Excellent documentation
 
 **Performance:**
 
@@ -247,10 +247,10 @@ roboflow:
 
 **Advantages:**
 
-- 🏆 Highest mAP (60.1 with 2XLarge)
-- 🔬 Real-time transformer detection
-- 📐 Variable resolution support (384–880px)
-- 🔄 Both detection and segmentation variants
+- Highest mAP (60.1 with 2XLarge)
+- Real-time transformer detection
+- Variable resolution support (384880px)
+- Both detection and segmentation variants
 
 **Performance:**
 
@@ -269,10 +269,10 @@ roboflow:
 
 **Key Features:**
 
-- 🔤 Text-prompted segmentation (no predefined classes)
-- 🤖 Auto-segment everything mode
-- 📦 Box-prompted from YOLO detections
-- 🧬 Fine-tunable on custom datasets
+- Text-prompted segmentation (no predefined classes)
+- Auto-segment everything mode
+- Box-prompted from YOLO detections
+- Fine-tunable on custom datasets
 
 ---
 
@@ -282,12 +282,12 @@ roboflow:
 
 | Task | YOLO26 | YOLO12 | YOLO11 | RF-DETR | SAM 3.1 | Detectron2 |
 |---|---|---|---|---|---|---|
-| Detection | ✅ | ✅ | ✅ | ✅ | — | ✅ |
-| Segmentation | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Classification | ✅ | ✅ | ✅ | — | — | — |
-| Pose Estimation | ✅ | ✅ | ✅ | — | — | — |
-| OBB | ✅ | ✅ | ✅ | — | — | — |
-| Open-Vocab Seg | — | — | — | — | ✅ | — |
+| Detection | Yes | Yes | Yes | Yes | — | Yes |
+| Segmentation | Yes | Yes | Yes | Yes | Yes | Yes |
+| Classification | Yes | Yes | Yes | — | — | — |
+| Pose Estimation | Yes | Yes | Yes | — | — | — |
+| OBB | Yes | Yes | Yes | — | — | — |
+| Open-Vocab Seg | — | — | — | — | Yes | — |
 
 ### Architecture Comparison
 
@@ -295,8 +295,8 @@ roboflow:
 |---|---|---|---|---|
 | **Base Architecture** | End-to-end | Attention-centric | CNN-based | Transformer |
 | **NMS** | None (end-to-end) | Traditional | Traditional | None |
-| **CPU Performance** | ⭐⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
-| **GPU Performance** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **CPU Performance** | 5/5 | 2/5 | 3/5 | 2/5 |
+| **GPU Performance** | 4/5 | 4/5 | 4/5 | 5/5 |
 | **Training Stability** | Excellent | Variable | Excellent | Excellent |
 | **Memory Usage** | Low | High | Moderate | High |
 
@@ -305,13 +305,13 @@ roboflow:
 | Feature | YOLO26 | YOLO12 | YOLO11 | RF-DETR |
 |---|---|---|---|---|
 | **DFL** | Removed | Present | Present | — |
-| **NMS-Free Inference** | ✅ | ❌ | ❌ | ✅ |
-| **MuSGD Optimizer** | ✅ | ❌ | ❌ | ❌ |
-| **Area Attention** | ❌ | ✅ | ❌ | ❌ |
-| **R-ELAN** | ❌ | ✅ | ❌ | ❌ |
-| **FlashAttention** | ❌ | ✅ (optional) | ❌ | ❌ |
-| **Multi-scale Proto** | ✅ | ❌ | ❌ | ❌ |
-| **RLE for Pose** | ✅ | ❌ | ❌ | ❌ |
+| **NMS-Free Inference** | Yes | No | No | Yes |
+| **MuSGD Optimizer** | Yes | No | No | No |
+| **Area Attention** | No | Yes | No | No |
+| **R-ELAN** | No | Yes | No | No |
+| **FlashAttention** | No | Yes (optional) | No | No |
+| **Multi-scale Proto** | Yes | No | No | No |
+| **RLE for Pose** | Yes | No | No | No |
 
 ---
 
@@ -385,15 +385,15 @@ grad_accum_steps: 4
 
 **Best Overall:**
 
-- 🥇 RF-DETR-2XLarge: 60.1 mAP
-- 🥈 YOLO26x: 57.5 mAP
-- 🥉 YOLOv9e: 55.6 mAP
+- RF-DETR-2XLarge: 60.1 mAP
+- YOLO26x: 57.5 mAP
+- YOLOv9e: 55.6 mAP
 
 **Best Nano Model:**
 
-- 🥇 YOLO26n: 40.9 mAP
-- 🥈 YOLO12n: 40.6 mAP
-- 🥉 YOLO11n: 39.5 mAP
+- YOLO26n: 40.9 mAP
+- YOLO12n: 40.6 mAP
+- YOLO11n: 39.5 mAP
 
 ### Speed (T4 TensorRT)
 

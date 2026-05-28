@@ -6,7 +6,7 @@ description: Complete reference for YOLOmatic model families, benchmarks, task s
 
 > Complete reference for all model families supported by YOLOmatic — architectures, benchmarks, task support, and selection guidance.
 
-**YOLOmatic Version:** 5.0.0  
+**YOLOmatic Version:** 5.0.0
 **Last Updated:** May 28, 2026
 
 ---
@@ -38,14 +38,14 @@ description: Complete reference for YOLOmatic model families, benchmarks, task s
 
 | Family | Best Variant mAP | Smallest (Params) | Edge Optimized | Production Ready |
 |---|---|---|---|---|
-| **RF-DETR** | 60.1 (2XLarge) | 30.5M (Nano) | ✅ | ✅ |
-| **YOLO26** | 57.5 (x) | 2.4M (n) | ✅✅✅ | ✅ |
-| **YOLOv12** | 55.2 (x) | 2.6M (n) | ❌ | ❌ |
-| **YOLO11** | 54.7 (x) | 2.6M (n) | ✅✅ | ✅ |
-| **YOLOv10** | 54.4 (X) | — | ✅ | ✅ |
-| **YOLOv9** | 55.6 (e) | 2.0M (t) | ✅ | ✅ |
-| **YOLOv8** | 53.9 (x) | 3.2M (n) | ✅ | ✅ |
-| **YOLOX** | 51.1 (X) | 9.0M (S) | ✅ | ✅ |
+| **RF-DETR** | 60.1 (2XLarge) | 30.5M (Nano) | Yes | Yes |
+| **YOLO26** | 57.5 (x) | 2.4M (n) | Yes | Yes |
+| **YOLOv12** | 55.2 (x) | 2.6M (n) | No | No |
+| **YOLO11** | 54.7 (x) | 2.6M (n) | Yes | Yes |
+| **YOLOv10** | 54.4 (X) | — | Yes | Yes |
+| **YOLOv9** | 55.6 (e) | 2.0M (t) | Yes | Yes |
+| **YOLOv8** | 53.9 (x) | 3.2M (n) | Yes | Yes |
+| **YOLOX** | 51.1 (X) | 9.0M (S) | Yes | Yes |
 
 ---
 
@@ -55,11 +55,11 @@ The **Benchmark & Vector Analysis** feature (`Evaluate & Monitor → Benchmark M
 
 | Checkpoint Type | Benchmark Support |
 |---|---|
-| YOLO detection (`.pt`) | ✅ Bounding-box IoU metrics |
-| YOLO segmentation (`.pt`) | ✅ Pixel-level mask IoU metrics |
-| RF-DETR (`.pth`) | ⚠️ Not yet supported — use YOLO weights |
-| SAM 3.1 (HuggingFace) | ⚠️ Not yet supported — use dedicated SAM inference |
-| Detectron2 (`.pth`) | ⚠️ Not yet supported |
+| YOLO detection (`.pt`) | Supported — Bounding-box IoU metrics |
+| YOLO segmentation (`.pt`) | Supported — Pixel-level mask IoU metrics |
+| RF-DETR (`.pth`) | Not yet supported — use YOLO weights |
+| SAM 3.1 (HuggingFace) | Not yet supported — use dedicated SAM inference |
+| Detectron2 (`.pth`) | Not yet supported |
 
 Annotation format: COCO JSON (`_annotations.coco.json`). Roboflow export with COCO preset is directly compatible. YOLOmatic also includes a Labelbox NDJSON to COCO converter to assist with preparing custom validation sets.
 
@@ -67,8 +67,8 @@ Annotation format: COCO JSON (`_annotations.coco.json`). Roboflow export with CO
 
 ## RF-DETR
 
-**Status:** Supported  
-**Focus:** Real-time transformer detection and segmentation  
+**Status:** Supported
+**Focus:** Real-time transformer detection and segmentation
 **Trainer:** Native `rfdetr` (not Ultralytics)
 
 RF-DETR configs use the native RF-DETR trainer. Fresh training instantiates the selected model class without a local checkpoint so RF-DETR can automatically download and cache the official pretrained weights. Fine-tuning passes the selected `.pth` checkpoint as `pretrain_weights`; resume flows pass it as `resume`.
@@ -103,7 +103,7 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## YOLO26
 
-**Status:** Latest (2026-01-14) 🚀  
+**Status:** Latest (2026-01-14)
 **Focus:** Edge deployment and end-to-end NMS-free inference
 
 ### Key Features
@@ -143,10 +143,10 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## YOLOv12
 
-**Status:** Community Model (2025 Early)  
+**Status:** Community Model (2025 Early)
 **Focus:** High accuracy through attention mechanisms
 
-⚠️ **Note:** Ultralytics recommends YOLO11 or YOLO26 for production workloads due to training instability and higher memory consumption.
+**Note:** Ultralytics recommends YOLO11 or YOLO26 for production workloads due to training instability and higher memory consumption.
 
 ### Key Features
 
@@ -175,7 +175,7 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## YOLO11
 
-**Status:** Stable (2024-09-10)  
+**Status:** Stable (2024-09-10)
 **Focus:** Balanced accuracy and performance
 
 ### Key Features
@@ -210,7 +210,7 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## YOLOv10
 
-**Status:** Stable  
+**Status:** Stable
 **Focus:** End-to-end NMS-free inference pioneer
 
 | Model | mAP 50-95 | FLOPs (G) | Latency (ms) |
@@ -228,7 +228,7 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## YOLOv9
 
-**Status:** Stable  
+**Status:** Stable
 **Focus:** Extended feature optimization
 
 | Model | mAP 50-95 | mAP 50 | Params (M) | FLOPs (B) |
@@ -245,7 +245,7 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## YOLOv8
 
-**Status:** Stable  
+**Status:** Stable
 **Focus:** Production-tested stability
 
 ### Detection Performance
@@ -274,7 +274,7 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## YOLOX
 
-**Status:** Stable  
+**Status:** Stable
 **Focus:** Decoupled head architecture
 
 | Model | mAP 50-95 | Params (M) | FLOPs (G) | FPS |
@@ -290,8 +290,8 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## SAM 3.1
 
-**Status:** Supported  
-**Focus:** Open-vocabulary segmentation (Segment Anything Model)  
+**Status:** Supported
+**Focus:** Open-vocabulary segmentation (Segment Anything Model)
 **Provider:** Meta / HuggingFace (gated model)
 
 | Model | HuggingFace ID | Params (B) | Description |
@@ -313,8 +313,8 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 ## Detectron2
 
-**Status:** Supported  
-**Focus:** COCO-format detection and instance segmentation  
+**Status:** Supported
+**Focus:** COCO-format detection and instance segmentation
 **Provider:** Facebook Research
 
 | Model | Task | Backbone |
@@ -331,50 +331,50 @@ Detectron2 training uses COCO-format annotations and integrates with ClearML for
 
 ### Use RF-DETR When:
 
-- ✅ Need highest possible mAP (60.1 with 2XLarge)
-- ✅ Transformer-based real-time detection is desired
-- ✅ Working with high-resolution inputs
-- ✅ Server-side deployment with adequate compute
+- Need highest possible mAP (60.1 with 2XLarge)
+- Transformer-based real-time detection is desired
+- Working with high-resolution inputs
+- Server-side deployment with adequate compute
 
 ### Use YOLO26 When:
 
-- ✅ Deploying on edge devices (CPU-only)
-- ✅ Need maximum inference speed
-- ✅ Memory is constrained
-- ✅ Working with IoT, robotics, aerial imagery
+- Deploying on edge devices (CPU-only)
+- Need maximum inference speed
+- Memory is constrained
+- Working with IoT, robotics, aerial imagery
 
 ### Use YOLOv12 When:
 
-- ✅ Researching attention mechanisms
-- ✅ Benchmarking new architectures
-- ✅ GPU resources available for training stability
-- ❌ Production deployments (not recommended)
+- Researching attention mechanisms
+- Benchmarking new architectures
+- GPU resources available for training stability
+- Production deployments (not recommended)
 
 ### Use YOLO11 When:
 
-- ✅ Need production-ready stability
-- ✅ Balance between speed and accuracy is needed
-- ✅ Training stability is critical
-- ✅ Deploying across varied environments
+- Need production-ready stability
+- Balance between speed and accuracy is needed
+- Training stability is critical
+- Deploying across varied environments
 
 ### Use YOLOv10 or Earlier When:
 
-- ✅ Legacy system compatibility required
-- ✅ Specific pre-trained models unavailable in newer versions
-- ✅ Consistent behavior with existing pipelines needed
+- Legacy system compatibility required
+- Specific pre-trained models unavailable in newer versions
+- Consistent behavior with existing pipelines needed
 
 ### Use SAM 3.1 When:
 
-- ✅ Need open-vocabulary segmentation (no predefined classes)
-- ✅ Upgrading detection datasets to segmentation masks
-- ✅ Exploratory annotation and pseudo-label generation
-- ✅ Text-prompted concept segmentation
+- Need open-vocabulary segmentation (no predefined classes)
+- Upgrading detection datasets to segmentation masks
+- Exploratory annotation and pseudo-label generation
+- Text-prompted concept segmentation
 
 ### Use Detectron2 When:
 
-- ✅ Working with Faster R-CNN, RetinaNet, or Mask R-CNN architectures
-- ✅ Need COCO-format training with established baselines
-- ✅ Integration with the Detectron2 ecosystem
+- Working with Faster R-CNN, RetinaNet, or Mask R-CNN architectures
+- Need COCO-format training with established baselines
+- Integration with the Detectron2 ecosystem
 
 ---
 
@@ -395,15 +395,15 @@ Detectron2 training uses COCO-format annotations and integrates with ClearML for
 
 ```
 YOLOv8 (2023)
-    ↓
+
 YOLOv9 (Feature optimization)
-    ↓
+
 YOLOv10 (NMS-free inference)
-    ↓
+
 YOLO11 (Efficiency focus) ← Recommended for production
-    ↓
+
 YOLO12 (Attention-centric) ← Research/benchmarking
-    ↓
+
 YOLO26 (Edge optimization) ← Latest / Recommended for edge
 ```
 
@@ -421,8 +421,8 @@ Parallel families:
 | mAP (best variant) | 60.1 | 57.5 | 55.2 | 54.7 | 54.4 | 55.6 |
 | CPU Speed (fastest) | — | Fastest | Slower | Fast | Moderate | Moderate |
 | Params (smallest) | 30.5M | 2.4M | 2.6M | 2.6M | — | 2.0M |
-| Edge Optimized | ❌ | ✅✅✅ | ❌ | ✅✅ | ✅ | ✅ |
-| Production Ready | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Edge Optimized | No | Yes | No | Yes | Yes | Yes |
+| Production Ready | Yes | Yes | No | Yes | Yes | Yes |
 
 ---
 
