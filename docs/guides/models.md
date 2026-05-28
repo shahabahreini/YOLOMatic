@@ -6,8 +6,8 @@ description: Complete reference for YOLOmatic model families, benchmarks, task s
 
 > Complete reference for all model families supported by YOLOmatic — architectures, benchmarks, task support, and selection guidance.
 
-**YOLOmatic Version:** 4.3.0  
-**Last Updated:** May 14, 2026
+**YOLOmatic Version:** 5.0.0  
+**Last Updated:** May 28, 2026
 
 ---
 

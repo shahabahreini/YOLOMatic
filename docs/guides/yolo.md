@@ -6,8 +6,8 @@ description: Practical YOLOmatic workflow guide for model selection, training co
 
 > Practical workflow guide — model selection, deployment scenarios, training configuration, export options, and operational reference.
 
-**YOLOmatic Version:** 4.3.0  
-**Last Updated:** May 14, 2026  
+**YOLOmatic Version:** 5.0.0  
+**Last Updated:** May 28, 2026  
 **Status:** ✅ Fully Supported and Integrated
 
 ---

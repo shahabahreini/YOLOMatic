@@ -88,13 +88,20 @@ nav:
       - YOLO: guides/yolo.md
       - RF-DETR: guides/rf-detr.md
       - SAM 3.1: guides/sam.md
+      - Augmentation: guides/augmentation.md
       - Benchmarking: guides/benchmarking.md
+      - Export & Deployment: guides/export.md
       - Cloud Upload: guides/cloud-upload.md
+      - ClearML: guides/clearml.md
+      - TensorBoard: guides/tensorboard.md
   - Reference:
       - CLI Commands: reference/cli-commands.md
       - Configuration: reference/configuration.md
+      - Settings File: reference/settings.md
       - Smart Split: reference/smart-split.md
       - NDJSON Conversion: reference/ndjson-conversion.md
+  - Advanced Options:
+      - Training Parameters: advanced/training-parameters.md
   - FAQ: faq.md
   - Comparison: comparison.md
   - Citation: citation.md
