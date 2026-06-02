@@ -204,7 +204,7 @@ def select_weight(root: Path, available_weights: Sequence[Path]) -> Path | None:
         text="Pick the trained model weights to export:",
         breadcrumbs=["YOLOmatic", "Export", "Weight Selection"],
     )
-    if selected == "Exit":
+    if selected == "Exit" or selected == NAV_BACK:
         return None
     return available_weights[options.index(selected)]
 
@@ -284,7 +284,8 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
     from ultralytics import YOLO
     
     def get_size(p: Path) -> float:
-        if not p.exists(): return 0.0
+        if not p.exists():
+            return 0.0
         if p.is_file():
             return p.stat().st_size / (1024 * 1024)
         total = 0
@@ -353,7 +354,8 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
     table.add_column("Visual", justify="left")
 
     def draw_bar(val: float, max_val: float, color: str) -> str:
-        if max_val <= 0: return ""
+        if max_val <= 0:
+            return ""
         width = int((val / max_val) * 20)
         return f"[{color}]" + "█" * width + "[/]"
         
