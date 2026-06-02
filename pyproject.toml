@@ -151,3 +151,9 @@ yolomatic-sam = "src.cli.sam_predict:main"
 yolomatic-convert = "src.cli.convert_ndjson:main"
 yolomatic-prepare = "src.cli.prepare_dataset:main"
 yolomatic-ultralytics = "src.cli.ultralytics_platform:main"
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
