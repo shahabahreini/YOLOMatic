@@ -88,7 +88,8 @@ class ModelMetrics:
     medium: SizeBucketMetrics
     large: SizeBucketMetrics
     per_image: list[ImageResult]
-
+    inference_time_ms: float = 0.0
+    fps: float = 0.0
 
 @dataclass
 class BenchmarkResult:
@@ -448,9 +449,13 @@ def _evaluate_model_worker(
         task = _detect_task(model, probe[0], conf_threshold, device)
     log(f"  Task: {task}")
 
+    import time
     valid_images = [p for p in all_images if p.exists()]
     total = len(valid_images)
     per_image: list[ImageResult] = []
+
+    total_inference_time = 0.0
+    total_images_inferred = 0
 
     for batch_start in range(0, total, batch_size):
         batch_paths = valid_images[batch_start: batch_start + batch_size]
@@ -469,12 +474,16 @@ def _evaluate_model_worker(
                 img_sizes.append((640, 640))
 
         try:
+            t0 = time.perf_counter()
             batch_results = model(
                 [str(p) for p in batch_paths],
                 conf=conf_threshold,
                 device=device,
                 verbose=False,
             )
+            t1 = time.perf_counter()
+            total_inference_time += (t1 - t0)
+            total_images_inferred += len(batch_paths)
         except Exception as exc:
             log(f"  [WARN] Batch inference failed at offset {batch_start}: {exc}")
             batch_results = [None] * len(batch_paths)
@@ -499,9 +508,12 @@ def _evaluate_model_worker(
             )
 
     agg = aggregate_metrics(per_image, task)
+    fps = total_images_inferred / total_inference_time if total_inference_time > 0 else 0.0
+    inference_time_ms = (total_inference_time / total_images_inferred * 1000) if total_images_inferred > 0 else 0.0
     log(
         f"  mAP@50={agg['map50']:.3f}  mAP@50:95={agg['map50_95']:.3f}"
         f"  F1={agg['f1']:.3f}  P={agg['precision']:.3f}  R={agg['recall']:.3f}"
+        f"  FPS={fps:.1f}  Latency={inference_time_ms:.1f}ms"
     )
     return ModelMetrics(
         weights_path=weights,
@@ -516,6 +528,8 @@ def _evaluate_model_worker(
         medium=agg["medium"],
         large=agg["large"],
         per_image=per_image,
+        inference_time_ms=inference_time_ms,
+        fps=fps,
     ), logs
 
 

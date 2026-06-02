@@ -37,13 +37,15 @@ def _fmt(v: float, decimals: int = 3) -> str:
     return f"{v:.{decimals}f}"
 
 
-def _interpolate_color(v: float, min_v: float, max_v: float, is_highlight: bool = False) -> str:
+def _interpolate_color(v: float, min_v: float, max_v: float, is_highlight: bool = False, inverse: bool = False) -> str:
     """Interpolate between red and green based on relative performance."""
     if max_v == min_v:
         return "#ffffff"
     
     # Normalised score 0.0 to 1.0
     s = (v - min_v) / (max_v - min_v)
+    if inverse:
+        s = 1.0 - s
     
     if is_highlight:
         # High-contrast Blue scale
@@ -161,13 +163,15 @@ def _summary_cards_html(result: Any, names: dict[Path, str]) -> str:
     best_50_95 = max(result.models, key=lambda m: m.map50_95)
     best_50 = max(result.models, key=lambda m: m.map50)
     best_f1 = max(result.models, key=lambda m: m.f1)
+    best_fps = max(result.models, key=lambda m: m.fps) if any(m.fps > 0 for m in result.models) else None
     
-    def render_stat(model: Any, label: str, value: float):
+    def render_stat(model: Any, label: str, value: float, suffix: str = ""):
+        if model is None: return ""
         m_name = escape(_display_name(model, names))
         return f"""
         <div class="stat-item">
             <div class="stat-label">{label}</div>
-            <div class="stat-value">{_fmt(value)}</div>
+            <div class="stat-value">{_fmt(value)}{suffix}</div>
             <div class="stat-model">
                 <span class="stat-model-label">Best Model:</span>
                 <span class="stat-model-name">{m_name}</span>
@@ -178,6 +182,7 @@ def _summary_cards_html(result: Any, names: dict[Path, str]) -> str:
     stat_50_95 = render_stat(best_50_95, "Primary mAP@50:95", best_50_95.map50_95)
     stat_50 = render_stat(best_50, "Secondary mAP@50", best_50.map50)
     stat_f1 = render_stat(best_f1, "Detection F1", best_f1.f1)
+    stat_fps = render_stat(best_fps, "Throughput (FPS)", best_fps.fps) if best_fps else ""
     
     return f"""
     <section class="summary-section">
@@ -189,6 +194,7 @@ def _summary_cards_html(result: Any, names: dict[Path, str]) -> str:
             {stat_50_95}
             {stat_50}
             {stat_f1}
+            {stat_fps}
         </div>
     </section>
     """
@@ -199,12 +205,14 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
     model_names = [_display_name(m, names) for m in models]
     
     metrics_data = [
-        ("mAP@50:95", [m.map50_95 for m in models], True),
-        ("mAP@50", [m.map50 for m in models], False),
-        ("mAP@75", [m.map75 for m in models], False),
-        ("F1", [m.f1 for m in models], False),
-        ("Precision", [m.precision for m in models], False),
-        ("Recall", [m.recall for m in models], False),
+        ("mAP@50:95", [m.map50_95 for m in models], True, False),
+        ("mAP@50", [m.map50 for m in models], False, False),
+        ("mAP@75", [m.map75 for m in models], False, False),
+        ("F1", [m.f1 for m in models], False, False),
+        ("Precision", [m.precision for m in models], False, False),
+        ("Recall", [m.recall for m in models], False, False),
+        ("FPS", [m.fps for m in models], True, False),
+        ("Latency (ms)", [m.inference_time_ms for m in models], False, True),
     ]
     
     headers = ["Rank", "Model", "Task"] + [m[0] for m in metrics_data]
@@ -219,7 +227,7 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
         ["#ffffff"] * len(models),
     ]
     
-    for label, vals, highlight in metrics_data:
+    for label, vals, highlight, inverse in metrics_data:
         values.append([_fmt(v) for v in vals])
         if not vals or len(vals) < 2:
             fills.append(["#ffffff"] * len(models))
@@ -227,7 +235,7 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
             
         # Calculate min/max for THIS column only
         min_v, max_v = min(vals), max(vals)
-        fills.append([_interpolate_color(v, min_v, max_v, is_highlight=highlight) for v in vals])
+        fills.append([_interpolate_color(v, min_v, max_v, is_highlight=highlight, inverse=inverse) for v in vals])
 
     # Header row (40px) + cell rows (32px each) + title/margin overhead (120px)
     HEADER_H = 40
@@ -238,19 +246,19 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
         target_height = max(target_height, 500)
 
     fig = go.Figure(go.Table(
-        columnwidth=[50, 240, 100, 100, 90, 90, 80, 90, 90],
+        columnwidth=[50, 240, 100, 100, 90, 90, 80, 90, 90, 80, 100],
         header={
             "values": [f"<b>{h}</b>" for h in headers],
             "fill_color": "#0f172a",
             "font": {"color": "white", "size": 12},
-            "align": ["center", "left", "center"] + ["center"] * 6,
+            "align": ["center", "left", "center"] + ["center"] * 8,
             "height": 40,
         },
         cells={
             "values": values,
             "fill_color": fills,
             "font": {"size": 12, "color": INK},
-            "align": ["center", "left", "center"] + ["center"] * 6,
+            "align": ["center", "left", "center"] + ["center"] * 8,
             "height": ROW_H,
             "line": {"color": "rgba(0,0,0,0.03)", "width": 1},
         },
