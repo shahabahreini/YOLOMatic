@@ -29,7 +29,17 @@ After training a model with YOLOmatic, you can export it to a deployment-ready f
 
 YOLOmatic exposes export options during the **Configure Model** workflow. After you select a model family and variant, look for the **Export** step in the wizard to choose a format and configure advanced options.
 
-For a standalone export after training, use the Ultralytics Python API directly (see below).
+For standalone export after training, run:
+
+```sh
+uv run yolomatic-export
+```
+
+The export wizard loads the selected `.pt` checkpoint first, shows its detected
+task and class metadata, then hides export options that are not applicable to
+that model and target format. For example, TensorRT-only workspace settings are
+shown only for `engine` exports, and NMS options are hidden for classification
+models.
 
 ---
 

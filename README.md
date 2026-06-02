@@ -124,7 +124,8 @@ F1, per-image rankings, confidence inspection, thumbnails, and UMAP vectors.
 Yes. `uv run yolomatic-export` exports trained YOLO `.pt` weights to TensorRT,
 ONNX, OpenVINO, CoreML, TFLite, TorchScript, NCNN, RKNN, and other Ultralytics
 formats. TensorRT workspace is user-controlled so it can be tuned for the GPU
-that builds the engine.
+that builds the engine. The export wizard reads the selected checkpoint details
+first, then hides options that do not apply to that model task or export format.
 
 ### Can I upload models to Roboflow?
 

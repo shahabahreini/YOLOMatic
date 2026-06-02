@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.utils.export_config import build_export_kwargs
+from src.utils.export_config import (
+    ExportModelDetails,
+    extract_model_details,
+    filter_export_defaults,
+    filter_export_definitions,
+)
 
 
 @dataclass(frozen=True)
@@ -24,6 +30,19 @@ PARAMS = [
 
 
 class ExportCliTests(unittest.TestCase):
+    def test_load_model_details_reads_task_and_classes_from_loaded_model(self) -> None:
+        class Model:
+            task = "segment"
+            names = {1: "tree", 0: "weed"}
+            model_name = "yolo11s-seg"
+
+        details = extract_model_details("best.pt", Model())
+
+        self.assertEqual(details.task, "segment")
+        self.assertEqual(details.class_count, 2)
+        self.assertEqual(details.class_names, ("weed", "tree"))
+        self.assertEqual(details.model_name, "yolo11s-seg")
+
     def test_tensorrt_workspace_is_preserved_for_all_gpu_sizes(self) -> None:
         kwargs = build_export_kwargs(
             "engine",
@@ -63,6 +82,42 @@ class ExportCliTests(unittest.TestCase):
         )
 
         self.assertNotIn("data", kwargs)
+
+    def test_engine_options_keep_workspace_and_hide_keras_optimize(self) -> None:
+        filtered = filter_export_definitions(
+            PARAMS + [Param("keras", False, "bool"), Param("optimize", False, "bool")],
+            "engine",
+            ExportModelDetails(path="best.pt", task="detect"),
+        )
+
+        names = {param.name for param in filtered}
+        self.assertIn("workspace", names)
+        self.assertNotIn("keras", names)
+        self.assertNotIn("optimize", names)
+
+    def test_classification_model_hides_nms(self) -> None:
+        filtered = filter_export_definitions(
+            PARAMS + [Param("nms", False, "bool")],
+            "onnx",
+            ExportModelDetails(path="best.pt", task="classify"),
+        )
+
+        self.assertNotIn("nms", {param.name for param in filtered})
+
+    def test_format_defaults_are_filtered_to_applicable_options(self) -> None:
+        defaults = filter_export_defaults(
+            {
+                "half": False,
+                "workspace": 4.0,
+                "keras": False,
+                "optimize": False,
+                "opset": 17,
+            },
+            "torchscript",
+            ExportModelDetails(path="best.pt", task="detect"),
+        )
+
+        self.assertEqual(defaults, {"half": False, "optimize": False})
 
 
 if __name__ == "__main__":

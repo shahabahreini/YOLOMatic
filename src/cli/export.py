@@ -21,7 +21,14 @@ from src.utils.project import (
     project_root,
 )
 from src.utils.ml_dependencies import import_ultralytics_yolo
-from src.utils.export_config import build_export_kwargs
+from src.utils.export_config import (
+    ExportModelDetails,
+    build_export_kwargs,
+    extract_model_details,
+    filter_export_defaults,
+    filter_export_definitions,
+    supported_formats_for_model,
+)
 
 
 SUPPORTED_FORMATS = {
@@ -238,6 +245,36 @@ def _get_defaults_for_format(fmt: str) -> dict[str, Any]:
     elif fmt == "coreml":
         defaults["nms"] = True
     return defaults
+
+
+def load_model_details(weight_path: Path, model: Any | None = None) -> ExportModelDetails:
+    if model is None:
+        import_ultralytics_yolo()
+        from ultralytics import YOLO
+
+        model = YOLO(str(weight_path))
+
+    return extract_model_details(str(weight_path), model)
+
+
+def print_model_details(details: ExportModelDetails) -> None:
+    task = details.task or "unknown"
+    class_count = str(details.class_count) if details.class_count is not None else "unknown"
+    preview = ", ".join(details.class_names[:8])
+    if details.class_names and len(details.class_names) > 8:
+        preview += ", ..."
+
+    lines = [
+        f"[dim]Weight:[/dim] {Path(details.path).name}",
+        f"[dim]Task:[/dim] {task}",
+        f"[dim]Classes:[/dim] {class_count}",
+    ]
+    if details.model_name:
+        lines.append(f"[dim]Model:[/dim] {details.model_name}")
+    if preview:
+        lines.append(f"[dim]Class names:[/dim] {preview}")
+
+    console.print(Panel("\n".join(lines), title="Loaded Model Details", border_style="cyan"))
 
 
 def select_weight(root: Path, available_weights: Sequence[Path]) -> Path | None:
@@ -567,6 +604,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             if not weight_path:
                 return
 
+        try:
+            model_details = load_model_details(weight_path)
+        except Exception as error:
+            console.print(
+                expected_error_panel(
+                    f"Could not load model details from {weight_path}: {error}",
+                    title="Model Details Error",
+                )
+            )
+            return
+
+        print_model_details(model_details)
+
         # Select Format
         descriptions = {
             "TensorRT (engine)": "Best for NVIDIA GPUs. Expected Boost: 3x-5x faster inference. Ideal for local workstations and Jetson devices. Requires TRT runtime matching export version.",
@@ -585,8 +635,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             "Cancel": "Return to the previous menu."
         }
         
+        supported_formats = supported_formats_for_model(SUPPORTED_FORMATS, model_details)
         format_label = get_user_choice(
-            list(SUPPORTED_FORMATS.keys()) + ["Cancel"],
+            list(supported_formats.keys()) + ["Cancel"],
             title="Export Format",
             text="Select the target architecture format. (See expected boosting metrics below):",
             descriptions=descriptions,
@@ -595,11 +646,19 @@ def main(argv: Sequence[str] | None = None) -> None:
         if format_label == "Cancel" or format_label == NAV_BACK:
             return
             
-        target_format = SUPPORTED_FORMATS[format_label]
+        target_format = supported_formats[format_label]
         
         # Configure Options
-        definitions = _export_definitions()
-        defaults = _get_defaults_for_format(target_format)
+        definitions = filter_export_definitions(
+            _export_definitions(),
+            target_format,
+            model_details,
+        )
+        defaults = filter_export_defaults(
+            _get_defaults_for_format(target_format),
+            target_format,
+            model_details,
+        )
         
         # Only select arguments that make sense for the chosen format
         pre_selected = set(defaults.keys())

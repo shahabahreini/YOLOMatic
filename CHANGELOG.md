@@ -4,6 +4,8 @@
 - Updated `wrapt` dependency to 2.2.0 in `uv.lock`.
 - Preserved user-selected TensorRT export workspace values instead of clamping
   them to a local GPU memory heuristic.
+- Made the standalone export wizard load checkpoint details before export and
+  hide options that do not apply to the selected model task or target format.
 
 ## [v5.0.0] - 2026-05-27
 
