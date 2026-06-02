@@ -226,6 +226,8 @@ def _get_defaults_for_format(fmt: str) -> dict[str, Any]:
         defaults["half"] = True
         defaults["dynamic"] = True
         defaults["workspace"] = 4.0
+        defaults["simplify"] = True
+        defaults["opset"] = 11  # TRT 11 FP16+dynamic ConvTranspose requires opset ≤ 12
     elif fmt == "onnx":
         defaults["dynamic"] = True
         defaults["simplify"] = True
@@ -303,8 +305,9 @@ def get_renamed_path(original_path: Path, format_ext: str, params: dict[str, Any
 
 def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: int, format_label: str) -> None:
     from rich.table import Table
+    from rich.rule import Rule
     import time
-    
+
     choice = get_user_choice(
         ["Yes, run benchmark", "No, skip"],
         title="Benchmark Comparison",
@@ -314,16 +317,48 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
     if choice != "Yes, run benchmark":
         return
 
-    console.print("\n[bold cyan]Running Performance Benchmark...[/bold cyan]")
-    
+    console.print("\n[bold cyan]Running Realistic Performance Benchmark...[/bold cyan]")
+    console.print("[dim]  Using varied synthetic images, CUDA-synchronised per-frame timing, 100 measured runs.[/dim]\n")
+
     try:
         import numpy as np
     except ImportError:
         console.print("[red]numpy is not installed. Skipping benchmark.[/red]")
         return
-        
+
     from ultralytics import YOLO
-    
+
+    # ── CUDA sync helper ───────────────────────────────────────────────────────
+    try:
+        import torch
+        _cuda_available = torch.cuda.is_available()
+    except ImportError:
+        torch = None          # type: ignore[assignment]
+        _cuda_available = False
+
+    def _cuda_sync() -> None:
+        if _cuda_available:
+            torch.cuda.synchronize()
+
+    # ── Realistic image pool ───────────────────────────────────────────────────
+    # A blank zeros image short-circuits most activations.  Use a diverse pool
+    # of synthetic images that mimic real-world content distribution.
+    rng = np.random.default_rng(42)
+    POOL_SIZE = 16
+    _image_pool: list[np.ndarray] = []
+    for _i in range(POOL_SIZE):
+        base = rng.integers(40, 200, size=(imgsz, imgsz, 3), dtype=np.uint8)
+        # Add structured blobs to trigger non-trivial activations
+        for _ in range(rng.integers(3, 10)):
+            cx = rng.integers(0, imgsz)
+            cy = rng.integers(0, imgsz)
+            r  = rng.integers(imgsz // 16, imgsz // 4)
+            col = rng.integers(0, 256, size=3)
+            y_idx, x_idx = np.ogrid[:imgsz, :imgsz]
+            mask = (x_idx - cx) ** 2 + (y_idx - cy) ** 2 <= r ** 2
+            base[mask] = col.astype(np.uint8)
+        _image_pool.append(base)
+
     def get_size(p: Path) -> float:
         if not p.exists():
             return 0.0
@@ -338,105 +373,167 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
                     total += os.path.getsize(fp)
         return total / (1024 * 1024)
 
-    dummy_img = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
-    
-    def profile_model(path: Path) -> tuple[float, float, float]:
+    WARMUP_RUNS   = 20   # enough to reach GPU steady-state and fill TRT caches
+    MEASURED_RUNS = 100  # statistical sample size
+
+    def profile_model(path: Path, label: str) -> dict:
         sz = get_size(path)
+        console.print(f"  [dim]Loading {label}...[/dim]")
         try:
             model = YOLO(str(path))
-            # Warmup
-            for _ in range(3):
-                model(dummy_img, verbose=False)
-            
-            # Benchmark
-            t0 = time.time()
-            inf_times = []
-            for _ in range(20):
-                res = model(dummy_img, verbose=False)
-                if res and hasattr(res[0], 'speed') and 'inference' in res[0].speed:
-                    inf_times.append(res[0].speed['inference'])
-            t1 = time.time()
-            
-            if inf_times:
-                avg_inf = sum(inf_times) / len(inf_times)
-            else:
-                avg_inf = ((t1 - t0) / 20) * 1000
-                
-            fps = 20 / (t1 - t0)
-            
+
+            # ── warmup: rotate through pool so TRT profiles all shapes ────────
+            console.print(f"  [dim]Warming up ({WARMUP_RUNS} runs, varied images)...[/dim]")
+            for i in range(WARMUP_RUNS):
+                img = _image_pool[i % POOL_SIZE]
+                _cuda_sync()
+                model(img, verbose=False)
+                _cuda_sync()
+
+            # ── measured runs ─────────────────────────────────────────────────
+            console.print(f"  [dim]Measuring ({MEASURED_RUNS} runs)...[/dim]")
+            frame_times: list[float] = []
+            for i in range(MEASURED_RUNS):
+                img = _image_pool[i % POOL_SIZE]   # rotate — no caching artefacts
+                _cuda_sync()
+                t0 = time.perf_counter()
+                model(img, verbose=False)
+                _cuda_sync()
+                t1 = time.perf_counter()
+                frame_times.append((t1 - t0) * 1000)   # ms end-to-end (preproc+infer+postproc)
+
+            arr = np.array(frame_times)
+            result = {
+                "mean_ms":  float(np.mean(arr)),
+                "p50_ms":   float(np.percentile(arr, 50)),
+                "p95_ms":   float(np.percentile(arr, 95)),
+                "p99_ms":   float(np.percentile(arr, 99)),
+                "std_ms":   float(np.std(arr)),
+                "fps":      float(1000.0 / np.mean(arr)),
+                "size_mb":  sz,
+            }
+
             del model
-            import gc
-            gc.collect()
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except ImportError:
-                pass
-                
-            return avg_inf, fps, sz
+            import gc; gc.collect()
+            if _cuda_available:
+                torch.cuda.empty_cache()
+
+            return result
+
         except Exception as e:
-            console.print(f"[red]Failed to profile {path.name}: {e}[/red]")
-            return 0.0, 0.0, sz
+            console.print(f"[red]  Failed to profile {label}: {e}[/red]")
+            return {"mean_ms": 0, "p50_ms": 0, "p95_ms": 0, "p99_ms": 0,
+                    "std_ms": 0, "fps": 0, "size_mb": sz}
 
-    console.print(f"[dim]Profiling original {original_path.name}...[/dim]")
-    pt_inf, pt_fps, pt_sz = profile_model(original_path)
-    
-    console.print(f"[dim]Profiling exported {exported_path.name}...[/dim]")
-    exp_inf, exp_fps, exp_sz = profile_model(exported_path)
-    
-    speed_diff = (pt_inf / exp_inf) if (pt_inf > 0 and exp_inf > 0) else 1.0
+    PT_COLOR  = "steel_blue1"
+    EXP_COLOR = "cyan"
+    BAR_WIDTH = 22
 
-    table = Table(title=f"Performance Comparison: PyTorch vs {format_label}", box=box.ROUNDED)
-    table.add_column("Metric", style="cyan")
-    table.add_column("Original (.pt)", justify="right")
-    table.add_column("Exported", justify="right")
-    table.add_column("Change", justify="right")
-    table.add_column("Visual", justify="left")
+    pt  = profile_model(original_path, f"PyTorch ({original_path.name})")
+    exp = profile_model(exported_path,  f"{format_label} ({exported_path.name})")
 
-    def draw_bar(val: float, max_val: float, color: str) -> str:
-        if max_val <= 0:
+    def bar(val: float, ref: float, color: str) -> str:
+        if ref <= 0:
             return ""
-        width = int((val / max_val) * 20)
-        return f"[{color}]" + "█" * width + "[/]"
-        
-    max_inf = max(pt_inf, exp_inf)
-    if max_inf > 0:
-        inf_change = f"[green]{speed_diff:.1f}x faster[/green]" if exp_inf < pt_inf else f"[red]{speed_diff:.1f}x slower[/red]"
-        table.add_row(
-            "Inference (ms)", 
-            f"{pt_inf:.2f}", 
-            f"{exp_inf:.2f}", 
-            inf_change,
-            draw_bar(pt_inf, max_inf, "red") + "\n" + draw_bar(exp_inf, max_inf, "green")
-        )
-        
-    max_fps = max(pt_fps, exp_fps)
-    if max_fps > 0:
-        fps_diff = (exp_fps - pt_fps) / pt_fps * 100 if pt_fps > 0 else 0
-        fps_change = f"[green]+{fps_diff:.1f}%[/green]" if fps_diff > 0 else f"[red]{fps_diff:.1f}%[/red]"
-        table.add_row(
-            "Throughput (FPS)", 
-            f"{pt_fps:.1f}", 
-            f"{exp_fps:.1f}", 
-            fps_change,
-            draw_bar(pt_fps, max_fps, "red") + "\n" + draw_bar(exp_fps, max_fps, "green")
-        )
-        
-    max_sz = max(pt_sz, exp_sz)
-    if max_sz > 0:
-        sz_diff = (exp_sz - pt_sz) / pt_sz * 100 if pt_sz > 0 else 0
-        sz_change = f"[red]+{sz_diff:.1f}%[/red]" if sz_diff > 0 else f"[green]{sz_diff:.1f}%[/green]"
-        table.add_row(
-            "File Size (MB)", 
-            f"{pt_sz:.1f}", 
-            f"{exp_sz:.1f}", 
-            sz_change,
-            draw_bar(pt_sz, max_sz, "red") + "\n" + draw_bar(exp_sz, max_sz, "green")
-        )
-        
+        filled = max(1, round(val / ref * BAR_WIDTH))
+        empty  = BAR_WIDTH - filled
+        return f"[{color}]{'█' * filled}[/][dim]{'░' * empty}[/]"
+
+    def delta_tag(exp_val: float, pt_val: float, higher_is_better: bool) -> str:
+        if exp_val <= 0 or pt_val <= 0:
+            return "[dim]n/a[/dim]"
+        pct      = abs(exp_val - pt_val) / pt_val * 100
+        ratio    = (exp_val / pt_val) if higher_is_better else (pt_val / exp_val)
+        exp_wins = (exp_val > pt_val) if higher_is_better else (exp_val < pt_val)
+        c = "green" if exp_wins else "red"
+        sym = "▲" if exp_wins else "▼"
+        winner = f"[{EXP_COLOR}]{format_label}[/]" if exp_wins else f"[{PT_COLOR}]PyTorch[/]"
+        return f"[{c}]{sym} {pct:.1f}%  ({ratio:.2f}×)[/]  → {winner}"
+
+    console.print(Rule(f"  {format_label} vs PyTorch — Realistic Benchmark  ", style="cyan"))
+    console.print(
+        f"  [{PT_COLOR}]█[/] PyTorch (.pt)   "
+        f"[{EXP_COLOR}]█[/] {format_label} ({exported_path.suffix})   "
+        f"[dim]· {MEASURED_RUNS} runs, CUDA-synced, {POOL_SIZE} unique images[/dim]\n"
+    )
+
+    # ── Latency table (end-to-end per frame) ──────────────────────────────────
+    lat = Table(title="[bold]End-to-End Latency  (↓ lower is better)  — includes preprocess + infer + postprocess[/bold]",
+                box=box.SIMPLE_HEAD, show_lines=False, padding=(0, 2), title_justify="left")
+    lat.add_column("Model",   style="bold", min_width=44, no_wrap=True)
+    lat.add_column("Mean ms", justify="right", min_width=9)
+    lat.add_column("P50",     justify="right", min_width=8)
+    lat.add_column("P95",     justify="right", min_width=8)
+    lat.add_column("P99",     justify="right", min_width=8)
+    lat.add_column("Std",     justify="right", min_width=7)
+    lat.add_column("Bar",     min_width=BAR_WIDTH + 2, no_wrap=True)
+
+    worst_mean = max(pt["mean_ms"], exp["mean_ms"])
+    pt_best  = pt["mean_ms"]  < exp["mean_ms"]
+    exp_best = not pt_best
+    pt_crown  = " [yellow]◀ best[/yellow]" if pt_best  else ""
+    exp_crown = " [yellow]◀ best[/yellow]" if exp_best else ""
+
+    lat.add_row(
+        f"[{PT_COLOR}]█[/] PyTorch  ({original_path.name}){pt_crown}",
+        f"[{PT_COLOR}]{pt['mean_ms']:.2f}[/]",
+        f"[dim]{pt['p50_ms']:.2f}[/]",
+        f"[dim]{pt['p95_ms']:.2f}[/]",
+        f"[dim]{pt['p99_ms']:.2f}[/]",
+        f"[dim]±{pt['std_ms']:.2f}[/]",
+        bar(pt["mean_ms"], worst_mean, PT_COLOR),
+    )
+    lat.add_row(
+        f"[{EXP_COLOR}]█[/] {format_label}  ({exported_path.name}){exp_crown}",
+        f"[{EXP_COLOR}]{exp['mean_ms']:.2f}[/]",
+        f"[dim]{exp['p50_ms']:.2f}[/]",
+        f"[dim]{exp['p95_ms']:.2f}[/]",
+        f"[dim]{exp['p99_ms']:.2f}[/]",
+        f"[dim]±{exp['std_ms']:.2f}[/]",
+        bar(exp["mean_ms"], worst_mean, EXP_COLOR),
+    )
+    lat.add_section()
+    lat.add_row("[dim]Δ Change[/dim]", delta_tag(exp["mean_ms"], pt["mean_ms"], False),
+                "", "", "", "", "")
+    console.print(lat)
     console.print()
-    console.print(table)
+
+    # ── Throughput + File Size ─────────────────────────────────────────────────
+    def simple_section(title: str, pt_val: float, exp_val: float, unit: str,
+                       higher_is_better: bool, fmt: str = ".1f") -> None:
+        if pt_val <= 0 and exp_val <= 0:
+            return
+        ref = max(pt_val, exp_val)
+        t = Table(title=f"[bold]{title}[/bold]",
+                  box=box.SIMPLE_HEAD, show_lines=False, padding=(0, 2), title_justify="left")
+        t.add_column("Model",  style="bold", min_width=44, no_wrap=True)
+        t.add_column(unit,     justify="right", min_width=10)
+        t.add_column("Bar",    min_width=BAR_WIDTH + 2, no_wrap=True)
+        pw = (pt_val < exp_val) if not higher_is_better else (pt_val > exp_val)
+        t.add_row(
+            f"[{PT_COLOR}]█[/] PyTorch  ({original_path.name})" + (" [yellow]◀ best[/yellow]" if pw else ""),
+            f"[{PT_COLOR}]{pt_val:{fmt}}[/]",
+            bar(pt_val, ref, PT_COLOR),
+        )
+        t.add_row(
+            f"[{EXP_COLOR}]█[/] {format_label}  ({exported_path.name})" + (" [yellow]◀ best[/yellow]" if not pw else ""),
+            f"[{EXP_COLOR}]{exp_val:{fmt}}[/]",
+            bar(exp_val, ref, EXP_COLOR),
+        )
+        t.add_section()
+        t.add_row("[dim]Δ Change[/dim]", "", delta_tag(exp_val, pt_val, higher_is_better))
+        console.print(t)
+        console.print()
+
+    simple_section("Throughput  (↑ higher is better)",  pt["fps"],     exp["fps"],     "FPS", True)
+    simple_section("File Size   (↓ lower is better)",   pt["size_mb"], exp["size_mb"], "MB",  False)
+
+    console.print(Rule(style="dim"))
+    console.print(
+        f"  [dim]Methodology: {POOL_SIZE} unique synthetic images rotated per run · "
+        f"{WARMUP_RUNS} warmup runs discarded · CUDA synchronised per frame · "
+        f"end-to-end wall-clock (letterbox + infer + NMS)[/dim]\n"
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -524,6 +621,36 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if val == "" and param.value_type == "str":
                     continue  # Ignore empty strings for optional args like data
                 export_kwargs[param.name] = val
+                
+        if target_format == "engine":
+            if export_kwargs.get("dynamic") and export_kwargs.get("batch", 1) == 1:
+                # TRT dynamic batching requires max batch size explicitly defined
+                export_kwargs["batch"] = 16
+
+            # TRT 11 FP16+dynamic ConvTranspose (segmentation upsample head) has no
+            # tactic implementations at opset 17. Clamp to opset 12 max.
+            if export_kwargs.get("opset", 17) > 12:
+                console.print(
+                    f"[yellow]Warning: Lowering ONNX opset from {export_kwargs['opset']} to 12 "
+                    f"for TensorRT export. Opset 17 causes ConvTranspose tactic errors in TRT 11 "
+                    f"with dynamic+FP16 segmentation models.[/yellow]"
+                )
+                export_kwargs["opset"] = 12
+
+            if "workspace" in export_kwargs:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        free_mem, _ = torch.cuda.mem_get_info()
+                        free_gb = free_mem / (1024 ** 3)
+                        # Keep 2GB margin for OS, CUDA context, and model weights
+                        safe_workspace = max(0.5, free_gb - 2.0)
+                        if export_kwargs["workspace"] > safe_workspace:
+                            safe_workspace = round(safe_workspace, 1)
+                            console.print(f"[yellow]Warning: Lowering TensorRT workspace from {export_kwargs['workspace']}GB to {safe_workspace}GB to avoid GPU out-of-memory errors.[/yellow]")
+                            export_kwargs["workspace"] = safe_workspace
+                except Exception:
+                    pass
         
         console.print(Panel(
             f"[bold cyan]Exporting {weight_path.name}[/bold cyan]\n"
@@ -537,31 +664,84 @@ def main(argv: Sequence[str] | None = None) -> None:
         from ultralytics import YOLO
         
         try:
-            model = YOLO(str(weight_path))
-            
+            import shutil
+
+            def _is_trt_tactic_error(exc: Exception) -> bool:
+                return "engine build failed" in str(exc).lower()
+
+            def _cleanup_onnx(weight_path: Path) -> None:
+                """Remove the intermediate ONNX produced by a failed TRT export."""
+                onnx_path = weight_path.with_suffix(".onnx")
+                if onnx_path.exists():
+                    try:
+                        onnx_path.unlink()
+                    except Exception:
+                        pass
+
+            def _do_export(kwargs: dict) -> str | None:
+                m = YOLO(str(weight_path))
+                return m.export(**kwargs)
+
             console.print("[yellow]Starting export process... This may take a while.[/yellow]")
-            exported_path_str = model.export(**export_kwargs)
-            
+
+            active_kwargs = export_kwargs.copy()
+            exported_path_str = None
+
+            # --- TensorRT-specific retry cascade ---
+            if target_format == "engine":
+                try:
+                    exported_path_str = _do_export(active_kwargs)
+                except Exception as e1:
+                    if _is_trt_tactic_error(e1) and active_kwargs.get("half"):
+                        _cleanup_onnx(weight_path)
+                        console.print(
+                            "[yellow]⚠ TRT FP16 build failed (ConvTranspose tactic not available on this GPU/TRT version). "
+                            "Retrying with FP32...[/yellow]"
+                        )
+                        active_kwargs["half"] = False
+                        try:
+                            exported_path_str = _do_export(active_kwargs)
+                        except Exception as e2:
+                            if _is_trt_tactic_error(e2) and active_kwargs.get("dynamic"):
+                                _cleanup_onnx(weight_path)
+                                console.print(
+                                    "[yellow]⚠ TRT FP32 dynamic build also failed. "
+                                    "Retrying with static shapes (batch=1)...[/yellow]"
+                                )
+                                active_kwargs["dynamic"] = False
+                                active_kwargs["batch"] = 1
+                                exported_path_str = _do_export(active_kwargs)
+                            else:
+                                raise e2
+                    else:
+                        raise e1
+            else:
+                exported_path_str = _do_export(active_kwargs)
+
             if exported_path_str:
                 exported_path = Path(exported_path_str)
-                renamed_path = get_renamed_path(weight_path, target_format, export_kwargs)
-                
+                renamed_path = get_renamed_path(weight_path, target_format, active_kwargs)
+
                 # Move/rename the exported file or directory
                 if exported_path.exists():
                     # Handle if target exists
                     if renamed_path.exists():
-                        import shutil
                         if renamed_path.is_dir():
                             shutil.rmtree(renamed_path)
                         else:
                             renamed_path.unlink()
-                            
+
                     exported_path.rename(renamed_path)
                     console.print("\n[bold green]Success![/bold green] Exported model saved to:")
                     console.print(f"[bold white]{renamed_path}[/bold white]")
-                    
+
+                    # Surface any fallback settings that were applied
+                    if active_kwargs != export_kwargs:
+                        changed = {k: active_kwargs[k] for k in active_kwargs if active_kwargs.get(k) != export_kwargs.get(k)}
+                        console.print(f"[dim]Note: export succeeded with adjusted settings: {changed}[/dim]")
+
                     # Run post export benchmark
-                    target_imgsz = export_kwargs.get("imgsz", 640)
+                    target_imgsz = active_kwargs.get("imgsz", 640)
                     run_post_export_benchmark(weight_path, renamed_path, target_imgsz, format_label)
                 else:
                     console.print(f"\n[bold green]Export finished.[/bold green] But could not locate output at {exported_path}")
