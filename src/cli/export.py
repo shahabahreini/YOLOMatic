@@ -12,15 +12,15 @@ from src.utils.cli import (
     get_user_choice,
     get_user_multi_select,
     ParameterDefinition,
-    print_stylized_header,
     expected_error_panel,
+    NAV_BACK,
 )
 from src.utils.project import (
     find_available_weights,
     format_weight_label,
     project_root,
 )
-from src.utils.ml_dependencies import import_ultralytics_yolo, MLDependencyError
+from src.utils.ml_dependencies import import_ultralytics_yolo
 
 
 SUPPORTED_FORMATS = {
@@ -260,6 +260,142 @@ def get_renamed_path(original_path: Path, format_ext: str, params: dict[str, Any
     return original_path.with_name(new_name + ext_map.get(format_ext, f".{format_ext}"))
 
 
+def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: int, format_label: str) -> None:
+    from rich.table import Table
+    import time
+    
+    choice = get_user_choice(
+        ["Yes, run benchmark", "No, skip"],
+        title="Benchmark Comparison",
+        text="Would you like to run a quick performance comparison between the original and exported model?",
+        breadcrumbs=["YOLOmatic", "Export", "Benchmark"]
+    )
+    if choice != "Yes, run benchmark":
+        return
+
+    console.print("\n[bold cyan]Running Performance Benchmark...[/bold cyan]")
+    
+    try:
+        import numpy as np
+    except ImportError:
+        console.print("[red]numpy is not installed. Skipping benchmark.[/red]")
+        return
+        
+    from ultralytics import YOLO
+    
+    def get_size(p: Path) -> float:
+        if not p.exists(): return 0.0
+        if p.is_file():
+            return p.stat().st_size / (1024 * 1024)
+        total = 0
+        import os
+        for dirpath, _, filenames in os.walk(p):
+            for f in filenames:
+                fp = os.path.join(dirpath, f)
+                if not os.path.islink(fp):
+                    total += os.path.getsize(fp)
+        return total / (1024 * 1024)
+
+    dummy_img = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
+    
+    def profile_model(path: Path) -> tuple[float, float, float]:
+        sz = get_size(path)
+        try:
+            model = YOLO(str(path))
+            # Warmup
+            for _ in range(3):
+                model(dummy_img, verbose=False)
+            
+            # Benchmark
+            t0 = time.time()
+            inf_times = []
+            for _ in range(20):
+                res = model(dummy_img, verbose=False)
+                if res and hasattr(res[0], 'speed') and 'inference' in res[0].speed:
+                    inf_times.append(res[0].speed['inference'])
+            t1 = time.time()
+            
+            if inf_times:
+                avg_inf = sum(inf_times) / len(inf_times)
+            else:
+                avg_inf = ((t1 - t0) / 20) * 1000
+                
+            fps = 20 / (t1 - t0)
+            
+            del model
+            import gc
+            gc.collect()
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except ImportError:
+                pass
+                
+            return avg_inf, fps, sz
+        except Exception as e:
+            console.print(f"[red]Failed to profile {path.name}: {e}[/red]")
+            return 0.0, 0.0, sz
+
+    console.print(f"[dim]Profiling original {original_path.name}...[/dim]")
+    pt_inf, pt_fps, pt_sz = profile_model(original_path)
+    
+    console.print(f"[dim]Profiling exported {exported_path.name}...[/dim]")
+    exp_inf, exp_fps, exp_sz = profile_model(exported_path)
+    
+    speed_diff = (pt_inf / exp_inf) if (pt_inf > 0 and exp_inf > 0) else 1.0
+
+    table = Table(title=f"Performance Comparison: PyTorch vs {format_label}", box=box.ROUNDED)
+    table.add_column("Metric", style="cyan")
+    table.add_column("Original (.pt)", justify="right")
+    table.add_column("Exported", justify="right")
+    table.add_column("Change", justify="right")
+    table.add_column("Visual", justify="left")
+
+    def draw_bar(val: float, max_val: float, color: str) -> str:
+        if max_val <= 0: return ""
+        width = int((val / max_val) * 20)
+        return f"[{color}]" + "█" * width + "[/]"
+        
+    max_inf = max(pt_inf, exp_inf)
+    if max_inf > 0:
+        inf_change = f"[green]{speed_diff:.1f}x faster[/green]" if exp_inf < pt_inf else f"[red]{speed_diff:.1f}x slower[/red]"
+        table.add_row(
+            "Inference (ms)", 
+            f"{pt_inf:.2f}", 
+            f"{exp_inf:.2f}", 
+            inf_change,
+            draw_bar(pt_inf, max_inf, "red") + "\n" + draw_bar(exp_inf, max_inf, "green")
+        )
+        
+    max_fps = max(pt_fps, exp_fps)
+    if max_fps > 0:
+        fps_diff = (exp_fps - pt_fps) / pt_fps * 100 if pt_fps > 0 else 0
+        fps_change = f"[green]+{fps_diff:.1f}%[/green]" if fps_diff > 0 else f"[red]{fps_diff:.1f}%[/red]"
+        table.add_row(
+            "Throughput (FPS)", 
+            f"{pt_fps:.1f}", 
+            f"{exp_fps:.1f}", 
+            fps_change,
+            draw_bar(pt_fps, max_fps, "red") + "\n" + draw_bar(exp_fps, max_fps, "green")
+        )
+        
+    max_sz = max(pt_sz, exp_sz)
+    if max_sz > 0:
+        sz_diff = (exp_sz - pt_sz) / pt_sz * 100 if pt_sz > 0 else 0
+        sz_change = f"[red]+{sz_diff:.1f}%[/red]" if sz_diff > 0 else f"[green]{sz_diff:.1f}%[/green]"
+        table.add_row(
+            "File Size (MB)", 
+            f"{pt_sz:.1f}", 
+            f"{exp_sz:.1f}", 
+            sz_change,
+            draw_bar(pt_sz, max_sz, "red") + "\n" + draw_bar(exp_sz, max_sz, "green")
+        )
+        
+    console.print()
+    console.print(table)
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     root = project_root()
@@ -288,13 +424,31 @@ def main(argv: Sequence[str] | None = None) -> None:
                 return
 
         # Select Format
+        descriptions = {
+            "TensorRT (engine)": "Best for NVIDIA GPUs. Expected Boost: 3x-5x faster inference. Ideal for local workstations and Jetson devices. Requires TRT runtime matching export version.",
+            "ONNX": "Universal standard. Expected Boost: 1.5x-2x faster. Great middle-ground for cross-platform deployment and flexible inference engines.",
+            "OpenVINO": "Best for Intel CPUs/iGPUs. Expected Boost: 2x-3x faster CPU inference. Highly optimized for systems without discrete GPUs.",
+            "CoreML": "Best for Apple Silicon (M1/M2/M3) and iOS. Expected Boost: 2x-4x faster leveraging the dedicated Apple Neural Engine (ANE).",
+            "NCNN": "Best for mobile and ARM edge devices. Highly optimized lightweight C++ inference, great for Raspberry Pi and similar edge nodes.",
+            "TorchScript": "PyTorch's native JIT format. Modest speedup but offers excellent portability and deployment ease across PyTorch C++ environments.",
+            "TF SavedModel": "Standard TensorFlow format. Good for TF Serving or enterprise TensorFlow pipelines.",
+            "TF Lite": "Best for Android and embedded devices. Expected Boost: 2x-3x faster, especially when paired with INT8 quantization.",
+            "TF.js": "Best for web deployment. Runs directly in the browser via WebGL or WebGPU for zero-install client-side inference.",
+            "Paddle": "Export to PaddlePaddle format for deployment specifically inside the Baidu ecosystem.",
+            "Edge TPU": "Targeted specifically for Google Coral Edge TPUs. Delivers exceptional speed-per-watt hardware acceleration.",
+            "MNN": "Alibaba's Mobile Neural Network. Highly efficient inference framework for iOS and Android.",
+            "RKNN": "Rockchip NPU specific format. Essential for running accelerated inference on boards like the RK3588 or RK3568.",
+            "Cancel": "Return to the previous menu."
+        }
+        
         format_label = get_user_choice(
             list(SUPPORTED_FORMATS.keys()) + ["Cancel"],
             title="Export Format",
-            text="Select the target architecture format:",
+            text="Select the target architecture format. (See expected boosting metrics below):",
+            descriptions=descriptions,
             breadcrumbs=["YOLOmatic", "Export", "Format Selection"],
         )
-        if format_label == "Cancel":
+        if format_label == "Cancel" or format_label == NAV_BACK:
             return
             
         target_format = SUPPORTED_FORMATS[format_label]
@@ -360,8 +514,12 @@ def main(argv: Sequence[str] | None = None) -> None:
                             renamed_path.unlink()
                             
                     exported_path.rename(renamed_path)
-                    console.print(f"\n[bold green]Success![/bold green] Exported model saved to:")
+                    console.print("\n[bold green]Success![/bold green] Exported model saved to:")
                     console.print(f"[bold white]{renamed_path}[/bold white]")
+                    
+                    # Run post export benchmark
+                    target_imgsz = export_kwargs.get("imgsz", 640)
+                    run_post_export_benchmark(weight_path, renamed_path, target_imgsz, format_label)
                 else:
                     console.print(f"\n[bold green]Export finished.[/bold green] But could not locate output at {exported_path}")
             else:
