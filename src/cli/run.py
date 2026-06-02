@@ -4462,6 +4462,7 @@ def _main_loop_iteration():
             "Benchmark Models",
             "SAM Segment",
             "[Datasets & Deployment]",
+            "Export / Compile Model",
             "Prepare / Split Dataset",
             "Convert Dataset Format",
             "Combine Datasets",
@@ -4483,6 +4484,10 @@ def _main_loop_iteration():
             text="Pick a task to begin:",
             initial_selection=last_choice,
             descriptions={
+                "Export / Compile Model": (
+                    "Export and compile trained YOLO weights (.pt) to high-performance formats "
+                    "like TensorRT (engine), ONNX, CoreML, OpenVINO, etc."
+                ),
                 "Convert Dataset Format": (
                     "Convert Labelbox NDJSON exports into YOLO or COCO formats. "
                     "Supports concurrent image downloads and handles both bounding boxes and polygons."
@@ -4620,6 +4625,12 @@ def _main_loop_iteration():
             from src.cli.convert_ndjson import main as convert_main
 
             _safe_subcommand("Dataset Conversion", convert_main, prog="yolomatic-convert")
+            continue
+
+        elif main_choice == "Export / Compile Model":
+            from src.cli.export import main as export_main
+
+            _safe_subcommand("Export / Compile Model", export_main, prog="yolomatic-export")
             continue
 
         elif main_choice == "Prepare / Split Dataset":
