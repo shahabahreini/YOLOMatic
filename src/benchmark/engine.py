@@ -98,6 +98,10 @@ class BenchmarkResult:
     config: BenchmarkConfig
 
 
+class BenchmarkRunError(RuntimeError):
+    """Raised when a benchmark run cannot produce reportable model metrics."""
+
+
 # ---------------------------------------------------------------------------
 # Format detection
 # ---------------------------------------------------------------------------
@@ -633,6 +637,12 @@ def run_benchmark(
         for w in config.weights:
             if w in ordered:
                 model_results.append(ordered[w])
+
+    if not model_results:
+        raise BenchmarkRunError(
+            "No selected models completed successfully. Check the live log for load "
+            "or inference errors, then rerun with compatible model artifacts."
+        )
 
     return BenchmarkResult(models=model_results, config=config)
 

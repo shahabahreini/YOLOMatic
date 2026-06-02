@@ -546,6 +546,20 @@ def _per_image_tables(result: Any, names: dict[Path, str]) -> go.Figure:
     best = max(result.models, key=lambda m: m.map50_95)
     sorted_imgs = sorted(best.per_image, key=lambda r: r.f1)
     worst = sorted_imgs[:20]
+    if not worst:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No per-image results were available for the best model.",
+            x=0.5,
+            y=0.5,
+            xref="paper",
+            yref="paper",
+            showarrow=False,
+            font={"size": 15, "color": MUTED},
+        )
+        fig.update_xaxes(visible=False)
+        fig.update_yaxes(visible=False)
+        return _base_layout(fig, title="Lowest-Scoring Images", height=360)
 
     values = [
         [r.image_path.name for r in worst],
@@ -784,6 +798,11 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
     """Generate self-contained HTML report and return its path."""
     from .thumbnails import make_thumbnail_b64
     from .vector_analysis import build_vector_data
+
+    if not result.models:
+        raise ValueError(
+            "Cannot generate a benchmark report because no model metrics were produced."
+        )
 
     output_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")

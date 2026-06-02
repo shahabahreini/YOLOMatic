@@ -76,6 +76,35 @@ class TestWriteReport(unittest.TestCase):
             self.assertTrue(path.exists())
             self.assertEqual(path.suffix, ".html")
 
+    def test_rejects_empty_model_results(self):
+        result = BenchmarkResult(
+            models=[],
+            config=BenchmarkConfig(weights=[], validation_dir=Path("valid")),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(
+                ValueError,
+                "no model metrics were produced",
+            ):
+                write_benchmark_report(result, Path(tmp))
+
+    def test_report_handles_model_with_no_per_image_rows(self):
+        model = _make_model_metrics()
+        model.per_image = []
+        result = BenchmarkResult(
+            models=[model],
+            config=BenchmarkConfig(
+                weights=[model.weights_path],
+                validation_dir=Path("valid"),
+                generate_thumbnails=False,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_benchmark_report(result, Path(tmp))
+            content = path.read_text()
+
+        self.assertIn("No per-image results were available", content)
+
     def test_report_contains_plotly(self):
         result = _make_result()
         with tempfile.TemporaryDirectory() as tmp:

@@ -240,6 +240,27 @@ class TestRunBenchmarkSequential(unittest.TestCase):
         self.assertIsInstance(result, BenchmarkResult)
         self.assertEqual(len(result.models), 1)
 
+    def test_raises_clear_error_when_all_models_fail(self):
+        from unittest.mock import patch
+        from src.benchmark.config import BenchmarkConfig
+        from src.benchmark.engine import BenchmarkRunError, run_benchmark
+        import tempfile
+
+        def fake_worker(weights, **_kwargs):
+            return None, [f"  [ERROR] Failed to load {weights.name}"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_pt = Path(tmp) / "model.pt"
+            fake_pt.touch()
+            cfg = BenchmarkConfig(weights=[fake_pt], validation_dir=Path(tmp))
+            with patch("src.benchmark.engine._evaluate_model_worker", side_effect=fake_worker), \
+                 patch("src.benchmark.engine.detect_annotation_format", return_value="yolo"):
+                with self.assertRaisesRegex(
+                    BenchmarkRunError,
+                    "No selected models completed successfully",
+                ):
+                    run_benchmark(cfg)
+
 
 class TestBenchmarkConfigNewFields(unittest.TestCase):
     def test_defaults(self):
