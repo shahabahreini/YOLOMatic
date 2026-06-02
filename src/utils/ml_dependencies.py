@@ -253,3 +253,27 @@ def check_hf_auth() -> str | None:
         if content:
             return content
     return None
+
+
+def _patch_tensorrt_compatibility() -> None:
+    """Apply a patch for TensorRT 10/11 compatibility where BuilderFlag.FP16 and INT8 are removed."""
+    try:
+        import tensorrt as trt
+        if not hasattr(trt.BuilderFlag, "FP16"):
+            # Map FP16 and INT8 to a harmless valid BuilderFlag member (e.g. TF32 or REFIT)
+            # to prevent legacy calls in third-party libraries like ultralytics from crashing.
+            harmless_flag = (
+                getattr(trt.BuilderFlag, "TF32", None)
+                or getattr(trt.BuilderFlag, "REFIT", None)
+                or getattr(trt.BuilderFlag, "DEBUG", None)
+            )
+            if harmless_flag is not None:
+                trt.BuilderFlag.FP16 = harmless_flag
+                trt.BuilderFlag.INT8 = harmless_flag
+    except (ImportError, AttributeError, TypeError):
+        pass
+
+
+# Run patch immediately when dependency library is loaded
+_patch_tensorrt_compatibility()
+
