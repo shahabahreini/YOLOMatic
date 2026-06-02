@@ -21,6 +21,7 @@ from src.utils.project import (
     project_root,
 )
 from src.utils.ml_dependencies import import_ultralytics_yolo
+from src.utils.export_config import build_export_kwargs
 
 
 SUPPORTED_FORMATS = {
@@ -38,6 +39,7 @@ SUPPORTED_FORMATS = {
     "MNN": "mnn",
     "RKNN": "rknn",
 }
+
 
 def _export_definitions() -> list[ParameterDefinition]:
     return [
@@ -414,7 +416,9 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
             }
 
             del model
-            import gc; gc.collect()
+            import gc
+
+            gc.collect()
             if _cuda_available:
                 torch.cuda.empty_cache()
 
@@ -612,45 +616,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             return
             
         selected_params, values = result
-        export_kwargs = {"format": target_format}
-        
-        # Build kwargs from selected options
-        for param in definitions:
-            if param.name in selected_params:
-                val = values.get(param.name, param.default)
-                if val == "" and param.value_type == "str":
-                    continue  # Ignore empty strings for optional args like data
-                export_kwargs[param.name] = val
-                
-        if target_format == "engine":
-            if export_kwargs.get("dynamic") and export_kwargs.get("batch", 1) == 1:
-                # TRT dynamic batching requires max batch size explicitly defined
-                export_kwargs["batch"] = 16
-
-            # TRT 11 FP16+dynamic ConvTranspose (segmentation upsample head) has no
-            # tactic implementations at opset 17. Clamp to opset 12 max.
-            if export_kwargs.get("opset", 17) > 12:
-                console.print(
-                    f"[yellow]Warning: Lowering ONNX opset from {export_kwargs['opset']} to 12 "
-                    f"for TensorRT export. Opset 17 causes ConvTranspose tactic errors in TRT 11 "
-                    f"with dynamic+FP16 segmentation models.[/yellow]"
-                )
-                export_kwargs["opset"] = 12
-
-            if "workspace" in export_kwargs:
-                try:
-                    import torch
-                    if torch.cuda.is_available():
-                        free_mem, _ = torch.cuda.mem_get_info()
-                        free_gb = free_mem / (1024 ** 3)
-                        # Keep 2GB margin for OS, CUDA context, and model weights
-                        safe_workspace = max(0.5, free_gb - 2.0)
-                        if export_kwargs["workspace"] > safe_workspace:
-                            safe_workspace = round(safe_workspace, 1)
-                            console.print(f"[yellow]Warning: Lowering TensorRT workspace from {export_kwargs['workspace']}GB to {safe_workspace}GB to avoid GPU out-of-memory errors.[/yellow]")
-                            export_kwargs["workspace"] = safe_workspace
-                except Exception:
-                    pass
+        export_kwargs = build_export_kwargs(
+            target_format,
+            definitions,
+            selected_params,
+            values,
+            warn=console.print,
+        )
         
         console.print(Panel(
             f"[bold cyan]Exporting {weight_path.name}[/bold cyan]\n"

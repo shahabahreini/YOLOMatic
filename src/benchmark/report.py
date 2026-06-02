@@ -166,7 +166,8 @@ def _summary_cards_html(result: Any, names: dict[Path, str]) -> str:
     best_fps = max(result.models, key=lambda m: m.fps) if any(m.fps > 0 for m in result.models) else None
     
     def render_stat(model: Any, label: str, value: float, suffix: str = ""):
-        if model is None: return ""
+        if model is None:
+            return ""
         m_name = escape(_display_name(model, names))
         return f"""
         <div class="stat-item">

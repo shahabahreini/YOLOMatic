@@ -2,6 +2,8 @@
 
 ### Changed
 - Updated `wrapt` dependency to 2.2.0 in `uv.lock`.
+- Preserved user-selected TensorRT export workspace values instead of clamping
+  them to a local GPU memory heuristic.
 
 ## [v5.0.0] - 2026-05-27
 

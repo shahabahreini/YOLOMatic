@@ -95,6 +95,20 @@ Allows the exported model to accept variable batch sizes or image dimensions at 
 model.export(format="onnx", dynamic=True)
 ```
 
+### TensorRT Workspace
+
+For TensorRT exports, `workspace` controls how much temporary GPU memory the
+TensorRT builder may use while compiling the engine:
+
+```python
+model.export(format="engine", workspace=8.0)
+```
+
+YOLOmatic preserves the selected workspace value instead of clamping it to a
+specific GPU profile. Tune it for the GPU that builds the engine: larger values
+can let TensorRT search more tactics, while smaller values reduce build-time
+memory pressure.
+
 ### Include NMS in Export
 
 For formats where post-processing is handled externally, you can embed NMS into the export:
@@ -134,6 +148,7 @@ TensorRT export additionally requires:
 1. A CUDA-capable GPU with matching CUDA/cuDNN installed
 2. TensorRT installed (matches your CUDA version)
 3. The export must run on the same machine where inference will happen
+4. A workspace value that fits the build GPU and model size
 
 ---
 

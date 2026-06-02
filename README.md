@@ -119,6 +119,13 @@ COCO datasets with concurrent image downloads.
 Yes. `uv run yolomatic-benchmark` generates an interactive HTML report with mAP,
 F1, per-image rankings, confidence inspection, thumbnails, and UMAP vectors.
 
+### Can I export models for deployment?
+
+Yes. `uv run yolomatic-export` exports trained YOLO `.pt` weights to TensorRT,
+ONNX, OpenVINO, CoreML, TFLite, TorchScript, NCNN, RKNN, and other Ultralytics
+formats. TensorRT workspace is user-controlled so it can be tuned for the GPU
+that builds the engine.
+
 ### Can I upload models to Roboflow?
 
 Yes. YOLOmatic uploads YOLO checkpoints and deploys RF-DETR checkpoints through
