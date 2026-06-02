@@ -23,3 +23,7 @@ packaging
 psutil
 pycocotools>=2.0.11
 transformers>=5.1,<6
+openvino>=2024.0.0
+coremltools>=7.1.0; sys_platform != "win32"
+ncnn>=1.0.3
+tensorrt-cu12>=7.0.0,!=10.2.0; sys_platform != "darwin"

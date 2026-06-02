@@ -1067,11 +1067,19 @@ class MultiSelectRenderer:
             ]
         )
 
+        impact_title = "Parameter Impact"
+        if param.config_section == "training":
+            impact_title = "Training Impact"
+        elif param.config_section == "export":
+            impact_title = "Export/Deployment Impact"
+        elif param.config_section == "prediction":
+            impact_title = "Prediction/Inference Impact"
+
         if param.affects:
             info_lines.extend(
                 [
                     Text(""),
-                    Text.from_markup("[bold yellow]Training Impact:[/bold yellow]"),
+                    Text.from_markup(f"[bold yellow]{impact_title}:[/bold yellow]"),
                     Text.from_markup(param.affects),
                 ]
             )
@@ -1096,7 +1104,7 @@ class MultiSelectRenderer:
         option_descriptions = param.option_descriptions
         if option_descriptions is None and param.value_type == "bool":
             option_descriptions = {
-                "True": "Enable this behavior. It changes the training area described in Training Impact.",
+                "True": f"Enable this behavior. It changes the settings described in {impact_title}.",
                 "False": "Disable this behavior. YOLO uses the standard/default path for this setting.",
             }
 

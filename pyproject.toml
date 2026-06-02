@@ -37,6 +37,10 @@ dependencies = [
   "umap-learn>=0.5",
   "Pillow>=9.0",
   "albumentations>=1.4",
+  "openvino>=2024.0.0",
+  "coremltools>=7.1.0; sys_platform != 'win32'",
+  "ncnn>=1.0.3",
+  "tensorrt-cu12>=7.0.0,!=10.2.0; sys_platform != 'darwin'",
 ]
 description = "Automated object-detection training utilities and CLI — configure, train, predict, benchmark, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, and SAM 3.1 models with an interactive terminal interface."
 keywords = [
