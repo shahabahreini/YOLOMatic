@@ -425,6 +425,62 @@ def _size_sensitivity_bar(result: Any, names: dict[Path, str], group_by: str = "
     )
 
 
+def _size_f1_bar(result: Any, names: dict[Path, str], group_by: str = "model") -> go.Figure:
+    models = sorted(result.models, key=lambda m: m.f1, reverse=True)
+    fig = go.Figure()
+    
+    if group_by == "model":
+        y = [_display_name(m, names) for m in models][::-1]
+        categories = [
+            ("Small (<32²)", [m.small.f1 for m in models][::-1], BLUE),
+            ("Medium (32²-96²)", [m.medium.f1 for m in models][::-1], CYAN),
+            ("Large (>96²)", [m.large.f1 for m in models][::-1], PURPLE),
+            ("Overall", [m.f1 for m in models][::-1], GREEN),
+        ]
+        for label, values, color in categories:
+            fig.add_trace(go.Bar(
+                name=label,
+                y=y,
+                x=values,
+                orientation="h",
+                marker={"color": color, "line": {"width": 0}},
+                text=[_fmt(v) for v in values],
+                textposition="outside",
+                hovertemplate=f"<b>{label}</b>: %{{x:.3f}}<extra></extra>",
+            ))
+        height = max(400, 180 + len(models) * 75)
+    else:
+        # Group by Metric (Size category)
+        categories_list = ["Small (<32²)", "Medium (32²-96²)", "Large (>96²)", "Overall"]
+        y = categories_list[::-1]
+        for i, model in enumerate(models):
+            name = _display_name(model, names)
+            vals = [model.small.f1, model.medium.f1, model.large.f1, model.f1][::-1]
+            fig.add_trace(go.Bar(
+                name=name,
+                y=y,
+                x=vals,
+                orientation="h",
+                marker={"color": PALETTE[i % len(PALETTE)], "line": {"width": 0}},
+                text=[_fmt(v) for v in vals],
+                textposition="outside",
+                hovertemplate=f"<b>{name}</b><br>Size: %{{y}}<br>Value: %{{x:.3f}}<extra></extra>",
+            ))
+        height = max(400, 220 + len(models) * 45)
+    
+    fig.update_layout(
+        barmode="group",
+        xaxis={"range": [0, 1.15], "tickformat": ".0%"},
+        bargap=0.2,
+        bargroupgap=0.05
+    )
+    return _base_layout(
+        fig, 
+        title="Detection Performance by Object Size (F1 Score)", 
+        height=height
+    )
+
+
 def _quality_counts_bar(result: Any, names: dict[Path, str], group_by: str = "model") -> go.Figure:
     models = sorted(result.models, key=lambda m: m.map50_95, reverse=True)
     fig = go.Figure()
@@ -749,13 +805,14 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
     vector_data = build_vector_data(best, thumbnail_fn=thumbnail_fn)
 
     # Charts that support switchable grouping
-    switchable_keys = {"ranked", "prf", "size", "counts"}
+    switchable_keys = {"ranked", "prf", "size", "size_f1", "counts"}
     
     figs_model = {
         "leaderboard": _comparison_table(result, names),
         "ranked": _ranked_metric_bar(result, names, group_by="model"),
         "prf": _precision_recall_chart(result, names, group_by="model"),
         "size": _size_sensitivity_bar(result, names, group_by="model"),
+        "size_f1": _size_f1_bar(result, names, group_by="model"),
         "counts": _quality_counts_bar(result, names, group_by="model"),
         "distribution": _per_image_distribution(result, names),
         "ranking": _per_image_tables(result, names),
@@ -767,6 +824,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         "ranked": _ranked_metric_bar,
         "prf": _precision_recall_chart,
         "size": _size_sensitivity_bar,
+        "size_f1": _size_f1_bar,
         "counts": _quality_counts_bar,
     }
 
@@ -777,7 +835,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
 
     sections = [_summary_cards_html(result, names)]
     
-    all_keys = ["leaderboard", "ranked", "prf", "size", "counts", "distribution", "ranking", "scatter"]
+    all_keys = ["leaderboard", "ranked", "prf", "size", "size_f1", "counts", "distribution", "ranking", "scatter"]
     for key in all_keys:
         div_id_base = "scatter-plot" if key == "scatter" else f"plot-{key}"
         is_table = key in ("leaderboard", "ranking")
