@@ -170,6 +170,20 @@ class TestEvaluateModelWorker(unittest.TestCase):
         self.assertTrue(any("my_model.pt" in line for line in logs))
 
 
+class TestEffectiveBatchSize(unittest.TestCase):
+    def test_pytorch_checkpoint_keeps_requested_batch_size(self):
+        from src.benchmark.engine import _effective_batch_size
+
+        self.assertEqual(_effective_batch_size(Path("best.pt"), 16), 16)
+
+    def test_exported_artifact_uses_single_image_batch(self):
+        from src.benchmark.engine import _effective_batch_size
+
+        self.assertEqual(_effective_batch_size(Path("best.onnx"), 16), 1)
+        self.assertEqual(_effective_batch_size(Path("best.engine"), 16), 1)
+        self.assertEqual(_effective_batch_size(Path("best_openvino_model"), 16), 1)
+
+
 class TestResolveWorkers(unittest.TestCase):
     def test_gpu_always_one(self):
         from src.benchmark.engine import _resolve_workers

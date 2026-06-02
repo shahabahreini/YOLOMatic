@@ -340,14 +340,18 @@ parallel thumbnails, and UMAP vector scatter plots.
 
 ### Which checkpoints can be benchmarked?
 
-Benchmarking currently targets Ultralytics `.pt` checkpoints. Detection and
-segmentation task type is auto-detected at runtime.
+Benchmarking currently targets Ultralytics YOLO checkpoints and exports from the
+project root, `runs/`, or `weights/`, including downloaded Platform weights
+under `weights/ultralytics/`. Supported artifacts include `.pt`, ONNX,
+TensorRT `.engine`, TorchScript, OpenVINO, TFLite, and other exports that
+`ultralytics.YOLO` can run. Detection and segmentation task type is
+auto-detected at runtime.
 
 ### Can RF-DETR, SAM, or Detectron2 checkpoints be benchmarked?
 
-Not through the current benchmark engine. Use YOLO `.pt` weights for the
-benchmark report workflow; RF-DETR, SAM, and Detectron2 have their own training
-or inference paths.
+Not through the current benchmark engine. Use Ultralytics YOLO checkpoints or
+exports for the benchmark report workflow; RF-DETR, SAM, and Detectron2 have
+their own training or inference paths.
 
 ### What annotation format does benchmarking require?
 

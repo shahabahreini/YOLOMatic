@@ -55,7 +55,7 @@
         ["How do I generate a training config?", "Run uv run yolomatic, choose Configure Model, select a model and dataset, then save the generated YAML."],
         ["How does YOLOmatic choose the trainer?", "The smart training router dispatches configs to Ultralytics YOLO, native RF-DETR, SAM 3.1, or Detectron2."],
         ["Can YOLOmatic run batch prediction?", "Yes. Folder prediction is supported with progress display and worker-based parallelism where applicable."],
-        ["Can YOLOmatic benchmark trained models?", "Yes. It benchmarks Ultralytics .pt checkpoints on COCO validation data and generates an HTML report."],
+        ["Can YOLOmatic benchmark trained models?", "Yes. It benchmarks Ultralytics YOLO checkpoints and exports, including ONNX and TensorRT engines, on validation data and generates an HTML report."],
         ["Which benchmark metrics are included?", "Reports include mAP, F1, per-image rankings, confidence inspection, thumbnails, and UMAP vector scatter plots."],
         ["Can YOLOmatic upload trained models to Roboflow?", "Yes. It uploads YOLO checkpoints and deploys RF-DETR checkpoints through the Roboflow upload workflow."],
         ["Does YOLOmatic support ClearML?", "Yes. ClearML tracking is optional and training can continue without it."],

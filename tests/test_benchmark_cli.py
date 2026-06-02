@@ -1,6 +1,7 @@
 """Tests for benchmark TUI integration."""
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -54,6 +55,96 @@ class TestBenchmarkModuleImports(unittest.TestCase):
         self.assertEqual(config.device, "auto")
         self.assertTrue(config.generate_thumbnails)
         self.assertFalse(config.open_in_browser)
+
+
+class TestBenchmarkWeightSelection(unittest.TestCase):
+    """Verify benchmark-specific checkpoint discovery covers supported model types."""
+
+    def test_collect_benchmark_weights_includes_checkpoints_and_exported_models(
+        self,
+    ) -> None:
+        from src.cli.benchmark import _collect_benchmark_weights
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_weight = root / "runs" / "detect" / "train" / "weights" / "best.pt"
+            seg_weight = root / "runs" / "segment" / "train" / "weights" / "best.pt"
+            platform_weight = (
+                root
+                / "weights"
+                / "ultralytics"
+                / "platform"
+                / "vegetation"
+                / "yolo12n.pt"
+            )
+            onnx_weight = root / "runs" / "detect" / "train" / "weights" / "best.onnx"
+            engine_weight = (
+                root / "weights" / "ultralytics" / "platform" / "vegetation.engine"
+            )
+            torchscript_weight = root / "yolo11n.torchscript"
+            openvino_dir = (
+                root
+                / "weights"
+                / "ultralytics"
+                / "platform"
+                / "vegetation_openvino_model"
+            )
+            for weight in (
+                run_weight,
+                seg_weight,
+                platform_weight,
+                onnx_weight,
+                engine_weight,
+                torchscript_weight,
+            ):
+                weight.parent.mkdir(parents=True, exist_ok=True)
+                weight.touch()
+            openvino_dir.mkdir(parents=True)
+
+            results = _collect_benchmark_weights(root)
+
+            self.assertEqual(
+                {path.relative_to(root).as_posix() for path in results},
+                {
+                    "runs/detect/train/weights/best.pt",
+                    "runs/segment/train/weights/best.pt",
+                    "weights/ultralytics/platform/vegetation/yolo12n.pt",
+                    "runs/detect/train/weights/best.onnx",
+                    "weights/ultralytics/platform/vegetation.engine",
+                    "yolo11n.torchscript",
+                    "weights/ultralytics/platform/vegetation_openvino_model",
+                },
+            )
+
+    def test_collect_benchmark_weights_excludes_non_ultralytics_runtime_artifacts(
+        self,
+    ) -> None:
+        from src.cli.benchmark import _collect_benchmark_weights
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            rfdetr_weight = root / "runs" / "rfdetr" / "checkpoint_best_total.pth"
+            pose_weight = root / "runs" / "pose" / "train" / "weights" / "yolo11n-pose.pt"
+            sam_checkpoint = root / "runs" / "sam3.1" / "checkpoint-100"
+            valid_weight = root / "runs" / "detect" / "train" / "weights" / "best.pt"
+
+            rfdetr_weight.parent.mkdir(parents=True, exist_ok=True)
+            rfdetr_weight.touch()
+            pose_weight.parent.mkdir(parents=True, exist_ok=True)
+            pose_weight.touch()
+            sam_checkpoint.mkdir(parents=True)
+            (sam_checkpoint / "config.json").write_text("{}", encoding="utf-8")
+            valid_weight.parent.mkdir(parents=True, exist_ok=True)
+            valid_weight.touch()
+
+            results = _collect_benchmark_weights(root)
+
+            self.assertEqual(results, [valid_weight])
+
+    def test_infer_family_recognizes_yolo12_file_names(self) -> None:
+        from src.cli.benchmark import _infer_family
+
+        self.assertEqual(_infer_family(Path("weights/yolo12n.pt")), "YOLO12")
 
 
 class TestBenchmarkProgressRendering(unittest.TestCase):

@@ -26,7 +26,6 @@ from src.utils.cli import (
     render_summary_panel,
 )
 from src.utils.project import (
-    find_available_weights,
     format_size,
     format_weight_label,
     infer_ultralytics_task_from_name,
@@ -40,6 +39,27 @@ _DEFAULT_OUT_DIR = "output/benchmark_reports"
 # Prefix characters kept plain; the shared TUI renderer applies color.
 _CHECK = "✓"
 _EMPTY = " "
+_BENCHMARK_FILE_SUFFIXES = {
+    ".pt",
+    ".onnx",
+    ".engine",
+    ".torchscript",
+    ".mlpackage",
+    ".pb",
+    ".tflite",
+    ".mnn",
+    ".rknn",
+}
+_BENCHMARK_DIR_SUFFIXES = (
+    "_openvino_model",
+    "_saved_model",
+    "_web_model",
+    "_paddle_model",
+    "_ncnn_model",
+    "_imx_model",
+    "_executorch_model",
+    "_axelera_model",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -55,11 +75,13 @@ def _infer_task(path: Path) -> str:
 
 
 def _infer_family(path: Path) -> str:
-    name = path.stem.lower()
+    name = path.name.lower()
     families = [
         ("yolo26", "YOLO26"),
+        ("yolo12", "YOLO12"),
         ("yolov12", "YOLOv12"),
         ("yolov11", "YOLOv11"),
+        ("yolo11", "YOLO11"),
         ("yolov10", "YOLOv10"),
         ("yolov9", "YOLOv9"),
         ("yolov8", "YOLOv8"),
@@ -75,6 +97,44 @@ def _infer_family(path: Path) -> str:
     if "best" in name or "last" in name:
         return "YOLO (best/last)"
     return "Unknown"
+
+
+def _is_benchmark_model(path: Path) -> bool:
+    """Return True for Ultralytics artifacts the benchmark engine can load."""
+    if path.is_file():
+        is_supported_file = path.suffix.lower() in _BENCHMARK_FILE_SUFFIXES
+    elif path.is_dir():
+        is_supported_file = path.name.lower().endswith(_BENCHMARK_DIR_SUFFIXES)
+    else:
+        is_supported_file = False
+
+    return is_supported_file and infer_ultralytics_task_from_name(path) != "unsupported"
+
+
+def _collect_benchmark_weights(root: Path) -> list[Path]:
+    """Find benchmark-compatible Ultralytics model artifacts.
+
+    The generic weight finder includes RF-DETR `.pth` files and SAM checkpoint
+    directories for training/upload flows. Benchmarking currently loads models
+    through `ultralytics.YOLO`, so the selector should expose runnable
+    Ultralytics checkpoints/exports while still scanning all common YOLO
+    storage locations.
+    """
+    discovered: dict[Path, Path] = {}
+
+    for base_dir in (root, root / "runs", root / "weights"):
+        if not base_dir.exists():
+            continue
+        candidates = base_dir.iterdir() if base_dir == root else base_dir.rglob("*")
+        for model_path in candidates:
+            if _is_benchmark_model(model_path):
+                discovered[model_path.resolve()] = model_path
+
+    return sorted(
+        discovered.values(),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
 
 
 def _find_run_context(path: Path) -> tuple[str, str]:
@@ -157,13 +217,13 @@ def _confirm_description(count: int, names: list[str]) -> str:
 
 def _select_weights() -> list[Path] | str:
     root = project_root()
-    available = find_available_weights(root)
+    available = _collect_benchmark_weights(root)
 
     if not available:
         console.print(
             expected_error_panel(
                 "No Weights Found",
-                "No .pt or .pth files found in the project root or runs/ directory.",
+                "No benchmark-compatible Ultralytics model artifacts found in the project root, runs/, or weights/ directories.",
                 next_step="Train a model first, then run the benchmark.",
             )
         )

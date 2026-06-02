@@ -146,7 +146,7 @@ Wizard-only. See [Smart Split](smart-split.md) for the splitting algorithm detai
 
 ## `yolomatic-benchmark`
 
-Benchmark one or more YOLO `.pt` checkpoints against COCO-format annotations and generate an interactive HTML report.
+Benchmark one or more Ultralytics YOLO checkpoints or exported model artifacts against COCO-format annotations and generate an interactive HTML report.
 
 ```sh
 uv run yolomatic-benchmark
@@ -154,7 +154,7 @@ uv run yolomatic-benchmark
 
 Wizard-only. Requires:
 
-1. A trained Ultralytics `.pt` checkpoint
+1. A trained, downloaded, or exported Ultralytics model artifact
 2. A validation set with `_annotations.coco.json`
 
 See [Benchmarking guide](../guides/benchmarking.md) for the full workflow.

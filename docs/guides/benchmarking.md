@@ -16,7 +16,7 @@ uv run yolomatic-benchmark
 
 Before running the benchmark wizard you need:
 
-1. **A trained Ultralytics `.pt` checkpoint** — `best.pt` or `last.pt` from any YOLO-family run
+1. **A trained, downloaded, or exported Ultralytics model artifact** — `best.pt`, `last.pt`, ONNX, TensorRT `.engine`, TorchScript, OpenVINO, or another Ultralytics YOLO export stored under the project root, `runs/`, or `weights/`
 2. **A COCO-format validation set** — a folder containing:
    - `images/` with the validation images
    - `_annotations.coco.json` with COCO-format bounding box or mask annotations
@@ -24,7 +24,7 @@ Before running the benchmark wizard you need:
 COCO JSON validation sets can be exported from Roboflow using the COCO export preset, or generated from Labelbox NDJSON using `yolomatic-convert`.
 
 !!! note "RF-DETR, SAM, and Detectron2 are not supported"
-    The benchmark engine currently targets Ultralytics `.pt` checkpoints only. RF-DETR, SAM 3.1, and Detectron2 use their own evaluation paths.
+    The benchmark engine currently targets Ultralytics YOLO checkpoints and exports that can be loaded by `ultralytics.YOLO`. RF-DETR, SAM 3.1, and Detectron2 use their own evaluation paths.
 
 ---
 
@@ -38,7 +38,9 @@ uv run yolomatic-benchmark
 
 ### 2. Select a checkpoint
 
-The wizard scans the project tree for `.pt` files and presents a selector. Choose `best.pt` for production-quality results, or `last.pt` to inspect the final epoch state.
+The wizard scans benchmark-compatible Ultralytics model artifacts in the project root, `runs/`, and `weights/`, including downloaded Platform weights under `weights/ultralytics/` and exported models such as `.onnx`, `.engine`, `.torchscript`, `.tflite`, `.mlpackage`, `.pb`, `.mnn`, `.rknn`, OpenVINO, NCNN, and other Ultralytics export directories. Choose `best.pt` for production-quality checkpoint results, or compare exported formats to measure deployment-runtime performance.
+
+Exported artifacts are benchmarked with a single-image batch by default because many ONNX, TensorRT, OpenVINO, and mobile exports are fixed to batch size 1. Native `.pt` checkpoints keep the benchmark batch-size setting.
 
 ### 3. Locate the validation set
 

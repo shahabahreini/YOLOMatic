@@ -51,12 +51,13 @@ description: Complete reference for YOLOmatic model families, benchmarks, task s
 
 ## Benchmark Compatibility
 
-The **Benchmark & Vector Analysis** feature (`Evaluate & Monitor → Benchmark Models` or `uv run yolomatic-benchmark`) supports all Ultralytics `.pt` checkpoints. Task type (detection vs. segmentation) is auto-detected at runtime.
+The **Benchmark & Vector Analysis** feature (`Evaluate & Monitor -> Benchmark Models` or `uv run yolomatic-benchmark`) supports Ultralytics YOLO checkpoints and exported model artifacts that can be loaded by `ultralytics.YOLO`, including `.pt`, ONNX, TensorRT `.engine`, TorchScript, OpenVINO, TFLite, and other standard Ultralytics export targets. Task type (detection vs. segmentation) is auto-detected at runtime.
 
-| Checkpoint Type | Benchmark Support |
+| Artifact Type | Benchmark Support |
 |---|---|
-| YOLO detection (`.pt`) | Supported — Bounding-box IoU metrics |
-| YOLO segmentation (`.pt`) | Supported — Pixel-level mask IoU metrics |
+| YOLO detection checkpoint/export | Supported - Bounding-box IoU metrics |
+| YOLO segmentation checkpoint/export | Supported - Pixel-level mask IoU metrics |
+| ONNX / TensorRT / OpenVINO / other Ultralytics exports | Supported when the local runtime dependencies can execute the export |
 | RF-DETR (`.pth`) | Not yet supported — use YOLO weights |
 | SAM 3.1 (HuggingFace) | Not yet supported — use dedicated SAM inference |
 | Detectron2 (`.pth`) | Not yet supported |

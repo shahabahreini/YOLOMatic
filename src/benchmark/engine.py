@@ -24,6 +24,7 @@ from .metrics import (
 logger = logging.getLogger(__name__)
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+_PYTORCH_SUFFIXES = {".pt", ".pth"}
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +401,19 @@ def _has_gpu() -> bool:
         return False
 
 
+def _effective_batch_size(weights: Path, requested_batch_size: int) -> int:
+    """Return a runtime-safe batch size for a model artifact.
+
+    Exported Ultralytics models are often created with a fixed batch dimension
+    of 1. Sending larger batches to those artifacts raises runtime errors such
+    as "input size ... not equal to max model size". Native PyTorch checkpoints
+    can keep the user-selected batch size.
+    """
+    if weights.suffix.lower() in _PYTORCH_SUFFIXES:
+        return max(1, requested_batch_size)
+    return 1
+
+
 def _evaluate_model_worker(
     weights: Path,
     all_images: list[Path],
@@ -453,14 +467,19 @@ def _evaluate_model_worker(
     valid_images = [p for p in all_images if p.exists()]
     total = len(valid_images)
     per_image: list[ImageResult] = []
+    effective_batch_size = _effective_batch_size(weights, batch_size)
+    if effective_batch_size != batch_size:
+        log(
+            "  Exported model artifact detected; using batch size 1 for runtime compatibility."
+        )
 
     total_inference_time = 0.0
     total_images_inferred = 0
 
-    for batch_start in range(0, total, batch_size):
-        batch_paths = valid_images[batch_start: batch_start + batch_size]
+    for batch_start in range(0, total, effective_batch_size):
+        batch_paths = valid_images[batch_start: batch_start + effective_batch_size]
         batch_end = batch_start + len(batch_paths)
-        if batch_end % 50 < batch_size or batch_end >= total:
+        if batch_end % 50 < effective_batch_size or batch_end >= total:
             log(f"  Processing image {batch_end}/{total}...")
 
         # Read image dimensions from headers (lazy, fast — no pixel decoding)

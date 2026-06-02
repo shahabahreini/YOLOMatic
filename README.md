@@ -116,8 +116,10 @@ COCO datasets with concurrent image downloads.
 
 ### Can I benchmark trained models?
 
-Yes. `uv run yolomatic-benchmark` generates an interactive HTML report with mAP,
-F1, per-image rankings, confidence inspection, thumbnails, and UMAP vectors.
+Yes. `uv run yolomatic-benchmark` compares Ultralytics YOLO checkpoints and
+exports such as `.pt`, ONNX, TensorRT `.engine`, TorchScript, and OpenVINO,
+then generates an interactive HTML report with mAP, F1, per-image rankings,
+confidence inspection, thumbnails, and UMAP vectors.
 
 ### Can I export models for deployment?
 
