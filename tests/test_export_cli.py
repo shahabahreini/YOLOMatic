@@ -21,6 +21,7 @@ class Param:
 
 
 PARAMS = [
+    Param("half", False, "bool"),
     Param("workspace", 4.0, "float"),
     Param("dynamic", False, "bool"),
     Param("batch", 1, "int"),
@@ -63,15 +64,31 @@ class ExportCliTests(unittest.TestCase):
 
         self.assertEqual(kwargs["batch"], 16)
 
-    def test_tensorrt_opset_is_limited_to_compatible_value(self) -> None:
+    def test_tensorrt_opset_is_preserved_for_non_segmentation_exports(self) -> None:
         kwargs = build_export_kwargs(
             "engine",
             PARAMS,
-            {"opset"},
-            {"opset": 17},
+            {"half", "dynamic", "opset"},
+            {"half": True, "dynamic": True, "opset": 17},
+            model_details=ExportModelDetails(path="best.pt", task="detect"),
+        )
+
+        self.assertEqual(kwargs["opset"], 17)
+
+    def test_tensorrt_opset_is_limited_for_dynamic_fp16_segmentation(self) -> None:
+        warnings: list[str] = []
+
+        kwargs = build_export_kwargs(
+            "engine",
+            PARAMS,
+            {"half", "dynamic", "opset"},
+            {"half": True, "dynamic": True, "opset": 17},
+            warn=warnings.append,
+            model_details=ExportModelDetails(path="best.pt", task="segment"),
         )
 
         self.assertEqual(kwargs["opset"], 12)
+        self.assertTrue(any("dynamic FP16 segmentation" in warning for warning in warnings))
 
     def test_empty_optional_string_values_are_omitted(self) -> None:
         kwargs = build_export_kwargs(

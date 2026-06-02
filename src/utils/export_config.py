@@ -164,6 +164,7 @@ def build_export_kwargs(
     selected_params: set[str],
     values: dict[str, Any],
     warn: Callable[[str], None] | None = None,
+    model_details: ExportModelDetails | None = None,
 ) -> dict[str, Any]:
     export_kwargs = {"format": target_format}
 
@@ -183,12 +184,19 @@ def build_export_kwargs(
         # TensorRT dynamic batching requires max batch size explicitly defined.
         export_kwargs["batch"] = 16
 
-    if export_kwargs.get("opset", 17) > 12:
+    task = model_details.normalized_task if model_details is not None else None
+    should_limit_opset = (
+        export_kwargs.get("opset", 17) > 12
+        and export_kwargs.get("dynamic", False)
+        and export_kwargs.get("half", False)
+        and task == "segment"
+    )
+    if should_limit_opset:
         if warn is not None:
             warn(
                 f"[yellow]Warning: Lowering ONNX opset from {export_kwargs['opset']} to 12 "
-                "for TensorRT export. Opset 17 causes ConvTranspose tactic errors in TRT 11 "
-                "with dynamic+FP16 segmentation models.[/yellow]"
+                "for TensorRT export because TRT 11 can fail to find ConvTranspose "
+                "tactics for dynamic FP16 segmentation models.[/yellow]"
             )
         export_kwargs["opset"] = 12
 

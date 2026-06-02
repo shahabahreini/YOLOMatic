@@ -236,7 +236,7 @@ def _get_defaults_for_format(fmt: str) -> dict[str, Any]:
         defaults["dynamic"] = True
         defaults["workspace"] = 4.0
         defaults["simplify"] = True
-        defaults["opset"] = 11  # TRT 11 FP16+dynamic ConvTranspose requires opset ≤ 12
+        defaults["opset"] = 11  # Conservative TensorRT default; users can raise it.
     elif fmt == "onnx":
         defaults["dynamic"] = True
         defaults["simplify"] = True
@@ -681,6 +681,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             selected_params,
             values,
             warn=console.print,
+            model_details=model_details,
         )
         
         console.print(Panel(
