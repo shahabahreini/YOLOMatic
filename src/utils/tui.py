@@ -38,8 +38,9 @@ from src.models.data import model_data_dict  # noqa: E402
 from src.__version__ import __version__  # noqa: E402
 
 # Layout geometry constants — named to make intent clear and simplify resize tuning
-_SIDEBAR_HEIGHT_OFFSET = 15   # rows reserved for chrome above/below option list
-_CONTENT_HEIGHT_OFFSET = 12   # rows reserved for chrome in multi-select sidebar
+# header(3-5) + footer(3) + panel_border(2) + padding_buffer(2) = ~10-12
+_SIDEBAR_HEIGHT_OFFSET = 10   # rows reserved for chrome above/below option list in MenuRenderer
+_CONTENT_HEIGHT_OFFSET = 10   # rows reserved for chrome in multi-select sidebar (header+footer+panel borders)
 _SIDEBAR_LABEL_OFFSET = 8     # columns reserved for selection prefix / borders
 
 # Navigation signals
@@ -298,13 +299,46 @@ class MenuRenderer:
         if total_options == 0:
             return 0, 0
 
-        visible_items = max(3, min(total_options, _term_h - _SIDEBAR_HEIGHT_OFFSET))
-        half_window = visible_items // 2
-        start = max(
-            0,
-            min(self.current_selection - half_window, total_options - visible_items),
-        )
-        end = min(start + visible_items, total_options)
+        # body height = terminal height minus header (3 or 5 rows) and footer (3 rows)
+        show_stepper = self.wizard_steps and self.wizard_current_step is not None
+        header_size = 5 if show_stepper else 3
+        body_h = max(6, _term_h - header_size - 3)  # subtract header + footer
+        # panel chrome: top border + title-in-border + bottom border = 2 rows;
+        # indicator lines (↑/↓) each cost 1 row; leave a small buffer of 1
+        available_rows = max(3, body_h - 4)  # 2 border rows + up to 2 indicator rows
+
+        visible_items = max(3, min(total_options, available_rows))
+
+        # Account for non-selectable group headers rendered as "\n HEADER" (2 lines each).
+        # Pre-shrink the window until the rendered line-count fits available_rows.
+        for _ in range(visible_items):  # at most visible_items shrink iterations
+            half_window = visible_items // 2
+            start = max(
+                0,
+                min(self.current_selection - half_window, total_options - visible_items),
+            )
+            end = min(start + visible_items, total_options)
+            # Count extra lines for group headers in this window.
+            # Each [HEADER] option is already counted once in (end-start) for the header text;
+            # the "\n " prefix means it renders as 2 lines, so we add 1 extra per header.
+            extra_lines = sum(
+                1  # the \n prefix adds 1 extra rendered line per group header
+                for opt in self.options[start:end]
+                if opt.startswith("[") and opt.endswith("]")
+            )
+            scroll_indicators = (1 if start > 0 else 0) + (1 if end < total_options else 0)
+            total_lines = (end - start) + extra_lines + scroll_indicators
+            if total_lines <= available_rows:
+                break
+            visible_items -= 1
+        else:
+            half_window = visible_items // 2
+            start = max(
+                0,
+                min(self.current_selection - half_window, total_options - visible_items),
+            )
+            end = min(start + visible_items, total_options)
+
         return start, end
 
     def _sidebar_label_width(self) -> int:
@@ -997,13 +1031,60 @@ class MultiSelectRenderer:
 
         return Text("  ") + text
 
+    def _compute_visible_window(self) -> tuple[int, int]:
+        """Compute the (start_idx, end_idx) window that fits in the available sidebar height."""
+        total_items = len(self.parameters)
+        if total_items == 0:
+            return 0, 0
+
+        # body height = terminal height minus header and footer rows
+        show_stepper = self.wizard_steps and self.wizard_current_step is not None
+        header_size = 5 if show_stepper else 3
+        body_h = max(6, _term_h - header_size - 3)  # subtract header + footer
+        # Panel chrome: top border+title + bottom border = 2 rows; padding=(0,1) = no extra vertical;
+        # indicator lines (↑/↓) each cost 1; category headers cost 2 rows each (blank + text)
+        available_rows = max(4, body_h - 3)  # 2 border rows + 1 buffer
+
+        visible_items = max(4, min(total_items, available_rows))
+
+        # Iteratively shrink the window until category-headers + scroll-indicators fit.
+        for _ in range(visible_items):  # bounded iterations
+            half_window = visible_items // 2
+            start = max(0, min(self.current_index - half_window, total_items - visible_items))
+            end = min(start + visible_items, total_items)
+
+            # Count extra lines: each category change adds 2 rendered lines (blank + header text).
+            # Each parameter row is already counted once in (end-start), but when a new category
+            # starts we insert a blank line + a category header row = 2 extra lines per new category.
+            # Since the first category header is NOT a parameter row itself (unlike MenuRenderer
+            # where [HEADER] IS in the options list), both lines are purely extra.
+            seen: set[str] = set()
+            extra_lines = 0
+            for i in range(start, end):
+                cat = self.parameters[i].category
+                if cat not in seen:
+                    seen.add(cat)
+                    # Category header line (always)
+                    extra_lines += 1
+                    # Blank separator before category (when items already shown above)
+                    if len(seen) > 1 or start > 0:
+                        extra_lines += 1
+
+            scroll_indicators = (1 if start > 0 else 0) + (1 if end < total_items else 0)
+            total_lines = (end - start) + extra_lines + scroll_indicators
+
+            if total_lines <= available_rows:
+                return start, end
+            visible_items -= 1
+
+        # Fallback: show at least 1 item
+        start = max(0, min(self.current_index, total_items - 1))
+        return start, start + 1
+
     def _render_sidebar(self) -> Panel:
         total_items = len(self.parameters)
 
-        visible_items = max(4, min(total_items, _term_h - _CONTENT_HEIGHT_OFFSET))
-        half_window = visible_items // 2
-        start_idx = max(0, min(self.current_index - half_window, total_items - visible_items))
-        end_idx = min(start_idx + visible_items, total_items)
+        start_idx, end_idx = self._compute_visible_window()
 
         items: list[Text] = []
         if start_idx > 0:
