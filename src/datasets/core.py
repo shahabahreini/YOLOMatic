@@ -185,12 +185,70 @@ def _normalize_names(names: Any) -> list[str]:
     return []
 
 
+def _dataset_signature(root: Path) -> str:
+    """Generate a quick signature for the dataset directory without scanning images/labels."""
+    hasher = hashlib.sha256()
+    hasher.update(str(root.resolve()).encode("utf-8"))
+
+    queue = [(root, 0)]
+    while queue:
+        curr, depth = queue.pop(0)
+        if depth > 3:
+            continue
+        try:
+            with os.scandir(curr) as it:
+                for entry in it:
+                    if entry.name == ".yolomatic_cache" or entry.name.startswith("."):
+                        continue
+                    try:
+                        stat = entry.stat()
+                        if entry.is_dir():
+                            hasher.update(f"dir:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8"))
+                            if entry.name.lower() not in {"images", "labels"}:
+                                queue.append((Path(entry.path), depth + 1))
+                        elif entry.is_file():
+                            if entry.name.lower().endswith((".yaml", ".yml", ".json")):
+                                hasher.update(f"file:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8"))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+    return hasher.hexdigest()[:16]
+
+
+def dataset_summary_from_dict(data: dict[str, Any]) -> DatasetSummary:
+    splits_data = data.pop("splits", {})
+    splits = {}
+    for key, val in splits_data.items():
+        splits[key] = SplitSummary(**val)
+    return DatasetSummary(splits=splits, **data)
+
+
 def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> DatasetSummary:
     root = Path(dataset_path).resolve()
-    summary = DatasetSummary(path=str(root), name=root.name, format=detect_dataset_format(root))
     if not root.exists():
+        summary = DatasetSummary(path=str(root), name=root.name, format=detect_dataset_format(root))
         summary.errors.append("Dataset path does not exist.")
         return summary
+
+    # Cache check
+    sig = _dataset_signature(root)
+    cache_dir = Path("datasets") / ".yolomatic_cache" / "summaries"
+    cache_path = cache_dir / f"{root.name}_{sig}_limit{sample_limit}.json"
+
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cached_data = json.load(f)
+            cached_summary = dataset_summary_from_dict(cached_data)
+            cached_summary.path = str(root)
+            return cached_summary
+        except Exception:
+            pass
+
+    # Original logic
+    summary = DatasetSummary(path=str(root), name=root.name, format=detect_dataset_format(root))
     try:
         total = 0
         for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(root)):
@@ -222,6 +280,15 @@ def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> 
         "rfdetr": "native" if summary.format in {"yolo", "mixed"} else "conversion required",
         "detectron2": "native" if summary.format in {"coco", "mixed"} else "conversion required",
     }
+
+    # Save to cache
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(summary.to_dict(), f, indent=2)
+    except Exception:
+        pass
+
     return summary
 
 

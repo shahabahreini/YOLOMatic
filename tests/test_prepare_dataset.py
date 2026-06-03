@@ -376,5 +376,56 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertEqual(target.read_bytes(), b"jpeg")
 
 
+class DatasetSummaryCacheTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        from pathlib import Path as RealPath
+        def mock_path(*args, **kwargs):
+            if args and args[0] == "datasets":
+                return RealPath(self.tmp / "datasets")
+            return RealPath(*args, **kwargs)
+        self.patcher = patch("src.datasets.core.Path", side_effect=mock_path)
+        self.patcher.start()
+
+    def tearDown(self) -> None:
+        self.patcher.stop()
+        shutil.rmtree(self.tmp)
+
+    def _write_yolo_dataset(self, root: Path) -> None:
+        (root / "data.yaml").write_text(
+            "path: .\ntrain: train/images\nnc: 1\nnames: [cat]\ntask: detect\n",
+            encoding="utf-8",
+        )
+        img = root / "train" / "images" / "img.jpg"
+        img.parent.mkdir(parents=True, exist_ok=True)
+        img.write_text("dummy image", encoding="utf-8")
+        label = root / "train" / "labels" / "img.txt"
+        label.parent.mkdir(parents=True, exist_ok=True)
+        label.write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+
+    def test_summarize_dataset_cache_creation_and_hit(self) -> None:
+        from src.datasets.core import summarize_dataset
+
+        dataset_path = self.tmp / "my_test_dataset"
+        dataset_path.mkdir()
+        self._write_yolo_dataset(dataset_path)
+
+        # First call: computes and caches
+        summary1 = summarize_dataset(dataset_path)
+        self.assertEqual(summary1.image_count, 1)
+        self.assertEqual(summary1.annotation_count, 1)
+
+        # Verify cache file exists
+        cache_files = list((self.tmp / "datasets" / ".yolomatic_cache" / "summaries").glob("*.json"))
+        self.assertEqual(len(cache_files), 1)
+
+        # Patch os.fwalk to raise error to prove it's not called on second run
+        with patch("os.fwalk", side_effect=AssertionError("Should load from cache")):
+            summary2 = summarize_dataset(dataset_path)
+            self.assertEqual(summary2.image_count, 1)
+            self.assertEqual(summary2.annotation_count, 1)
+            self.assertEqual(summary2.total_size_bytes, summary1.total_size_bytes)
+
+
 if __name__ == "__main__":
     unittest.main()

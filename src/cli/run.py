@@ -2070,26 +2070,6 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
         )
         return None
 
-    datasets = list_dataset_directories(datasets_folder)
-
-    if not datasets:
-        console.print(
-            f"❌ No datasets found in '{datasets_folder}' folder.", style="bold red"
-        )
-        return None
-
-    table = Table(title="Available Datasets", title_style="bold green")
-    table.add_column("Dataset Name", justify="center", style="cyan")
-    table.add_column("Size", justify="center", style="cyan")
-
-    for dataset in datasets:
-        table.add_row(dataset["name"], dataset["size"])
-
-    console.print(table)
-
-    dataset_names = [Path(d["path"]) for d in datasets]
-    name_to_path = {path.name: str(path) for path in dataset_names}
-
     def _build_description(d: dict[str, Any]) -> tuple[str, str]:
         try:
             summary = summarize_dataset(d["path"])
@@ -2130,10 +2110,31 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             )
         return d["name"], desc
 
-    dataset_descriptions: dict[str, str] = {}
-    with ThreadPoolExecutor() as executor:
-        for name, desc in executor.map(_build_description, datasets):
-            dataset_descriptions[name] = desc
+    with console.status("[bold cyan]Scanning and analyzing available datasets...", spinner="dots"):
+        datasets = list_dataset_directories(datasets_folder)
+        dataset_descriptions: dict[str, str] = {}
+        if datasets:
+            with ThreadPoolExecutor() as executor:
+                for name, desc in executor.map(_build_description, datasets):
+                    dataset_descriptions[name] = desc
+
+    if not datasets:
+        console.print(
+            f"❌ No datasets found in '{datasets_folder}' folder.", style="bold red"
+        )
+        return None
+
+    table = Table(title="Available Datasets", title_style="bold green")
+    table.add_column("Dataset Name", justify="center", style="cyan")
+    table.add_column("Size", justify="center", style="cyan")
+
+    for dataset in datasets:
+        table.add_row(dataset["name"], dataset["size"])
+
+    console.print(table)
+
+    dataset_names = [Path(d["path"]) for d in datasets]
+    name_to_path = {path.name: str(path) for path in dataset_names}
     dataset_descriptions["Back"] = "Return to the previous menu."
 
     choice = get_user_choice(
@@ -2155,7 +2156,8 @@ def select_saved_config_file(
     wizard_current_step: int | None = None,
 ) -> Path | None:
     config_dir = Path("configs")
-    yaml_files = list_config_files(config_dir)
+    with console.status("[bold cyan]Scanning saved configurations...", spinner="dots"):
+        yaml_files = list_config_files(config_dir)
     if not yaml_files:
         console.print(
             Panel(
@@ -2421,7 +2423,8 @@ def select_finetune_candidate(
     wizard_current_step: int | None = None,
 ) -> FineTuneCandidate | None:
     root = project_root()
-    candidates = find_finetune_candidates(root)
+    with console.status("[bold cyan]Scanning for Ultralytics weights checkpoints...", spinner="dots"):
+        candidates = find_finetune_candidates(root)
     if not candidates:
         console.print(
             Panel(

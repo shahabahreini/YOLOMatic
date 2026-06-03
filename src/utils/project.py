@@ -139,17 +139,22 @@ def find_run_directories(base_dir: str | Path) -> list[Path]:
 
 
 def calculate_folder_size(folder_path: str | Path) -> int:
-    total = 0
     try:
-        for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(folder_path)):
-            for fname in filenames:
-                try:
-                    total += os.stat(fname, dir_fd=dirfd).st_size
-                except OSError:
-                    pass
-    except OSError:
-        pass
-    return total
+        from src.datasets.core import summarize_dataset
+        summary = summarize_dataset(folder_path)
+        return summary.total_size_bytes
+    except Exception:
+        total = 0
+        try:
+            for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(folder_path)):
+                for fname in filenames:
+                    try:
+                        total += os.stat(fname, dir_fd=dirfd).st_size
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        return total
 
 
 def format_size(size_in_bytes: int | float) -> str:
