@@ -86,6 +86,11 @@ def is_rfdetr_source(value: str | Path) -> bool:
     return Path(value).suffix.lower() == ".pth" or "rf-detr" in text or "rfdetr" in text
 
 
+def is_detectron2_source(value: str | Path) -> bool:
+    text = str(value).replace("\\", "/").lower()
+    return "detectron2" in text or "faster_rcnn" in text or "mask_rcnn" in text or "retinanet" in text
+
+
 def is_yolo_nas_source(value: str | Path) -> bool:
     return "nas" in Path(value).name.lower()
 
@@ -103,6 +108,8 @@ def find_finetune_candidates(project_root: Path) -> list[FineTuneCandidate]:
                 task=(
                     "segmentation"
                     if is_rfdetr_source(weight_path) and "seg" in str(weight_path).lower()
+                    else "segmentation"
+                    if is_detectron2_source(weight_path) and ("seg" in str(weight_path).lower() or "mask_rcnn" in str(weight_path).lower())
                     else infer_ultralytics_task_from_name(weight_path)
                 ),
                 weight_path=weight_path,

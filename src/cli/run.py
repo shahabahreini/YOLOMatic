@@ -32,7 +32,7 @@ from src.config.settings import (
 )
 from src.datasets import summarize_dataset
 from src.models.data import model_data_dict
-from src.models.detectron2 import is_detectron2_model
+from src.models.detectron2 import get_detectron2_variant, is_detectron2_model
 from src.models.rfdetr import is_rfdetr_model
 from src.models.sam import is_sam_model
 from src.utils.cli import (
@@ -52,6 +52,7 @@ from src.utils.project import (
     find_finetune_candidates,
     format_size,
     infer_ultralytics_task_from_name,
+    is_detectron2_source,
     is_rfdetr_source,
     list_config_files,
     list_dataset_directories,
@@ -2523,6 +2524,12 @@ def infer_finetune_profile_model(candidate: FineTuneCandidate) -> str:
         if "seg" in normalized:
             return "RF-DETR-Seg-Medium"
         return "RF-DETR-Medium"
+    if is_detectron2_source(candidate.source):
+        if "seg" in normalized or "mask_rcnn" in normalized:
+            return "Mask R-CNN R50-FPN 3x"
+        if "retinanet" in normalized:
+            return "RetinaNet R50-FPN 3x"
+        return "Faster R-CNN R50-FPN 3x"
     for family_rows in model_data_dict.values():
         for row in family_rows:
             model_name = str(row.get("Model", ""))
@@ -2635,6 +2642,8 @@ def update_config(
     inferred_model_task = (
         "segmentation"
         if is_rfdetr_model(model_choice) and "-seg-" in model_choice.lower()
+        else "segmentation"
+        if is_detectron2_model(model_choice) and get_detectron2_variant(model_choice).task == "segmentation"
         else infer_ultralytics_task_from_name(model_task_source)
     )
     is_seg_model = (
@@ -2650,13 +2659,11 @@ def update_config(
         and not is_seg_model
         and "nas" not in model_choice.lower()
         and not is_rfdetr_model(model_choice)
-        and not is_detectron2_model(model_choice)
     ):
         mismatch_type = "seg_model_needed"
     elif (
         dataset_type == "detection"
         and is_seg_model
-        and not is_detectron2_model(model_choice)
     ):
         mismatch_type = "det_model_needed"
     elif dataset_type == "unknown":
