@@ -24,6 +24,7 @@ FORMAT_PARAM_NAMES = {
         "opset",
         "device",
         "data",
+        "trt_dynamic_batch",
     },
     "onnx": {
         "half",
@@ -180,7 +181,7 @@ def build_export_kwargs(
     if target_format != "engine":
         return export_kwargs
 
-    if export_kwargs.get("dynamic") and export_kwargs.get("batch", 1) == 1:
+    if export_kwargs.get("dynamic") and not export_kwargs.get("trt_dynamic_batch") and export_kwargs.get("batch", 1) == 1:
         # TensorRT dynamic batching requires max batch size explicitly defined.
         export_kwargs["batch"] = 16
 

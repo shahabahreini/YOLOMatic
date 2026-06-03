@@ -258,6 +258,13 @@ def check_hf_auth() -> str | None:
 def _patch_tensorrt_compatibility() -> None:
     """Apply a patch for TensorRT 10/11 compatibility where BuilderFlag.FP16 and INT8 are removed."""
     try:
+        prepare_ml_runtime()
+        import torch
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.init()
+            except Exception:
+                pass
         import tensorrt as trt
         if not hasattr(trt.BuilderFlag, "FP16"):
             # Map FP16 and INT8 to a harmless valid BuilderFlag member (e.g. TF32 or REFIT)

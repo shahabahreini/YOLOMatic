@@ -93,6 +93,20 @@ def _export_definitions() -> list[ParameterDefinition]:
             config_section="export",
         ),
         ParameterDefinition(
+            name="trt_dynamic_batch",
+            category="Configuration",
+            default=True,
+            value_type="bool",
+            description="TRT Dynamic Batch Only",
+            help_text="For TensorRT engines, locks image dimensions to the selected resolution while keeping the batch dimension dynamic. This is much more stable and performant than fully dynamic shapes, bypassing default Ultralytics compilation issues. Highly recommended for fixed-resolution production deployments.",
+            affects="Restricts dynamic profiles to the batch dimension only, resolving tactic-not-found crashes.",
+            option_descriptions={
+                "True": "Dynamic batch only (fixed resolution). Recommended for stability & speed.",
+                "False": "Full dynamic (batch & resolution). Uses default Ultralytics dynamic shapes.",
+            },
+            config_section="export",
+        ),
+        ParameterDefinition(
             name="simplify",
             category="Configuration",
             default=False,
@@ -230,6 +244,7 @@ def _get_defaults_for_format(fmt: str) -> dict[str, Any]:
         "keras": False,
         "optimize": False,
         "data": "",
+        "trt_dynamic_batch": False,
     }
     if fmt == "engine":
         defaults["half"] = True
@@ -237,6 +252,7 @@ def _get_defaults_for_format(fmt: str) -> dict[str, Any]:
         defaults["workspace"] = 4.0
         defaults["simplify"] = True
         defaults["opset"] = 11  # Conservative TensorRT default; users can raise it.
+        defaults["trt_dynamic_batch"] = True
     elif fmt == "onnx":
         defaults["dynamic"] = True
         defaults["simplify"] = True
@@ -342,7 +358,7 @@ def get_renamed_path(original_path: Path, format_ext: str, params: dict[str, Any
     return original_path.with_name(new_name + ext_map.get(format_ext, f".{format_ext}"))
 
 
-def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: int, format_label: str) -> None:
+def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: int, format_label: str, batch: int = 1, dynamic: bool = False) -> None:
     from rich.table import Table
     from rich.rule import Rule
     import time
@@ -414,6 +430,7 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
 
     WARMUP_RUNS   = 20   # enough to reach GPU steady-state and fill TRT caches
     MEASURED_RUNS = 100  # statistical sample size
+    bench_batch = batch if (not dynamic and batch > 1) else 1
 
     def profile_model(path: Path, label: str) -> dict:
         sz = get_size(path)
@@ -422,26 +439,36 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
             model = YOLO(str(path))
 
             # ── warmup: rotate through pool so TRT profiles all shapes ────────
-            console.print(f"  [dim]Warming up ({WARMUP_RUNS} runs, varied images)...[/dim]")
+            console.print(f"  [dim]Warming up ({WARMUP_RUNS} runs, batch={bench_batch})...[/dim]")
             for i in range(WARMUP_RUNS):
-                img = _image_pool[i % POOL_SIZE]
-                _cuda_sync()
-                model(img, verbose=False)
-                _cuda_sync()
+                if bench_batch > 1:
+                    imgs = [_image_pool[(i + j) % POOL_SIZE] for j in range(bench_batch)]
+                    _cuda_sync()
+                    model(imgs, verbose=False)
+                    _cuda_sync()
+                else:
+                    img = _image_pool[i % POOL_SIZE]
+                    _cuda_sync()
+                    model(img, verbose=False)
+                    _cuda_sync()
 
             # ── measured runs ─────────────────────────────────────────────────
             console.print(f"  [dim]Measuring ({MEASURED_RUNS} runs)...[/dim]")
             frame_times: list[float] = []
             for i in range(MEASURED_RUNS):
-                img = _image_pool[i % POOL_SIZE]   # rotate — no caching artefacts
                 _cuda_sync()
                 t0 = time.perf_counter()
-                model(img, verbose=False)
+                if bench_batch > 1:
+                    imgs = [_image_pool[(i + j) % POOL_SIZE] for j in range(bench_batch)]
+                    model(imgs, verbose=False)
+                else:
+                    img = _image_pool[i % POOL_SIZE]
+                    model(img, verbose=False)
                 _cuda_sync()
                 t1 = time.perf_counter()
                 frame_times.append((t1 - t0) * 1000)   # ms end-to-end (preproc+infer+postproc)
 
-            arr = np.array(frame_times)
+            arr = np.array(frame_times) / bench_batch
             result = {
                 "mean_ms":  float(np.mean(arr)),
                 "p50_ms":   float(np.percentile(arr, 50)),
@@ -711,8 +738,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                         pass
 
             def _do_export(kwargs: dict) -> str | None:
+                yolo_kwargs = kwargs.copy()
+                yolo_kwargs.pop("trt_dynamic_batch", None)
                 m = YOLO(str(weight_path))
-                return m.export(**kwargs)
+                return m.export(**yolo_kwargs)
 
             console.print("[yellow]Starting export process... This may take a while.[/yellow]")
 
@@ -721,32 +750,111 @@ def main(argv: Sequence[str] | None = None) -> None:
 
             # --- TensorRT-specific retry cascade ---
             if target_format == "engine":
-                try:
-                    exported_path_str = _do_export(active_kwargs)
-                except Exception as e1:
-                    if _is_trt_tactic_error(e1) and active_kwargs.get("half"):
-                        _cleanup_onnx(weight_path)
-                        console.print(
-                            "[yellow]⚠ TRT FP16 build failed (ConvTranspose tactic not available on this GPU/TRT version). "
-                            "Retrying with FP32...[/yellow]"
+                if active_kwargs.get("trt_dynamic_batch") and active_kwargs.get("dynamic"):
+                    try:
+                        console.print("[cyan]Running custom dynamic-batch, static-resolution TensorRT compilation...[/cyan]")
+                        # Step 1: Export model to ONNX with dynamic=True
+                        onnx_kwargs = active_kwargs.copy()
+                        onnx_kwargs["format"] = "onnx"
+                        onnx_kwargs["dynamic"] = True
+                        onnx_kwargs["half"] = False
+                        onnx_kwargs.pop("trt_dynamic_batch", None)
+                        onnx_kwargs.pop("workspace", None)
+
+                        console.print("[dim]  Step 1/2: Exporting intermediate ONNX model...[/dim]")
+                        exported_onnx_str = _do_export(onnx_kwargs)
+                        if not exported_onnx_str or not Path(exported_onnx_str).exists():
+                            raise RuntimeError("Intermediate ONNX export failed or returned no path.")
+
+                        onnx_path = Path(exported_onnx_str)
+
+                        # Step 2: Compile ONNX to TensorRT with custom profile
+                        console.print("[dim]  Step 2/2: Programmatically compiling ONNX to TensorRT engine...[/dim]")
+                        from src.utils.trt_compiler import compile_onnx_to_trt
+
+                        target_imgsz = active_kwargs.get("imgsz", 640)
+                        opt_batch = active_kwargs.get("batch", 1)
+                        max_batch = max(16, opt_batch)
+
+                        # Define temporary engine path
+                        temp_engine_path = onnx_path.with_suffix(".engine")
+
+                        compile_onnx_to_trt(
+                            onnx_path=onnx_path,
+                            engine_path=temp_engine_path,
+                            imgsz=target_imgsz,
+                            opt_batch=opt_batch,
+                            max_batch=max_batch,
+                            half=active_kwargs.get("half", True),
+                            workspace_gb=active_kwargs.get("workspace", 4.0),
                         )
-                        active_kwargs["half"] = False
+
+                        # Clean up intermediate ONNX file
+                        try:
+                            onnx_path.unlink()
+                        except Exception:
+                            pass
+
+                        exported_path_str = str(temp_engine_path)
+
+                    except Exception as e_custom:
+                        console.print(f"[yellow]⚠ Custom compilation failed: {e_custom}. Falling back to standard Ultralytics export...[/yellow]")
+                        # Clean up ONNX if it exists
+                        _cleanup_onnx(weight_path)
+                        # Revert active_kwargs and run standard export
+                        active_kwargs.pop("trt_dynamic_batch", None)
+                        # Re-run standard engine build
                         try:
                             exported_path_str = _do_export(active_kwargs)
-                        except Exception as e2:
-                            if _is_trt_tactic_error(e2) and active_kwargs.get("dynamic"):
+                        except Exception as e1:
+                            if _is_trt_tactic_error(e1) and active_kwargs.get("half"):
                                 _cleanup_onnx(weight_path)
                                 console.print(
-                                    "[yellow]⚠ TRT FP32 dynamic build also failed. "
-                                    "Retrying with static shapes (batch=1)...[/yellow]"
+                                    "[yellow]⚠ TRT FP16 build failed. Retrying with FP32...[/yellow]"
                                 )
-                                active_kwargs["dynamic"] = False
-                                active_kwargs["batch"] = 1
-                                exported_path_str = _do_export(active_kwargs)
+                                active_kwargs["half"] = False
+                                try:
+                                    exported_path_str = _do_export(active_kwargs)
+                                except Exception as e2:
+                                    if _is_trt_tactic_error(e2) and active_kwargs.get("dynamic"):
+                                        _cleanup_onnx(weight_path)
+                                        console.print(
+                                            "[yellow]⚠ TRT FP32 dynamic build also failed. Retrying with static shapes (batch=1)...[/yellow]"
+                                        )
+                                        active_kwargs["dynamic"] = False
+                                        active_kwargs["batch"] = 1
+                                        exported_path_str = _do_export(active_kwargs)
+                                    else:
+                                        raise e2
                             else:
-                                raise e2
-                    else:
-                        raise e1
+                                raise e1
+                else:
+                    try:
+                        exported_path_str = _do_export(active_kwargs)
+                    except Exception as e1:
+                        if _is_trt_tactic_error(e1) and active_kwargs.get("half"):
+                            _cleanup_onnx(weight_path)
+                            console.print(
+                                "[yellow]⚠ TRT FP16 build failed (ConvTranspose tactic not available on this GPU/TRT version). "
+                                "Retrying with FP32...[/yellow]"
+                            )
+                            active_kwargs["half"] = False
+                            try:
+                                exported_path_str = _do_export(active_kwargs)
+                            except Exception as e2:
+                                if _is_trt_tactic_error(e2) and active_kwargs.get("dynamic"):
+                                    _cleanup_onnx(weight_path)
+                                    console.print(
+                                        "[yellow]⚠ TRT FP32 dynamic build also failed. "
+                                        "Retrying with static shapes (batch=1)...[/yellow]"
+                                    )
+                                    active_kwargs["dynamic"] = False
+                                    active_kwargs["batch"] = 1
+                                    exported_path_str = _do_export(active_kwargs)
+                                else:
+                                    raise e2
+                        else:
+                            raise e1
             else:
                 exported_path_str = _do_export(active_kwargs)
 
@@ -774,7 +882,16 @@ def main(argv: Sequence[str] | None = None) -> None:
 
                     # Run post export benchmark
                     target_imgsz = active_kwargs.get("imgsz", 640)
-                    run_post_export_benchmark(weight_path, renamed_path, target_imgsz, format_label)
+                    target_batch = active_kwargs.get("batch", 1)
+                    target_dynamic = active_kwargs.get("dynamic", False)
+                    run_post_export_benchmark(
+                        weight_path,
+                        renamed_path,
+                        target_imgsz,
+                        format_label,
+                        batch=target_batch,
+                        dynamic=target_dynamic,
+                    )
                 else:
                     console.print(f"\n[bold green]Export finished.[/bold green] But could not locate output at {exported_path}")
             else:

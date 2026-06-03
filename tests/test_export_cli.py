@@ -27,6 +27,7 @@ PARAMS = [
     Param("batch", 1, "int"),
     Param("opset", 17, "int"),
     Param("data", "", "str"),
+    Param("trt_dynamic_batch", True, "bool"),
 ]
 
 
@@ -135,6 +136,28 @@ class ExportCliTests(unittest.TestCase):
         )
 
         self.assertEqual(defaults, {"half": False, "optimize": False})
+
+    def test_tensorrt_dynamic_batch_option_is_preserved(self) -> None:
+        kwargs = build_export_kwargs(
+            "engine",
+            PARAMS,
+            {"dynamic", "trt_dynamic_batch", "batch"},
+            {"dynamic": True, "trt_dynamic_batch": True, "batch": 8},
+        )
+
+        self.assertTrue(kwargs.get("trt_dynamic_batch"))
+        self.assertEqual(kwargs.get("batch"), 8)
+
+    def test_tensorrt_dynamic_batch_keeps_batch_one_when_specified(self) -> None:
+        kwargs = build_export_kwargs(
+            "engine",
+            PARAMS,
+            {"dynamic", "trt_dynamic_batch", "batch"},
+            {"dynamic": True, "trt_dynamic_batch": True, "batch": 1},
+        )
+
+        self.assertTrue(kwargs.get("trt_dynamic_batch"))
+        self.assertEqual(kwargs.get("batch"), 1)
 
 
 if __name__ == "__main__":
