@@ -837,6 +837,7 @@ def get_user_choice(
                     renderer.current_selection = current_selection
                     renderer._layout_dirty = True
                     live.update(renderer)
+                    live.refresh()
             except Exception:
                 pass
 
@@ -1564,6 +1565,7 @@ def get_user_multi_select(
                         renderer.validation_error = validation_error
                         renderer._layout_dirty = True
                         live.update(renderer)
+                        live.refresh()
             except Exception:
                 pass
 

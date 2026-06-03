@@ -4430,6 +4430,8 @@ def settings_ai_page() -> None:
                         renderer.focus = "sidebar"
 
                 live.update(renderer)
+                if key:
+                    live.refresh()
 
 
 def settings_reset_page() -> None:
