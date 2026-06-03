@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 from blessed import Terminal
 from rich import box
-from rich.console import Console, Group, RenderableType
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.layout import Layout
 from rich.live import Live
 from rich.markup import escape
@@ -688,12 +688,29 @@ class MenuRenderer:
         layout["footer"].update(self._render_status_bar())
         return layout
 
-    def __rich__(self) -> Layout:
-        if self._cached_layout is not None and not self._layout_dirty:
-            return self._cached_layout
-        self._layout_dirty = False
-        self._cached_layout = self._build_layout()
-        return self._cached_layout
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        global _term_h, _term_w
+        old_h = _term_h
+        old_w = _term_w
+
+        h = options.height or console.height
+        w = options.max_width or console.width
+
+        if h is not None and h != _term_h:
+            _term_h = h
+            self._layout_dirty = True
+        if w is not None and w != _term_w:
+            _term_w = w
+            self._layout_dirty = True
+
+        try:
+            if self._cached_layout is None or self._layout_dirty:
+                self._layout_dirty = False
+                self._cached_layout = self._build_layout()
+            yield self._cached_layout
+        finally:
+            _term_h = old_h
+            _term_w = old_w
 
 
 def get_user_choice(
@@ -1314,12 +1331,29 @@ class MultiSelectRenderer:
 
         return layout
 
-    def __rich__(self) -> Layout:
-        if self._cached_layout is not None and not self._layout_dirty:
-            return self._cached_layout
-        self._layout_dirty = False
-        self._cached_layout = self._build_layout()
-        return self._cached_layout
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        global _term_h, _term_w
+        old_h = _term_h
+        old_w = _term_w
+
+        h = options.height or console.height
+        w = options.max_width or console.width
+
+        if h is not None and h != _term_h:
+            _term_h = h
+            self._layout_dirty = True
+        if w is not None and w != _term_w:
+            _term_w = w
+            self._layout_dirty = True
+
+        try:
+            if self._cached_layout is None or self._layout_dirty:
+                self._layout_dirty = False
+                self._cached_layout = self._build_layout()
+            yield self._cached_layout
+        finally:
+            _term_h = old_h
+            _term_w = old_w
 
 
 def get_user_multi_select(
