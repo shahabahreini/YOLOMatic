@@ -105,6 +105,22 @@ Allows the exported model to accept variable batch sizes or image dimensions at 
 model.export(format="onnx", dynamic=True)
 ```
 
+### TensorRT Dynamic Batch Mode
+
+For TensorRT (`engine`) exports, using fully dynamic shapes (dynamic batch size AND variable image resolutions) can sometimes cause compilation to fail or lead to "tactic-not-found" builder crashes.
+
+To solve this, YOLOmatic introduces the `trt_dynamic_batch` parameter:
+* **Behavior:** When `dynamic=True` and `trt_dynamic_batch=True`, the builder locks image dimensions to the selected fixed resolution (e.g. 640x640) while keeping only the batch dimension dynamic.
+* **Benefits:** Bypasses common TensorRT builder issues while retaining variable batch-size runtime flexibility.
+* **TUI Configuration:** Enabled via the **TRT Dynamic Batch Only** toggle in the export wizard step.
+* **Config YAML:**
+  ```yaml
+  export:
+    format: engine
+    dynamic: true
+    trt_dynamic_batch: true
+  ```
+
 ### TensorRT Workspace
 
 For TensorRT exports, `workspace` controls how much temporary GPU memory the

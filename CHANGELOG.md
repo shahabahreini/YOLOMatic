@@ -1,11 +1,19 @@
-## [Unreleased] - 2026-05-28
+## [Unreleased] - 2026-06-10
+
+### Added
+- Added support for YOLO pose estimation tasks (YOLO26-pose, YOLOv11-pose, YOLOv8-pose model families).
+- Implemented authoritative pose detection via `kpt_shape` in dataset yaml.
+- Added TensorRT dynamic batch compilation mode (`trt_dynamic_batch` parameter).
+- Added caching mechanism for dataset summaries to reduce redundant computations and disk I/O.
 
 ### Changed
 - Updated `wrapt` dependency to 2.2.0 in `uv.lock`.
-- Preserved user-selected TensorRT export workspace values instead of clamping
-  them to a local GPU memory heuristic.
-- Made the standalone export wizard load checkpoint details before export and
-  hide options that do not apply to the selected model task or target format.
+- Preserved user-selected TensorRT export workspace values instead of clamping them to a local GPU memory heuristic.
+- Made the standalone export wizard load checkpoint details before export and hide options that do not apply to the selected model task or target format.
+
+### Fixed
+- Ensured live TUI updates refresh the UI immediately to prevent stale rendering.
+
 
 ## [v5.0.0] - 2026-05-27
 

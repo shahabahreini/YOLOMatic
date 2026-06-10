@@ -140,6 +140,18 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 
 > Mask mAP benchmarks for YOLO26-seg have not been officially published separately.
 
+### Pose Performance (COCO Keypoints)
+
+| Model | mAPpose 50-95 | Params (M) | FLOPs (B) |
+|---|---:|---:|---:|
+| YOLO26n-pose | - | 2.7 | 6.0 |
+| YOLO26s-pose | - | 9.7 | 21.5 |
+| YOLO26m-pose | - | 20.6 | 69.0 |
+| YOLO26l-pose | - | 25.0 | 87.0 |
+| YOLO26x-pose | - | 56.0 | 194.5 |
+
+> Official mAP benchmarks for YOLO26-pose variants have not been published yet.
+
 ---
 
 ## YOLOv12
@@ -207,6 +219,16 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 | YOLO11l-seg | 53.4 | 42.9 | 27.6 | 142.2 |
 | YOLO11x-seg | 54.7 | 43.8 | 62.1 | 319.9 |
 
+### Pose Performance (COCO Keypoints)
+
+| Model | mAPpose 50-95 | Speed CPU ONNX (ms) | Speed T4 TensorRT (ms) | Params (M) | FLOPs (B) |
+|---|---:|---:|---:|---:|---:|
+| YOLO11n-pose | 50.0 | 52.4 ± 0.5 | 1.7 ± 0.0 | 2.9 | 7.6 |
+| YOLO11s-pose | 58.9 | 90.5 ± 0.6 | 2.6 ± 0.0 | 9.9 | 23.2 |
+| YOLO11m-pose | 64.9 | 187.3 ± 0.8 | 4.9 ± 0.1 | 20.9 | 71.7 |
+| YOLO11l-pose | 66.1 | 247.7 ± 1.1 | 6.4 ± 0.1 | 26.2 | 90.7 |
+| YOLO11x-pose | 69.5 | 488.0 ± 13.9 | 12.1 ± 0.2 | 58.8 | 203.3 |
+
 ---
 
 ## YOLOv10
@@ -268,6 +290,16 @@ RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` depen
 | YOLOv8m-seg | 49.9 | 40.8 | 27.3 | 110.2 |
 | YOLOv8l-seg | 52.3 | 42.6 | 46.0 | 220.5 |
 | YOLOv8x-seg | 53.4 | 43.4 | 71.8 | 344.1 |
+
+### Pose Performance (COCO Keypoints)
+
+| Model | mAPpose 50-95 | Speed CPU ONNX (ms) | Speed A100 TensorRT (ms) | Params (M) | FLOPs (B) |
+|---|---:|---:|---:|---:|---:|
+| YOLOv8n-pose | 50.4 | 131.8 | 1.18 | 3.3 | 9.2 |
+| YOLOv8s-pose | 60.0 | 233.2 | 1.42 | 11.6 | 30.2 |
+| YOLOv8m-pose | 65.0 | 456.3 | 2.00 | 26.4 | 81.0 |
+| YOLOv8l-pose | 67.6 | 784.5 | 2.59 | 44.4 | 168.6 |
+| YOLOv8x-pose | 70.2 | 1607.1 | 3.73 | 69.4 | 263.2 |
 
 **Tasks:** Detection, Segmentation, Classification, Pose, OBB.
 

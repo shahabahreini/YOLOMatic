@@ -58,6 +58,14 @@ All values are normalized to [0, 1] relative to image dimensions. For segmentati
 <class_id> <x1> <y1> <x2> <y2> ... <xn> <yn>
 ```
 
+For keypoint/pose estimation:
+
+```
+<class_id> <x_center> <y_center> <width> <height> <px1> <py1> <pv1> ... <pxn> <pyn> <pvn>
+```
+
+Where `<pxn> <pyn>` are keypoint coordinates (normalized to `[0, 1]`) and `<pvn>` is keypoint visibility (typically `0` for unlabeled, `1` for labeled but occluded, or `2` for labeled and visible). The `data.yaml` must also include `kpt_shape` (e.g. `kpt_shape: [17, 3]`).
+
 ### Flat Dataset Layout
 
 YOLOmatic also recognizes a flat layout where `images/` and `labels/` are at the root:
@@ -190,5 +198,14 @@ uv run yolomatic-ultralytics
 ```
 
 This wizard downloads datasets published on the Ultralytics Platform, converts the NDJSON export to YOLO format, and places the result in the configured output directory (default: `datasets/ultralytics/downloads`).
+
+---
+
+## Dataset Summary Caching
+
+To optimize execution speed across repeated training configuration and dataset validation steps, YOLOmatic caching is applied:
+- **Location:** Cached summaries are written to `datasets/.yolomatic_cache/summaries/`.
+- **Mechanism:** YOLOmatic computes a unique signature based on directory contents, structure, and sizes.
+- **Benefits:** Eliminates expensive folder scanning and disk I/O when analyzing or configuring the same dataset multiple times. If any files or contents change, a new signature is generated and the cache updates automatically.
 
 Related pages: [Smart split](../reference/smart-split.md), [NDJSON Conversion](../reference/ndjson-conversion.md), [Augmentation](augmentation.md), [First training run](../getting-started/first-training-run.md).

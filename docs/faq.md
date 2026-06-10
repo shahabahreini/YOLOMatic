@@ -115,7 +115,7 @@ task.
 
 ### Does YOLOmatic support YOLO26?
 
-Yes. YOLO26 detection and segmentation variants are exposed through the YOLO
+Yes. YOLO26 detection, segmentation, and pose estimation variants are exposed through the YOLO
 configuration flow, with model-size choices such as nano, small, medium, large,
 and xlarge where supported.
 
