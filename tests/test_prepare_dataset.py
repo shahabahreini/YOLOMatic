@@ -441,6 +441,7 @@ class PreparePoseTest(unittest.TestCase):
 
     def _write_pose_dataset(self, root: Path, count: int = 6, kpt_shape=(2, 3)) -> None:
         k, ndim = kpt_shape
+        root.mkdir(parents=True, exist_ok=True)
         (root / "data.yaml").write_text(
             "path: .\ntrain: train/images\nval: valid/images\ntest: test/images\n"
             f"nc: 1\nnames: [person]\ntask: pose\nkpt_shape: [{k}, {ndim}]\n",
@@ -502,6 +503,7 @@ class PreparePoseTest(unittest.TestCase):
 
     def test_prepare_pose_output_blocks_detection_only_source(self) -> None:
         source = self.tmp / "det"
+        source.mkdir(parents=True, exist_ok=True)
         (source / "data.yaml").write_text(
             "path: .\ntrain: train/images\nval: valid/images\nnc: 1\nnames: [thing]\ntask: detect\n",
             encoding="utf-8",
