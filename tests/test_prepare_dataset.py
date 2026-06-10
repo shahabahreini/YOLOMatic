@@ -12,6 +12,7 @@ import numpy as np
 import yaml
 
 from src.cli.prepare_dataset import _discover_ndjson_files
+from src.datasets.core import DatasetValidationError
 from src.datasets.prepare import (
     PrepareDatasetConfig,
     PrepareSplitConfig,
@@ -425,6 +426,99 @@ class DatasetSummaryCacheTest(unittest.TestCase):
             self.assertEqual(summary2.image_count, 1)
             self.assertEqual(summary2.annotation_count, 1)
             self.assertEqual(summary2.total_size_bytes, summary1.total_size_bytes)
+
+
+class PreparePoseTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp)
+
+    def _write_image(self, path: Path, value: int = 120) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(path), np.full((16, 16, 3), value, dtype=np.uint8))
+
+    def _write_pose_dataset(self, root: Path, count: int = 6, kpt_shape=(2, 3)) -> None:
+        k, ndim = kpt_shape
+        (root / "data.yaml").write_text(
+            "path: .\ntrain: train/images\nval: valid/images\ntest: test/images\n"
+            f"nc: 1\nnames: [person]\ntask: pose\nkpt_shape: [{k}, {ndim}]\n",
+            encoding="utf-8",
+        )
+        # One keypoint row per image: bbox + K keypoints (x y [v]).
+        kpts = " ".join(["0.400000 0.400000 2.000000" if ndim == 3 else "0.400000 0.400000"] * k)
+        for idx in range(count):
+            self._write_image(root / "train" / "images" / f"img_{idx}.jpg", value=80 + idx)
+            label = root / "train" / "labels" / f"img_{idx}.txt"
+            label.parent.mkdir(parents=True, exist_ok=True)
+            label.write_text(f"0 0.500000 0.500000 0.250000 0.250000 {kpts}\n", encoding="utf-8")
+
+    def test_prepare_pose_to_yolo_pose_preserves_keypoints(self) -> None:
+        source = self.tmp / "source"
+        self._write_pose_dataset(source, count=6)
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=source,
+                output_root=self.tmp / "datasets",
+                output_slug="pose_ready",
+                output_format="YOLO Pose",
+                split_config=PrepareSplitConfig(0.5, 0.5, 0.0),
+                seed=1,
+            )
+        )
+
+        out = Path(stats.output_path)
+        data = yaml.safe_load((out / "data.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(data["task"], "pose")
+        self.assertEqual(data["kpt_shape"], [2, 3])
+        label = next((out / "train" / "labels").glob("*.txt"))
+        tokens = label.read_text(encoding="utf-8").split()
+        # class + bbox(4) + 2 keypoints * 3 dims = 11 tokens
+        self.assertEqual(len(tokens), 11)
+
+    def test_prepare_pose_to_coco_emits_keypoints(self) -> None:
+        source = self.tmp / "source"
+        self._write_pose_dataset(source, count=4)
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=source,
+                output_root=self.tmp / "datasets",
+                output_slug="pose_coco",
+                output_format="COCO",
+                split_config=PrepareSplitConfig(0.5, 0.5, 0.0),
+            )
+        )
+
+        out = Path(stats.output_path)
+        payload = json.loads((out / "annotations" / "instances_train.json").read_text(encoding="utf-8"))
+        self.assertIn("keypoints", payload["categories"][0])
+        ann = payload["annotations"][0]
+        self.assertIn("keypoints", ann)
+        self.assertEqual(ann["num_keypoints"], 2)
+        self.assertEqual(len(ann["keypoints"]), 6)
+
+    def test_prepare_pose_output_blocks_detection_only_source(self) -> None:
+        source = self.tmp / "det"
+        (source / "data.yaml").write_text(
+            "path: .\ntrain: train/images\nval: valid/images\nnc: 1\nnames: [thing]\ntask: detect\n",
+            encoding="utf-8",
+        )
+        self._write_image(source / "train" / "images" / "a.jpg")
+        (source / "train" / "labels").mkdir(parents=True, exist_ok=True)
+        (source / "train" / "labels" / "a.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+
+        with self.assertRaises(DatasetValidationError):
+            prepare_dataset(
+                PrepareDatasetConfig(
+                    source_path=source,
+                    output_root=self.tmp / "datasets",
+                    output_slug="should_fail",
+                    output_format="YOLO Pose",
+                )
+            )
 
 
 if __name__ == "__main__":

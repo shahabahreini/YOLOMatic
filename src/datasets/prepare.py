@@ -30,7 +30,7 @@ from src.datasets.core import (
     summarize_dataset,
 )
 
-OUTPUT_FORMATS = {"YOLO Detection", "YOLO Segmentation", "COCO"}
+OUTPUT_FORMATS = {"YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO"}
 SPLIT_NAMES = ("train", "valid", "test")
 SPLIT_STRATEGIES = {"class_balanced", "smart_balanced"}
 OBJECT_SIZE_BUCKETS = ("small", "medium", "large")
@@ -90,6 +90,9 @@ class Annotation:
     class_id: int
     bbox: list[float] | None = None
     segmentation: list[float] | None = None
+    # Flattened, normalized keypoints for pose datasets: length K*ndim, laid out
+    # as ``x1 y1 [v1] x2 y2 [v2] ...`` to match the YOLO pose label format.
+    keypoints: list[float] | None = None
 
 
 @dataclass
@@ -230,18 +233,38 @@ def _label_path_for(image_path: Path, image_dir: Path, label_dir: Path) -> Path:
     return label_dir / f"{image_path.stem}.txt"
 
 
+def _normalize_kpt_shape(value: Any) -> tuple[int, int] | None:
+    """Coerce a data.yaml ``kpt_shape`` value into ``(num_keypoints, ndim)``."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        k = int(value[0])
+        ndim = int(value[1])
+    except (TypeError, ValueError):
+        return None
+    if k <= 0 or ndim not in (2, 3):
+        return None
+    return k, ndim
+
+
 def _read_yolo_annotations(
     image_path: Path,
     image_dir: Path,
     label_dir: Path,
     warnings: list[str],
-) -> tuple[list[Annotation], int, int]:
-    """Read YOLO annotation lines for one image. Returns (annotations, bbox_hits, seg_hits)."""
+    kpt_shape: tuple[int, int] | None = None,
+) -> tuple[list[Annotation], int, int, int]:
+    """Read YOLO annotation lines for one image.
+
+    Returns ``(annotations, bbox_hits, seg_hits, pose_hits)``. When ``kpt_shape`` is
+    provided the rows are parsed as pose labels (bbox + ``K*ndim`` keypoints).
+    """
     label_path = _label_path_for(image_path, image_dir, label_dir)
     annotations: list[Annotation] = []
-    bbox_hits = seg_hits = 0
+    bbox_hits = seg_hits = pose_hits = 0
     if not label_path.exists():
-        return annotations, bbox_hits, seg_hits
+        return annotations, bbox_hits, seg_hits, pose_hits
+    expected_kpt_len = kpt_shape[0] * kpt_shape[1] if kpt_shape else 0
     for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):
         parts = line.strip().split()
         if not parts:
@@ -252,7 +275,10 @@ def _read_yolo_annotations(
         except ValueError:
             warnings.append(f"Skipped invalid YOLO row {label_path}:{line_no}")
             continue
-        if len(values) == 4:
+        if kpt_shape and len(values) == 4 + expected_kpt_len:
+            pose_hits += 1
+            annotations.append(Annotation(cls, bbox=values[:4], keypoints=values[4:]))
+        elif len(values) == 4:
             bbox_hits += 1
             annotations.append(Annotation(cls, bbox=values))
         elif len(values) >= 6 and len(values) % 2 == 0:
@@ -260,19 +286,23 @@ def _read_yolo_annotations(
             annotations.append(Annotation(cls, segmentation=values))
         else:
             warnings.append(f"Skipped invalid YOLO row {label_path}:{line_no}")
-    return annotations, bbox_hits, seg_hits
+    return annotations, bbox_hits, seg_hits, pose_hits
 
 
-def _read_yolo_records(source: Path, warnings: list[str]) -> tuple[list[ImageRecord], list[str], str]:
+def _read_yolo_records(
+    source: Path, warnings: list[str]
+) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     yaml_path = source / "data.yaml"
     if not yaml_path.exists():
         yaml_path = source / "dataset.yaml"
     data = _read_yaml(yaml_path)
     classes = _normalize_names(data.get("names"))
     task = str(data.get("task", "")).lower()
+    kpt_shape = _normalize_kpt_shape(data.get("kpt_shape"))
+    flip_idx = data.get("flip_idx") if isinstance(data.get("flip_idx"), list) else None
     used_names: set[str] = set()
     records: list[ImageRecord] = []
-    seg_hits = bbox_hits = 0
+    seg_hits = bbox_hits = pose_hits = 0
     seen_image_dirs: set[Path] = set()
 
     for aliases in (
@@ -294,9 +324,10 @@ def _read_yolo_records(source: Path, warnings: list[str]) -> tuple[list[ImageRec
         for image_path in _iter_images(image_dir):
             width, height = _image_size(image_path)
             file_name = _dedupe_filename(image_path.name, used_names)
-            anns, b, s = _read_yolo_annotations(image_path, image_dir, label_dir, warnings)
+            anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, warnings, kpt_shape)
             bbox_hits += b
             seg_hits += s
+            pose_hits += p
             records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
 
     # Flat-structure fallback: if data.yaml has no split keys, scan images/ and labels/ at root
@@ -308,14 +339,21 @@ def _read_yolo_records(source: Path, warnings: list[str]) -> tuple[list[ImageRec
             for image_path in _iter_images(flat_image_dir):
                 width, height = _image_size(image_path)
                 file_name = _dedupe_filename(image_path.name, used_names)
-                anns, b, s = _read_yolo_annotations(image_path, flat_image_dir, label_dir, warnings)
+                anns, b, s, p = _read_yolo_annotations(image_path, flat_image_dir, label_dir, warnings, kpt_shape)
                 bbox_hits += b
                 seg_hits += s
+                pose_hits += p
                 records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
 
-    if not task:
+    pose_meta: dict[str, Any] | None = None
+    if kpt_shape and pose_hits:
+        pose_meta = {"kpt_shape": [kpt_shape[0], kpt_shape[1]], "flip_idx": flip_idx}
+
+    if pose_meta:
+        task = "pose"
+    elif not task:
         task = "segment" if seg_hits and seg_hits >= bbox_hits else "detect"
-    return records, classes, task
+    return records, classes, task, pose_meta
 
 
 def _find_coco_image(source: Path, ann_path: Path, file_name: str) -> Path | None:
@@ -344,18 +382,29 @@ def _find_coco_image(source: Path, ann_path: Path, file_name: str) -> Path | Non
     return matches[0]
 
 
-def _read_coco_records(source: Path, warnings: list[str]) -> tuple[list[ImageRecord], list[str], str]:
+def _read_coco_records(
+    source: Path, warnings: list[str]
+) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     annotation_files = find_coco_annotation_files(source)
     classes: list[str] = []
     records: list[ImageRecord] = []
     used_names: set[str] = set()
     has_seg = False
+    kpt_count = 0
+    kpt_names: list[str] | None = None
 
     for _, ann_path in annotation_files.items():
         data = _read_json(ann_path)
         categories = sorted(data.get("categories", []), key=lambda c: c.get("id", 0))
         if not classes:
             classes = [str(cat.get("name", cat.get("id"))) for cat in categories]
+        if kpt_names is None:
+            for cat in categories:
+                names = cat.get("keypoints")
+                if isinstance(names, list) and names:
+                    kpt_names = [str(n) for n in names]
+                    kpt_count = len(kpt_names)
+                    break
         cat_to_index = {cat.get("id"): idx for idx, cat in enumerate(categories)}
         anns_by_image: dict[Any, list[dict[str, Any]]] = defaultdict(list)
         for ann in data.get("annotations", []):
@@ -395,10 +444,25 @@ def _read_coco_records(source: Path, warnings: list[str]) -> tuple[list[ImageRec
                     has_seg = True
                 coco_bbox = [float(v) for v in bbox] if isinstance(bbox, list) and len(bbox) == 4 else None
                 yolo_bbox = _yolo_bbox_from_coco(coco_bbox, width, height) if coco_bbox else None
-                record_annotations.append(Annotation(cls, bbox=yolo_bbox, segmentation=normalized_seg))
+                normalized_kpts: list[float] | None = None
+                raw_kpts = ann.get("keypoints")
+                if isinstance(raw_kpts, list) and len(raw_kpts) >= 3 and len(raw_kpts) % 3 == 0:
+                    normalized_kpts = []
+                    for i in range(0, len(raw_kpts), 3):
+                        normalized_kpts.append(max(0.0, min(1.0, float(raw_kpts[i]) / width)))
+                        normalized_kpts.append(max(0.0, min(1.0, float(raw_kpts[i + 1]) / height)))
+                        normalized_kpts.append(float(raw_kpts[i + 2]))
+                    kpt_count = max(kpt_count, len(raw_kpts) // 3)
+                record_annotations.append(
+                    Annotation(cls, bbox=yolo_bbox, segmentation=normalized_seg, keypoints=normalized_kpts)
+                )
             records.append(ImageRecord(image_path, file_name, width, height, record_annotations))
 
-    return records, classes, "segment" if has_seg else "detect"
+    pose_meta: dict[str, Any] | None = None
+    if kpt_count and any(ann.keypoints for rec in records for ann in rec.annotations):
+        pose_meta = {"kpt_shape": [kpt_count, 3], "flip_idx": None, "kpt_names": kpt_names}
+    task = "pose" if pose_meta else ("segment" if has_seg else "detect")
+    return records, classes, task, pose_meta
 
 
 def _extract_labelbox_objects(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -645,7 +709,9 @@ def _read_ndjson_records(
     return records, class_names, "segment" if has_seg else "detect"
 
 
-def _load_records(config: PrepareDatasetConfig, warnings: list[str]) -> tuple[list[ImageRecord], list[str], str, str]:
+def _load_records(
+    config: PrepareDatasetConfig, warnings: list[str]
+) -> tuple[list[ImageRecord], list[str], str, str, dict[str, Any] | None]:
     source = Path(config.source_path).resolve()
     if not source.exists():
         raise FileNotFoundError(f"Source path does not exist: {source}")
@@ -656,7 +722,7 @@ def _load_records(config: PrepareDatasetConfig, warnings: list[str]) -> tuple[li
             max_workers=config.max_workers,
             use_multiprocessing=config.use_multiprocessing,
         )
-        return records, classes, task, "ndjson"
+        return records, classes, task, "ndjson", None
     source_format = detect_dataset_format(source)
     if source_format == "unknown":
         summary = summarize_dataset(source)
@@ -668,10 +734,10 @@ def _load_records(config: PrepareDatasetConfig, warnings: list[str]) -> tuple[li
             suggested_fix="Use a YOLO data.yaml, COCO annotations JSON, or Labelbox .ndjson export.",
         )
     if source_format in {"yolo", "mixed"}:
-        records, classes, task = _read_yolo_records(source, warnings)
-        return records, classes, task, source_format
-    records, classes, task = _read_coco_records(source, warnings)
-    return records, classes, task, source_format
+        records, classes, task, pose_meta = _read_yolo_records(source, warnings)
+        return records, classes, task, source_format, pose_meta
+    records, classes, task, pose_meta = _read_coco_records(source, warnings)
+    return records, classes, task, source_format, pose_meta
 
 
 def _target_counts(total: int, split_config: PrepareSplitConfig) -> dict[str, int]:
@@ -938,7 +1004,12 @@ def _split_warnings(
 def _write_yolo_label(path: Path, record: ImageRecord, output_format: str) -> int:
     lines: list[str] = []
     for ann in record.annotations:
-        if output_format == "YOLO Detection":
+        if output_format == "YOLO Pose":
+            if ann.keypoints is None or ann.bbox is None:
+                continue
+            values = [*ann.bbox, *ann.keypoints]
+            lines.append(f"{ann.class_id} " + " ".join(f"{value:.6f}" for value in values))
+        elif output_format == "YOLO Detection":
             bbox = ann.bbox
             if bbox is None and ann.segmentation is not None:
                 coco_bbox = _segmentation_to_bbox(ann.segmentation, record.width, record.height)
@@ -961,6 +1032,7 @@ def _write_yolo_dataset(
     split_records_by_name: dict[str, list[ImageRecord]],
     classes: list[str],
     output_format: str,
+    pose_meta: dict[str, Any] | None = None,
 ) -> int:
     total_annotations = 0
     for split_name, records in split_records_by_name.items():
@@ -981,22 +1053,48 @@ def _write_yolo_dataset(
     }
     if split_records_by_name.get("test"):
         data_yaml["test"] = "test/images"
+    if output_format == "YOLO Pose":
+        task = "pose"
+    elif output_format == "YOLO Segmentation":
+        task = "segment"
+    else:
+        task = "detect"
     data_yaml.update(
         {
             "nc": len(classes),
             "names": classes,
-            "task": "segment" if output_format == "YOLO Segmentation" else "detect",
+            "task": task,
         }
     )
+    if output_format == "YOLO Pose" and pose_meta:
+        data_yaml["kpt_shape"] = pose_meta["kpt_shape"]
+        if pose_meta.get("flip_idx"):
+            data_yaml["flip_idx"] = pose_meta["flip_idx"]
     (output / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False, allow_unicode=True), encoding="utf-8")
     return total_annotations
 
 
-def _write_coco_dataset(output: Path, split_records_by_name: dict[str, list[ImageRecord]], classes: list[str]) -> int:
+def _write_coco_dataset(
+    output: Path,
+    split_records_by_name: dict[str, list[ImageRecord]],
+    classes: list[str],
+    pose_meta: dict[str, Any] | None = None,
+) -> int:
     total_annotations = 0
     ann_dir = output / "annotations"
     ann_dir.mkdir(parents=True, exist_ok=True)
-    categories = [{"id": idx + 1, "name": name} for idx, name in enumerate(classes)]
+    num_kpts = int(pose_meta["kpt_shape"][0]) if pose_meta else 0
+    kpt_ndim = int(pose_meta["kpt_shape"][1]) if pose_meta else 3
+    kpt_names = (pose_meta.get("kpt_names") if pose_meta else None) or [
+        f"kpt_{i}" for i in range(num_kpts)
+    ]
+    categories: list[dict[str, Any]] = []
+    for idx, name in enumerate(classes):
+        category: dict[str, Any] = {"id": idx + 1, "name": name}
+        if num_kpts:
+            category["keypoints"] = kpt_names
+            category["skeleton"] = []
+        categories.append(category)
     for split_name, records in split_records_by_name.items():
         img_dir = output / split_name / "images"
         img_dir.mkdir(parents=True, exist_ok=True)
@@ -1026,17 +1124,28 @@ def _write_coco_dataset(output: Path, split_records_by_name: dict[str, list[Imag
                         ann.segmentation[i] * (record.width if i % 2 == 0 else record.height)
                         for i in range(len(ann.segmentation))
                     ]]
-                coco["annotations"].append(
-                    {
-                        "id": ann_id,
-                        "image_id": image_id,
-                        "category_id": ann.class_id + 1,
-                        "bbox": bbox,
-                        "area": max(0.0, bbox[2] * bbox[3]),
-                        "iscrowd": 0,
-                        "segmentation": segmentation,
-                    }
-                )
+                coco_ann: dict[str, Any] = {
+                    "id": ann_id,
+                    "image_id": image_id,
+                    "category_id": ann.class_id + 1,
+                    "bbox": bbox,
+                    "area": max(0.0, bbox[2] * bbox[3]),
+                    "iscrowd": 0,
+                    "segmentation": segmentation,
+                }
+                if num_kpts and ann.keypoints is not None:
+                    flat: list[float] = []
+                    visible = 0
+                    for i in range(0, len(ann.keypoints), kpt_ndim):
+                        x = ann.keypoints[i] * record.width
+                        y = ann.keypoints[i + 1] * record.height
+                        v = int(ann.keypoints[i + 2]) if kpt_ndim == 3 else 2
+                        flat.extend([x, y, v])
+                        if v > 0:
+                            visible += 1
+                    coco_ann["keypoints"] = flat
+                    coco_ann["num_keypoints"] = visible
+                coco["annotations"].append(coco_ann)
                 ann_id += 1
                 total_annotations += 1
         (ann_dir / f"instances_{split_name}.json").write_text(json.dumps(coco, indent=2), encoding="utf-8")
@@ -1091,7 +1200,15 @@ def prepare_dataset(
     config.split_config.normalized()
 
     warnings: list[str] = []
-    records, classes, task, source_format = _load_records(config, warnings)
+    records, classes, task, source_format, pose_meta = _load_records(config, warnings)
+    if config.output_format == "YOLO Pose" and not pose_meta:
+        raise DatasetValidationError(
+            "YOLO Pose output requires a source dataset with keypoint annotations "
+            "(a data.yaml with kpt_shape, or COCO keypoints). Keypoints cannot be "
+            "synthesized from bounding boxes — choose YOLO Detection or YOLO Segmentation instead.",
+            path=config.source_path,
+            format=source_format,
+        )
     if not records:
         detail = ""
         if warnings:
@@ -1129,9 +1246,9 @@ def prepare_dataset(
         progress_callback(len(records), len(records), "Writing output dataset...")
 
     if config.output_format == "COCO":
-        total_annotations = _write_coco_dataset(output, split_records_by_name, classes)
+        total_annotations = _write_coco_dataset(output, split_records_by_name, classes, pose_meta)
     else:
-        total_annotations = _write_yolo_dataset(output, split_records_by_name, classes, config.output_format)
+        total_annotations = _write_yolo_dataset(output, split_records_by_name, classes, config.output_format, pose_meta)
     if source_format == "ndjson" and records:
         # Records share a single tempfile.mkdtemp parent; remove that root once.
         download_root = records[0].image_path.parent

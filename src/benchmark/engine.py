@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 from .config import BenchmarkConfig
 from .metrics import (
@@ -145,8 +146,15 @@ def _find_yolo_labels_dir(validation_dir: Path) -> Path | None:
 # YOLO label loading
 # ---------------------------------------------------------------------------
 
-def _load_gt_from_yolo_txt(label_path: Path, img_w: int, img_h: int) -> list[GTObject]:
-    """Parse a YOLO segmentation label file into GTObjects."""
+def _load_gt_from_yolo_txt(
+    label_path: Path, img_w: int, img_h: int, pose_values: int = 0
+) -> list[GTObject]:
+    """Parse a YOLO segmentation/pose label file into GTObjects.
+
+    ``pose_values`` is ``4 + K*ndim`` for pose datasets; matching rows are parsed as
+    a bounding box (first 4 values) so keypoint coordinates are not mistaken for a
+    polygon outline.
+    """
     gts: list[GTObject] = []
     try:
         lines = label_path.read_text().splitlines()
@@ -161,6 +169,15 @@ def _load_gt_from_yolo_txt(label_path: Path, img_w: int, img_h: int) -> list[GTO
             cls = int(parts[0])
             coords = [float(v) for v in parts[1:]]
         except ValueError:
+            continue
+
+        if pose_values and len(coords) == pose_values:
+            cx, cy, w, h = coords[:4]
+            x1 = (cx - w / 2) * img_w
+            y1 = (cy - h / 2) * img_h
+            x2 = (cx + w / 2) * img_w
+            y2 = (cy + h / 2) * img_h
+            gts.append(GTObject(cls=cls, box_xyxy=(x1, y1, x2, y2), mask=None, area=(x2 - x1) * (y2 - y1)))
             continue
 
         # Denormalise
@@ -192,6 +209,7 @@ def _load_yolo_data(
     """Load YOLO .txt labels → filename-keyed GT dict."""
     labels_dir = _find_yolo_labels_dir(validation_dir)
     fname_to_gts: dict[str, list[GTObject]] = {}
+    pose_values = _pose_label_values(validation_dir)
 
     for img_path in all_images:
         if not img_path.exists():
@@ -209,11 +227,33 @@ def _load_yolo_data(
             img_w, img_h = 640, 640
 
         fname_to_gts[img_path.name] = (
-            _load_gt_from_yolo_txt(label_path, img_w, img_h)
+            _load_gt_from_yolo_txt(label_path, img_w, img_h, pose_values)
             if label_path.exists()
             else []
         )
     return fname_to_gts
+
+
+def _pose_label_values(validation_dir: Path) -> int:
+    """Return ``4 + K*ndim`` if the dataset's data.yaml declares a pose ``kpt_shape``, else 0."""
+    for base in (validation_dir, *validation_dir.parents[:3]):
+        for name in ("data.yaml", "dataset.yaml"):
+            yaml_path = base / name
+            if not yaml_path.exists():
+                continue
+            try:
+                with open(yaml_path, encoding="utf-8") as handle:
+                    meta = yaml.safe_load(handle) or {}
+            except Exception:
+                return 0
+            shape = meta.get("kpt_shape")
+            if isinstance(shape, (list, tuple)) and len(shape) == 2:
+                try:
+                    return 4 + int(shape[0]) * int(shape[1])
+                except (TypeError, ValueError):
+                    return 0
+            return 0
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -293,11 +333,16 @@ def _load_coco_data(annotations_file: Path) -> tuple[dict[int, Path], dict[int, 
 # ---------------------------------------------------------------------------
 
 def _detect_task(model, probe_image: Path, conf: float, device: str) -> str:
-    """Run one inference to decide if the model returns masks (segmentation) or boxes only."""
+    """Run one inference to decide if the model returns masks (seg), keypoints (pose), or boxes."""
     try:
         results = model(str(probe_image), conf=conf, device=device, verbose=False)
-        if results and results[0].masks is not None and len(results[0].masks) > 0:
-            return "segmentation"
+        if results:
+            result = results[0]
+            if result.masks is not None and len(result.masks) > 0:
+                return "segmentation"
+            keypoints = getattr(result, "keypoints", None)
+            if keypoints is not None and len(keypoints) > 0:
+                return "pose"
     except Exception:
         pass
     return "detection"

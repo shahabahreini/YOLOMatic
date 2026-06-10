@@ -782,15 +782,11 @@ def _quick_dataset_description(name: str, ds_path: Path) -> str:
     return f"[bold cyan]{name}[/bold cyan]\n\n[dim]{ds_path}[/dim]"
 
 
-def _select_output_format() -> str | None:
+def _select_output_format(is_pose: bool = False) -> str | None:
     clear_screen()
     print_stylized_header("Select Output Format")
-    choice = get_user_choice(
-        ["YOLO Detection", "YOLO Segmentation", "COCO"],
-        allow_back=True,
-        title="Output Format",
-        text="Select the annotation format for the augmented output dataset:",
-        descriptions={
+    options = ["YOLO Detection", "YOLO Segmentation", "COCO"]
+    descriptions = {
             "YOLO Detection": (
                 "[bold cyan]YOLO Detection Format[/bold cyan]\n\n"
                 "Output structure:\n"
@@ -814,7 +810,23 @@ def _select_output_format() -> str | None:
                 "Standard COCO JSON with bboxes and segmentation polygons.\n\n"
                 "Compatible with Detectron2, RF-DETR, MMDetection, and most frameworks."
             ),
-        },
+    }
+    if is_pose:
+        options.insert(2, "YOLO Pose")
+        descriptions["YOLO Pose"] = (
+            "[bold cyan]YOLO Pose Format[/bold cyan]\n\n"
+            "Output structure:\n"
+            "  train/images/  train/labels/  data.yaml\n\n"
+            "Label format: [dim]class_id cx cy w h kpt_x kpt_y [v] …[/dim] (normalized)\n\n"
+            "Preserves kpt_shape. Flip transforms are skipped for keypoint safety.\n\n"
+            "[dim]Only available because the source dataset has keypoints.[/dim]"
+        )
+    choice = get_user_choice(
+        options,
+        allow_back=True,
+        title="Output Format",
+        text="Select the annotation format for the augmented output dataset:",
+        descriptions=descriptions,
         breadcrumbs=["YOLOmatic", "Augment Dataset", "Format"],
     )
     return None if choice in (NAV_BACK, "Back") else choice
@@ -1033,7 +1045,12 @@ def _run_augmentation_flow() -> None:
         return
 
     # Step 3: Output format
-    output_format = _select_output_format()
+    try:
+        from src.augmentation.engine import detect_annotation_format
+        is_pose_source = detect_annotation_format(dataset_path) == "yolo_pose"
+    except Exception:
+        is_pose_source = False
+    output_format = _select_output_format(is_pose=is_pose_source)
     if output_format is None:
         return
 

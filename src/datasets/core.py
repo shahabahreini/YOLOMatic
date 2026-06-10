@@ -470,6 +470,14 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
     output.mkdir(parents=True, exist_ok=True)
     data = _read_yaml(source / "data.yaml")
     classes = _normalize_names(data.get("names"))
+    kpt_shape = data.get("kpt_shape")
+    num_kpts = ndim = 0
+    if isinstance(kpt_shape, (list, tuple)) and len(kpt_shape) == 2:
+        try:
+            num_kpts, ndim = int(kpt_shape[0]), int(kpt_shape[1])
+        except (TypeError, ValueError):
+            num_kpts = ndim = 0
+    kpt_names = [f"kpt_{i}" for i in range(num_kpts)]
     manifest = {"source": str(source), "format": "coco", "warnings": [], "classes": classes}
     for split_name, aliases in SPLIT_ALIASES.items():
         value = next((data.get(alias) for alias in aliases if data.get(alias)), None)
@@ -479,10 +487,17 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
         target_images = output / split_name / "images"
         target_images.mkdir(parents=True, exist_ok=True)
         images = _iter_images(images_path)
+        category_list: list[dict[str, Any]] = []
+        for i, name in enumerate(classes):
+            cat: dict[str, Any] = {"id": i + 1, "name": name}
+            if num_kpts:
+                cat["keypoints"] = kpt_names
+                cat["skeleton"] = []
+            category_list.append(cat)
         coco = {
             "images": [],
             "annotations": [],
-            "categories": [{"id": i + 1, "name": name} for i, name in enumerate(classes)],
+            "categories": category_list,
         }
         ann_id = 1
         for image_id, image_path in enumerate(images, start=1):
@@ -501,15 +516,19 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
             label_path = (_resolve_label_dir(images_path) or images_path.parent / "labels") / f"{image_path.stem}.txt"
             if not label_path.exists():
                 continue
+            pose_len = 4 + num_kpts * ndim if num_kpts else -1
             for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):
                 parts = line.strip().split()
-                if len(parts) not in {5} and not (len(parts) >= 7 and (len(parts) - 1) % 2 == 0):
+                is_pose_row = num_kpts and len(parts) - 1 == pose_len
+                if not is_pose_row and len(parts) not in {5} and not (len(parts) >= 7 and (len(parts) - 1) % 2 == 0):
                     manifest["warnings"].append(f"Skipped invalid YOLO row {label_path}:{line_no}")
                     continue
                 cls = int(float(parts[0]))
                 nums = [float(v) for v in parts[1:]]
-                if len(parts) == 5:
-                    x, y, w, h = nums
+                keypoints: list[float] = []
+                num_keypoints = 0
+                if is_pose_row:
+                    x, y, w, h = nums[:4]
                     bbox = [
                         (x - w / 2) * width,
                         (y - h / 2) * height,
@@ -517,6 +536,23 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
                         h * height,
                     ]
                     segmentation: list[list[float]] = []
+                    for i in range(num_kpts):
+                        base = 4 + i * ndim
+                        kx = nums[base] * width
+                        ky = nums[base + 1] * height
+                        kv = int(nums[base + 2]) if ndim == 3 else 2
+                        keypoints.extend([kx, ky, kv])
+                        if kv > 0:
+                            num_keypoints += 1
+                elif len(parts) == 5:
+                    x, y, w, h = nums
+                    bbox = [
+                        (x - w / 2) * width,
+                        (y - h / 2) * height,
+                        w * width,
+                        h * height,
+                    ]
+                    segmentation = []
                 else:
                     scaled = [
                         nums[i] * (width if i % 2 == 0 else height)
@@ -526,7 +562,7 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
                     ys = scaled[1::2]
                     bbox = [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
                     segmentation = [scaled]
-                coco["annotations"].append({
+                coco_ann: dict[str, Any] = {
                     "id": ann_id,
                     "image_id": image_id,
                     "category_id": cls + 1,
@@ -534,7 +570,11 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
                     "area": max(0.0, bbox[2] * bbox[3]),
                     "iscrowd": 0,
                     "segmentation": segmentation,
-                })
+                }
+                if is_pose_row:
+                    coco_ann["keypoints"] = keypoints
+                    coco_ann["num_keypoints"] = num_keypoints
+                coco["annotations"].append(coco_ann)
                 ann_id += 1
         ann_dir = output / "annotations"
         ann_dir.mkdir(exist_ok=True)
@@ -549,12 +589,19 @@ def convert_coco_to_yolo(source_dir: str | Path, output_dir: str | Path, *, summ
     output.mkdir(parents=True, exist_ok=True)
     manifest = {"source": str(source), "format": "yolo", "warnings": []}
     class_names: list[str] = []
+    num_kpts = 0
     yaml_splits: dict[str, str] = {}
     for split_name, ann_path in find_coco_annotation_files(source).items():
         data = _read_json(ann_path)
         categories = sorted(data.get("categories", []), key=lambda c: c.get("id", 0))
         if not class_names:
             class_names = [str(c.get("name", c.get("id"))) for c in categories]
+        if not num_kpts:
+            for cat in categories:
+                names = cat.get("keypoints")
+                if isinstance(names, list) and names:
+                    num_kpts = len(names)
+                    break
         cat_to_index = {cat.get("id"): idx for idx, cat in enumerate(categories)}
         images = {image.get("id"): image for image in data.get("images", [])}
         anns_by_image: dict[Any, list[dict[str, Any]]] = {}
@@ -581,6 +628,20 @@ def convert_coco_to_yolo(source_dir: str | Path, output_dir: str | Path, *, summ
                 if ann.get("category_id") not in cat_to_index:
                     continue
                 cls = cat_to_index[ann.get("category_id")]
+                raw_kpts = ann.get("keypoints")
+                if num_kpts and isinstance(raw_kpts, list) and len(raw_kpts) == num_kpts * 3:
+                    bbox = ann.get("bbox") or []
+                    if len(bbox) != 4:
+                        manifest["warnings"].append(f"Skipped pose ann without bbox for image id {image_id}")
+                        continue
+                    x, y, w, h = [float(v) for v in bbox]
+                    row = [str(cls), f"{(x + w / 2) / width}", f"{(y + h / 2) / height}", f"{w / width}", f"{h / height}"]
+                    for i in range(0, len(raw_kpts), 3):
+                        row.append(f"{max(0.0, min(1.0, float(raw_kpts[i]) / width))}")
+                        row.append(f"{max(0.0, min(1.0, float(raw_kpts[i + 1]) / height))}")
+                        row.append(f"{int(raw_kpts[i + 2])}")
+                    rows.append(" ".join(row))
+                    continue
                 segmentation = ann.get("segmentation")
                 if isinstance(segmentation, list) and segmentation and isinstance(segmentation[0], list) and len(segmentation[0]) >= 6:
                     coords = segmentation[0]
@@ -595,6 +656,9 @@ def convert_coco_to_yolo(source_dir: str | Path, output_dir: str | Path, *, summ
                     rows.append(f"{cls} {(x + w / 2) / width} {(y + h / 2) / height} {w / width} {h / height}")
             (label_dir / f"{Path(file_name).stem}.txt").write_text("\n".join(rows), encoding="utf-8")
     data_yaml = {"path": str(output.resolve()), "train": yaml_splits.get("train", "train/images"), "val": yaml_splits.get("val", "val/images"), "test": yaml_splits.get("test", "test/images"), "nc": len(class_names), "names": class_names}
+    if num_kpts:
+        data_yaml["task"] = "pose"
+        data_yaml["kpt_shape"] = [num_kpts, 3]
     (output / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False), encoding="utf-8")
     manifest["classes"] = class_names
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

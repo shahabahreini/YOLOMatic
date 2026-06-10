@@ -233,7 +233,7 @@ def _select_source() -> Path | None:
 
 def _select_output_format(source: Path) -> str | None:
     choice = get_user_choice(
-        ["YOLO Detection", "YOLO Segmentation", "COCO", "Back"],
+        ["YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "Back"],
         title="Output Format",
         text="Choose the format for the prepared training dataset:",
         descriptions={
@@ -244,6 +244,11 @@ def _select_output_format(source: Path) -> str | None:
             "YOLO Segmentation": (
                 "Writes Ultralytics polygon labels: class_id x1 y1 ... xn yn.\n\n"
                 "If the source has only boxes, YOLOmatic creates rectangle polygons."
+            ),
+            "YOLO Pose": (
+                "Writes Ultralytics pose labels: class_id cx cy w h kpt_x kpt_y [v] ...\n\n"
+                "Preserves kpt_shape/flip_idx. Requires a keypoint source (data.yaml with "
+                "kpt_shape, or COCO keypoints); keypoints cannot be made from boxes."
             ),
             "COCO": (
                 "Writes COCO instances JSON per split under annotations/.\n\n"
