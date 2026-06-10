@@ -61,7 +61,23 @@ from src.utils.project import (
 
 # Model family descriptions — defined at module level to avoid rebuilding on every wizard entry
 _MODEL_DESCRIPTIONS: dict[str, str] = {
-    "detectron2": (
+    "yolo26-pose": (
+            "[bold cyan]YOLO26 Pose[/bold cyan]  [green]● Keypoint detection — 2025[/green]\n\n"
+            "Latest-generation pose estimation. Trains on YOLO keypoint datasets "
+            "(data.yaml with [bold]kpt_shape[/bold] + per-object keypoints). "
+            "Weights: [dim]yolo26<n/s/m/l/x>-pose.pt[/dim]."
+        ),
+        "yolov11-pose": (
+            "[bold cyan]YOLO11 Pose[/bold cyan]  [green]● Keypoint detection[/green]\n\n"
+            "Mature, well-supported pose family with official COCO-Pose weights "
+            "across n/s/m/l/x. Solid default for custom keypoint datasets."
+        ),
+        "yolov8-pose": (
+            "[bold cyan]YOLOv8 Pose[/bold cyan]  [green]● Keypoint detection[/green]\n\n"
+            "Stable, widely-deployed pose family. Choose when you want maximum "
+            "ecosystem/tooling compatibility for keypoint models."
+        ),
+        "detectron2": (
             "[bold cyan]Detectron2[/bold cyan]  [green]● Optional native COCO detection[/green]\n\n"
             "Faster R-CNN and RetinaNet variants using Detectron2's model zoo. "
             "Detectron2 is imported only when you train or predict with this family."
@@ -3497,6 +3513,10 @@ def get_model_menu():
         "yolov11-seg",
         "yolov9-seg",
         "yolov8-seg",
+        "[Pose]",
+        "yolo26-pose",
+        "yolov11-pose",
+        "yolov8-pose",
     ]
     return models
 

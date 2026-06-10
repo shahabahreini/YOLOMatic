@@ -414,6 +414,9 @@ class MenuRenderer:
             "yolov8-seg": "yolov8-seg",
             "yolov8": "yolov8",
             "yolox": "yolox",
+            "yolo26-pose": "yolo26-pose",
+            "yolov11-pose": "yolov11-pose",
+            "yolov8-pose": "yolov8-pose",
         }
         return mapping.get(o, o)
 

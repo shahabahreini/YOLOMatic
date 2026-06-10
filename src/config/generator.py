@@ -300,7 +300,15 @@ class BaseConfigGenerator:
         an odd count >= 7 (class id + at least 3 polygon points). Counting across
         multiple files and lines avoids a single malformed entry flipping the
         classification.
+
+        Pose datasets are identified authoritatively by the ``kpt_shape`` key in
+        ``data.yaml`` (Ultralytics' own marker), since pose label rows
+        (``class + bbox + K*ndim`` values) are otherwise easy to confuse with
+        segmentation polygons.
         """
+        if isinstance(self.data_yaml, dict) and self.data_yaml.get("kpt_shape"):
+            return "pose"
+
         detection_hits = 0
         segmentation_hits = 0
         files_with_labels_scanned = 0
@@ -526,22 +534,29 @@ class BaseConfigGenerator:
         family name doesn't silently fall through to a missing key.
         """
         is_seg = normalized.endswith("-seg")
-        # Ordered list of (prefix, seg_family_key, base_family_key). The first
-        # prefix to match wins, so longer/more specific prefixes come first.
+        is_pose = normalized.endswith("-pose")
+        # Ordered list of (prefix, base_key, seg_key, pose_key). The first prefix
+        # to match wins, so longer/more specific prefixes come first. ``pose_key``
+        # is None for families without official pose weights (they fall back to
+        # the raw name so a missing key surfaces instead of mis-mapping).
         prefixes = (
-            ("yolo26", "yolo26-seg", "yolo26"),
-            ("yolov12", "yolov12-seg", "yolov12"),
-            ("yolo12", "yolov12-seg", "yolov12"),
-            ("yolov11", "yolov11-seg", "yolov11"),
-            ("yolo11", "yolov11-seg", "yolov11"),
-            ("yolov10", "yolov10", "yolov10"),
-            ("yolov9", "yolov9-seg", "yolov9"),
-            ("yolov8", "yolov8-seg", "yolov8"),
-            ("yolox", "yolox", "yolox"),
+            ("yolo26", "yolo26", "yolo26-seg", "yolo26-pose"),
+            ("yolov12", "yolov12", "yolov12-seg", None),
+            ("yolo12", "yolov12", "yolov12-seg", None),
+            ("yolov11", "yolov11", "yolov11-seg", "yolov11-pose"),
+            ("yolo11", "yolov11", "yolov11-seg", "yolov11-pose"),
+            ("yolov10", "yolov10", "yolov10", None),
+            ("yolov9", "yolov9", "yolov9-seg", None),
+            ("yolov8", "yolov8", "yolov8-seg", "yolov8-pose"),
+            ("yolox", "yolox", "yolox", None),
         )
-        for prefix, seg_key, base_key in prefixes:
+        for prefix, base_key, seg_key, pose_key in prefixes:
             if normalized.startswith(prefix):
-                return seg_key if is_seg else base_key
+                if is_pose:
+                    return pose_key or normalized
+                if is_seg:
+                    return seg_key
+                return base_key
         return normalized
 
     def _get_model_metrics(self, model_choice: str) -> dict[str, Any]:
@@ -1097,9 +1112,14 @@ class YOLOConfigGenerator(BaseConfigGenerator):
         if profile_selection is None:
             profile_selection = dict(profile_context["recommended_profiles"])
 
-        task = self.dataset_info.get("task_type") or (
-            "segmentation" if str(model_choice).lower().endswith("-seg") else "detection"
-        )
+        model_lower = str(model_choice).lower()
+        if model_lower.endswith("-pose"):
+            fallback_task = "pose"
+        elif model_lower.endswith("-seg"):
+            fallback_task = "segmentation"
+        else:
+            fallback_task = "detection"
+        task = self.dataset_info.get("task_type") or fallback_task
         dataset_config = self._prepared_dataset_config("yolo", task)
         integration_settings = load_settings()
         config = {

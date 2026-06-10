@@ -300,6 +300,11 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         return
     data = _read_yaml(yaml_path)
     summary.classes = summary.classes or _normalize_names(data.get("names"))
+    # Authoritative pose marker: Ultralytics tags keypoint datasets with
+    # ``kpt_shape``. Pose label rows (class + bbox + K*ndim) otherwise look like
+    # neither a 5-col bbox nor an odd-length polygon, so the column heuristic
+    # alone would leave the task unclassified.
+    is_pose = bool(data.get("kpt_shape"))
     detection_hits = segmentation_hits = 0
     for canonical, aliases in SPLIT_ALIASES.items():
         value = next((data.get(alias) for alias in aliases if data.get(alias)), None)
@@ -374,7 +379,9 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
             summary.splits["train"] = flat_split
 
     _rollup(summary)
-    if segmentation_hits and detection_hits:
+    if is_pose:
+        summary.task = "pose"
+    elif segmentation_hits and detection_hits:
         summary.task = "mixed"
     elif segmentation_hits:
         summary.task = "segmentation"

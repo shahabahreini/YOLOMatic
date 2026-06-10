@@ -139,7 +139,12 @@ class TestBenchmarkWeightSelection(unittest.TestCase):
 
             results = _collect_benchmark_weights(root)
 
-            self.assertEqual(results, [valid_weight])
+            # Pose is a first-class Ultralytics task and IS benchmarkable; the
+            # RF-DETR .pth and SAM checkpoint are the non-Ultralytics artifacts
+            # that must be excluded.
+            self.assertEqual(set(results), {valid_weight, pose_weight})
+            self.assertNotIn(rfdetr_weight, results)
+            self.assertNotIn(sam_checkpoint, results)
 
     def test_infer_family_recognizes_yolo12_file_names(self) -> None:
         from src.cli.benchmark import _infer_family

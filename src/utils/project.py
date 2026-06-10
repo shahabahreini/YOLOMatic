@@ -74,9 +74,12 @@ def find_available_weights(project_root: Path) -> list[Path]:
 
 def infer_ultralytics_task_from_name(value: str | Path) -> str:
     name = Path(value).name.lower()
-    if "-seg" in name or "/segment/" in str(value).replace("\\", "/").lower():
+    path_str = str(value).replace("\\", "/").lower()
+    if "-seg" in name or "/segment/" in path_str:
         return "segmentation"
-    if any(tag in name for tag in ("-cls", "-pose", "-obb")):
+    if "-pose" in name or "/pose/" in path_str:
+        return "pose"
+    if any(tag in name for tag in ("-cls", "-obb")):
         return "unsupported"
     return "detection"
 

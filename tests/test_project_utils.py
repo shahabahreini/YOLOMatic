@@ -117,8 +117,18 @@ class ProjectUtilsTests(unittest.TestCase):
             infer_ultralytics_task_from_name("yolo11n-seg.pt"),
             "segmentation",
         )
+        # Pose is a first-class task (keypoint training/benchmark/export).
         self.assertEqual(
             infer_ultralytics_task_from_name("yolo11n-pose.pt"),
+            "pose",
+        )
+        self.assertEqual(
+            infer_ultralytics_task_from_name("runs/pose/train/weights/best.pt"),
+            "pose",
+        )
+        # OBB / classify remain out of scope for now.
+        self.assertEqual(
+            infer_ultralytics_task_from_name("yolo11n-obb.pt"),
             "unsupported",
         )
 
