@@ -3885,6 +3885,7 @@ def settings_ai_page() -> None:
         make_panel,
         TUIState,
         is_enter_key,
+        get_gpu_status,
     )
     from src.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS
     from rich.live import Live
@@ -4242,7 +4243,20 @@ def settings_ai_page() -> None:
                 
             status_table = Table.grid(expand=True)
             status_table.add_column(justify="left", ratio=1)
-            status_table.add_row(Text.from_markup("  " + "  │  ".join(hints), style="bold white"))
+            status_table.add_column(justify="right")
+
+            gpu_status = get_gpu_status()
+            if gpu_status == "Detecting...":
+                gpu_markup = "[dim]GPU: 🔍[/dim]"
+            elif gpu_status in ("CUDA", "MPS"):
+                gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
+            else:
+                gpu_markup = "[dim]GPU: CPU[/dim]"
+
+            status_table.add_row(
+                Text.from_markup("  " + "  │  ".join(hints), style="bold white"),
+                Text.from_markup(f"{gpu_markup}  ")
+            )
             
             return Panel(status_table, border_style="dim", padding=(0, 1))
 

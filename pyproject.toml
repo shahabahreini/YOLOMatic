@@ -157,3 +157,21 @@ project-includes = [
     "**/*.py*",
     "**/*.ipynb",
 ]
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12"
+version = "11.0.0.114"
+requires-dist = [
+    "tensorrt-cu12-libs==11.0.0.114",
+    "tensorrt-cu12-bindings==11.0.0.114",
+]
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+version = "11.0.0.114"
+requires-dist = []
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-bindings"
+version = "11.0.0.114"
+requires-dist = []

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import signal
+import threading
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Sequence
@@ -535,12 +536,21 @@ class MenuRenderer:
     def _render_status_bar(self) -> Panel:
         """Render a small status bar with keyboard hints and app version."""
         hints_text = render_hints("menu_finish" if self.finish_option else "menu")
-        version_text = Text(f"v{__version__}", style="dim cyan")
+
+        gpu_status = get_gpu_status()
+        if gpu_status == "Detecting...":
+            gpu_markup = "[dim]GPU: 🔍[/dim]"
+        elif gpu_status in ("CUDA", "MPS"):
+            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
+        else:
+            gpu_markup = "[dim]GPU: CPU[/dim]"
+
+        status_text = Text.from_markup(f"v{__version__}  •  {gpu_markup}")
 
         status_table = Table.grid(expand=True)
         status_table.add_column(justify="left", ratio=1)
         status_table.add_column(justify="right")
-        status_table.add_row(hints_text, version_text)
+        status_table.add_row(hints_text, status_text)
 
         return Panel(status_table, border_style="dim", padding=(0, 1))
 
@@ -1290,13 +1300,21 @@ class MultiSelectRenderer:
             else:
                 hints_text = render_hints("parameter_input")
 
+        gpu_status = get_gpu_status()
+        if gpu_status == "Detecting...":
+            gpu_markup = "[dim]GPU: 🔍[/dim]"
+        elif gpu_status in ("CUDA", "MPS"):
+            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
+        else:
+            gpu_markup = "[dim]GPU: CPU[/dim]"
+
         selected_count = len(self.selected)
-        count_text = Text(f"Selected: {selected_count}", style="bold cyan")
+        right_text = Text.from_markup(f"{gpu_markup}  •  [bold cyan]Selected: {selected_count}[/bold cyan]")
 
         status_table = Table.grid(expand=True)
         status_table.add_column(justify="left", ratio=1)
         status_table.add_column(justify="right")
-        status_table.add_row(hints_text, count_text)
+        status_table.add_row(hints_text, right_text)
 
         return Panel(status_table, border_style="dim", padding=(0, 1))
 
@@ -1719,3 +1737,38 @@ def get_parameter_value_input(
         except ValueError as e:
             console.print(f"[red]Invalid value: {e}[/red]")
             continue
+
+
+_gpu_status: str | None = None
+_gpu_lock = threading.Lock()
+_gpu_thread_started = False
+
+def get_gpu_status() -> str:
+    """Return the cached GPU status (Detecting..., CUDA, MPS, or CPU).
+
+    Starts a background thread on the first call to import torch and query the GPU
+    to avoid freezing the main TUI thread on startup.
+    """
+    global _gpu_status, _gpu_thread_started
+    with _gpu_lock:
+        if _gpu_status is not None:
+            return _gpu_status
+        if not _gpu_thread_started:
+            _gpu_thread_started = True
+            threading.Thread(target=_detect_gpu_background, daemon=True).start()
+        return "Detecting..."
+
+def _detect_gpu_background() -> None:
+    global _gpu_status
+    status = "CPU"
+    try:
+        from src.utils.ml_dependencies import import_torch
+        torch = import_torch()
+        if torch.cuda.is_available():
+            status = "CUDA"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            status = "MPS"
+    except Exception:
+        pass
+    with _gpu_lock:
+        _gpu_status = status
