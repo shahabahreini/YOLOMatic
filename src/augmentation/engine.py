@@ -945,11 +945,15 @@ def run_augmentation(
     total_out = len(final_pool)
     n_train = int(total_out * split_config.train_ratio)
     n_val = int(total_out * split_config.val_ratio)
+    n_test = int(total_out * split_config.test_ratio)
+    # Int truncation leaves a remainder; give it to train so a 0.0 test ratio
+    # never receives leftover images.
+    n_train += total_out - n_train - n_val - n_test
 
     split_data = {
         "train": final_pool[:n_train],
         "valid": final_pool[n_train:n_train + n_val],
-        "test":  final_pool[n_train + n_val:],
+        "test":  final_pool[n_train + n_val:n_train + n_val + n_test],
     }
 
     if progress_callback:
@@ -972,6 +976,9 @@ def run_augmentation(
     # Write files
     split_counts: dict[str, int] = {}
     for split_name, items in split_data.items():
+        if split_name == "test" and not items:
+            split_counts[split_name] = 0
+            continue
         img_dir = tmp_root / split_name / "images"
         lbl_dir = tmp_root / split_name / "labels"
         img_dir.mkdir(parents=True, exist_ok=True)
@@ -1015,11 +1022,12 @@ def run_augmentation(
     data_yaml_content = {
         "train": "train/images",
         "val":   "valid/images",
-        "test":  "test/images",
         "nc":    len(class_names),
         "names": class_names,
         "task":  task_field,
     }
+    if split_data["test"]:
+        data_yaml_content["test"] = "test/images"
     if write_as_pose and kpt_shape is not None:
         data_yaml_content["kpt_shape"] = [kpt_shape[0], kpt_shape[1]]
     with open(tmp_root / "data.yaml", "w", encoding="utf-8") as f:

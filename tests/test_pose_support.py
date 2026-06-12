@@ -85,6 +85,31 @@ class PoseDatasetDetectionTests(unittest.TestCase):
             self.assertEqual(summary.compatibility.get("yolo"), "native")
             self.assertEqual(summary.classes, ["pole"])
 
+    def test_small_kpt_shape_rows_not_misclassified_as_segmentation(self) -> None:
+        # kpt_shape [2, 2] → rows of 1 + 4 + 4 = 9 columns, which the polygon
+        # heuristic (>=7 columns, even coordinate count) would otherwise
+        # misread as segmentation.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            img_dir = root / "images" / "train"
+            lbl_dir = root / "labels" / "train"
+            img_dir.mkdir(parents=True)
+            lbl_dir.mkdir(parents=True)
+            (img_dir / "a.jpg").write_bytes(b"\xff\xd8\xff\xd9")
+            (lbl_dir / "a.txt").write_text(
+                "0 0.5 0.5 0.2 0.2 0.4 0.4 0.6 0.6\n", encoding="utf-8"
+            )
+            (root / "data.yaml").write_text(
+                f"path: {root}\ntrain: images/train\nnc: 1\nnames: [pole]\nkpt_shape: [2, 2]\n",
+                encoding="utf-8",
+            )
+
+            summary = summarize_dataset(root)
+
+            self.assertEqual(summary.task, "pose")
+            self.assertNotIn(summary.task, ("segmentation", "mixed"))
+            self.assertEqual(summary.splits["train"].annotation_count, 1)
+
     def test_generator_detects_pose_task_type(self) -> None:
         with TemporaryDirectory() as tmp:
             root = _make_pose_dataset(Path(tmp))

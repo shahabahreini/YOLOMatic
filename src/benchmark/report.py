@@ -617,7 +617,8 @@ def _vector_scatter(vector_data: dict, model_name: str) -> go.Figure:
         ])
 
     gt_counts = vector_data["gt_count"]
-    max_gt = max(gt_counts) if gt_counts else 1
+    # `or 1` also guards the all-zero-GT case, not just the empty list.
+    max_gt = max(gt_counts, default=0) or 1
     marker_sizes = [max(8, min(24, 8 + 16 * (c / max_gt))) for c in gt_counts]
     fig = go.Figure(go.Scatter(
         x=vector_data["x"],

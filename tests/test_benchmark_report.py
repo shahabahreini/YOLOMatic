@@ -162,6 +162,28 @@ class TestWriteReport(unittest.TestCase):
             "Expected distinguishable name for last.pt in report",
         )
 
+    def test_vector_scatter_handles_all_zero_gt_counts(self):
+        from src.benchmark.report import _vector_scatter
+
+        n = 3
+        vector_data = {
+            "x": [0.1, 0.2, 0.3],
+            "y": [0.3, 0.2, 0.1],
+            "image_name": [f"img{i}.jpg" for i in range(n)],
+            "f1": [0.0] * n,
+            "precision": [0.0] * n,
+            "recall": [0.0] * n,
+            "tp": [0] * n,
+            "fp": [0] * n,
+            "fn": [0] * n,
+            "mean_iou": [0.0] * n,
+            "gt_count": [0] * n,  # every image has zero GT objects
+        }
+
+        fig = _vector_scatter(vector_data, "model")  # must not ZeroDivisionError
+
+        self.assertEqual(len(fig.data), 1)
+
     def test_report_is_self_contained(self):
         result = _make_result()
         with tempfile.TemporaryDirectory() as tmp:

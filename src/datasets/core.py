@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from src.utils.project import project_root
+
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 SPLIT_ALIASES = {
     "train": ("train", "training"),
@@ -118,23 +120,57 @@ def _image_size(path: Path) -> tuple[float, float]:
         return 1.0, 1.0
 
 
+def _resolve_dataset_paths(base: Path, value: Any, *, path_root: Path | None = None) -> list[Path]:
+    """Resolve a data.yaml split value (str or list of str) into image directories.
+
+    Per entry the first existing interpretation wins: absolute path, relative to
+    the yaml ``path:`` root, relative to the yaml's own directory, or — as a
+    Roboflow-export quirk — relative to the yaml's directory with all leading
+    ``../`` segments stripped (their yamls say ``../train/images`` but mean
+    ``./train/images``). When nothing exists the yaml-relative interpretation is
+    still returned so callers can warn about a concrete missing path.
+    """
+    if value is None:
+        return []
+    entries = list(value) if isinstance(value, (list, tuple)) else [value]
+    resolved: list[Path] = []
+    for entry in entries:
+        if not isinstance(entry, (str, Path)) or not str(entry).strip():
+            continue
+        normalized = str(entry).replace("\\", "/")
+        path = Path(normalized)
+        if path.is_absolute():
+            candidates = [path]
+        else:
+            candidates = []
+            if path_root is not None:
+                candidates.append((path_root / path).resolve())
+            candidates.append((base / path).resolve())
+            stripped = normalized
+            while stripped.startswith("../"):
+                stripped = stripped[3:]
+            if stripped != normalized and stripped:
+                candidates.append((base / stripped).resolve())
+        chosen = next((c for c in candidates if c.exists()), None)
+        if chosen is None:
+            chosen = path if path.is_absolute() else (base / path).resolve()
+        if chosen not in resolved:
+            resolved.append(chosen)
+    return resolved
+
+
 def _resolve_dataset_path(base: Path, value: str | None) -> Path | None:
-    if not value:
-        return None
-    path = Path(str(value))
-    if path.is_absolute():
-        return path
-    normalized = str(path).replace("\\", "/")
-    if normalized.startswith("../"):
-        return (base / normalized[3:]).resolve()
-    return (base / path).resolve()
+    paths = _resolve_dataset_paths(base, value)
+    return paths[0] if paths else None
 
 
 def _resolve_label_dir(image_dir: Path) -> Path | None:
     """Find the labels directory that mirrors an images directory.
 
-    Swaps the rightmost 'images' path component with 'labels', then falls
-    back to a sibling 'labels/' directory next to image_dir.
+    Swaps the rightmost 'images' path component with 'labels', then falls back
+    to a sibling 'labels/' directory, a 'labels/' directory inside image_dir
+    (bare split folders), and finally image_dir itself when label .txt files
+    sit next to the images.
     """
     parts = list(image_dir.parts)
     for i in reversed(range(len(parts))):
@@ -145,7 +181,159 @@ def _resolve_label_dir(image_dir: Path) -> Path | None:
                 return candidate
             break
     sibling = image_dir.parent / "labels"
-    return sibling if sibling.exists() else None
+    if sibling.exists():
+        return sibling
+    nested = image_dir / "labels"
+    if nested.exists():
+        return nested
+    try:
+        has_side_by_side = any(
+            p.is_file() and p.suffix.lower() == ".txt" for p in image_dir.iterdir()
+        )
+    except OSError:
+        has_side_by_side = False
+    return image_dir if has_side_by_side else None
+
+
+def _label_path_for(image_path: Path, image_dir: Path, label_dir: Path) -> Path:
+    """Return the label file path for an image, mirroring any subdirectory structure."""
+    try:
+        rel = image_path.relative_to(image_dir)
+        mirrored = label_dir / rel.with_suffix(".txt")
+        if mirrored.exists():
+            return mirrored
+    except ValueError:
+        pass
+    return label_dir / f"{image_path.stem}.txt"
+
+
+def _normalize_kpt_shape(value: Any) -> tuple[int, int] | None:
+    """Coerce a data.yaml ``kpt_shape`` value into ``(num_keypoints, ndim)``."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    try:
+        k = int(value[0])
+        ndim = int(value[1])
+    except (TypeError, ValueError):
+        return None
+    if k <= 0 or ndim not in (2, 3):
+        return None
+    return k, ndim
+
+
+def _has_direct_images(path: Path) -> bool:
+    try:
+        return any(p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS for p in path.iterdir())
+    except OSError:
+        return False
+
+
+def discover_split_dirs(
+    root: Path,
+    data: dict[str, Any] | None = None,
+    *,
+    warnings: list[str] | None = None,
+) -> dict[str, list[Path]]:
+    """Discover split image directories as the union of data.yaml keys and disk layout.
+
+    ``data`` is the parsed data.yaml located at ``root`` (or ``{}``/None when the
+    dataset has no yaml). Returns canonical split name -> resolved image dirs.
+
+    Sources:
+      A. every present alias key in SPLIT_ALIASES (both ``val:`` and ``valid:``
+         count), resolved via _resolve_dataset_paths honoring the ``path:`` root;
+      B. on-disk conventions matched case-insensitively against the aliases:
+         ``<root>/<alias>/images``, ``<root>/images/<alias>``, and ``<root>/<alias>``
+         containing image files directly.
+
+    Candidates are deduped by resolved path, and a candidate nested inside (or
+    containing) an already accepted directory is rejected so recursive image
+    scans never double-count. Warnings are appended for yaml keys pointing at
+    missing directories and for disk-only split folders pulled in alongside a
+    yaml that did not reference them.
+    """
+    root = Path(root).resolve()
+    data = data or {}
+    result: dict[str, list[Path]] = {name: [] for name in SPLIT_ALIASES}
+    accepted: list[Path] = []
+
+    def _accept(canonical: str, candidate: Path) -> bool:
+        resolved = candidate.resolve()
+        for existing in accepted:
+            if resolved == existing or resolved.is_relative_to(existing) or existing.is_relative_to(resolved):
+                return False
+        accepted.append(resolved)
+        result[canonical].append(resolved)
+        return True
+
+    raw_root = data.get("path")
+    path_root: Path | None = None
+    if isinstance(raw_root, (str, Path)) and str(raw_root).strip():
+        candidate_root = Path(str(raw_root))
+        path_root = candidate_root if candidate_root.is_absolute() else (root / candidate_root).resolve()
+
+    declared_any = False
+    for canonical, aliases in SPLIT_ALIASES.items():
+        for alias in aliases:
+            value = data.get(alias)
+            if value is None:
+                continue
+            declared_any = True
+            for path in _resolve_dataset_paths(root, value, path_root=path_root):
+                if not path.exists():
+                    if warnings is not None:
+                        warnings.append(f"data.yaml references missing {alias} path: {value}")
+                    continue
+                _accept(canonical, path)
+
+    alias_to_canonical = {
+        alias: canonical for canonical, aliases in SPLIT_ALIASES.items() for alias in aliases
+    }
+    try:
+        entries = [e for e in root.iterdir() if e.is_dir() and not e.name.startswith(".")]
+    except OSError:
+        entries = []
+    disk_candidates: list[Path] = []
+    canonical_by_candidate: dict[Path, str] = {}
+    for entry in entries:
+        canonical = alias_to_canonical.get(entry.name.lower())
+        if canonical is None:
+            continue
+        images_sub = entry / "images"
+        candidate = images_sub if images_sub.is_dir() else entry if _has_direct_images(entry) else None
+        if candidate is not None:
+            disk_candidates.append(candidate)
+            canonical_by_candidate[candidate] = canonical
+    images_root = next((e for e in entries if e.name.lower() == "images"), None)
+    if images_root is not None:
+        try:
+            subdirs = [s for s in images_root.iterdir() if s.is_dir()]
+        except OSError:
+            subdirs = []
+        for sub in subdirs:
+            canonical = alias_to_canonical.get(sub.name.lower())
+            if canonical is not None:
+                disk_candidates.append(sub)
+                canonical_by_candidate[sub] = canonical
+    for candidate in disk_candidates:
+        if _accept(canonical_by_candidate[candidate], candidate) and declared_any and warnings is not None:
+            warnings.append(
+                f"Found split folder on disk not referenced in data.yaml: {candidate}; its images will be included."
+            )
+    return result
+
+
+def _has_yolo_disk_layout(root: Path) -> bool:
+    """True when the directory looks like a YOLO dataset without a data.yaml."""
+    root = Path(root)
+    if (root / "images").is_dir() and (root / "labels").is_dir():
+        return True
+    for dirs in discover_split_dirs(root, {}).values():
+        for image_dir in dirs:
+            label_dir = _resolve_label_dir(image_dir)
+            if label_dir is not None and any(label_dir.rglob("*.txt")):
+                return True
+    return False
 
 
 def find_coco_annotation_files(dataset_path: str | Path) -> dict[str, Path]:
@@ -162,7 +350,11 @@ def find_coco_annotation_files(dataset_path: str | Path) -> dict[str, Path]:
 
 def detect_dataset_format(dataset_path: str | Path) -> str:
     root = Path(dataset_path)
-    has_yolo = (root / "data.yaml").exists() or (root / "dataset.yaml").exists()
+    has_yolo = (
+        (root / "data.yaml").exists()
+        or (root / "dataset.yaml").exists()
+        or _has_yolo_disk_layout(root)
+    )
     has_coco = bool(find_coco_annotation_files(root))
     if has_yolo and has_coco:
         return "mixed"
@@ -185,6 +377,34 @@ def _normalize_names(names: Any) -> list[str]:
     return []
 
 
+def _stat_aggregate(path: Path, *, max_depth: int = 2) -> tuple[int, int, int]:
+    """Bounded stat-only sweep of a directory: (file_count, max_mtime_ns, total_size).
+
+    Cheap enough for cache signatures — no file contents are read — yet adding,
+    removing, or editing any file within ``max_depth`` levels changes the result.
+    """
+    file_count = 0
+    latest_mtime = 0
+    total_size = 0
+    base_depth = len(Path(path).parts)
+    try:
+        for dirpath, dirnames, filenames, dirfd in os.fwalk(str(path)):
+            if len(Path(dirpath).parts) - base_depth >= max_depth:
+                dirnames[:] = []
+            for fname in filenames:
+                try:
+                    stat = os.stat(fname, dir_fd=dirfd)
+                except OSError:
+                    continue
+                file_count += 1
+                total_size += stat.st_size
+                if stat.st_mtime_ns > latest_mtime:
+                    latest_mtime = stat.st_mtime_ns
+    except OSError:
+        pass
+    return file_count, latest_mtime, total_size
+
+
 def _dataset_signature(root: Path) -> str:
     """Generate a quick signature for the dataset directory without scanning images/labels."""
     hasher = hashlib.sha256()
@@ -204,7 +424,13 @@ def _dataset_signature(root: Path) -> str:
                         stat = entry.stat()
                         if entry.is_dir():
                             hasher.update(f"dir:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8"))
-                            if entry.name.lower() not in {"images", "labels"}:
+                            if entry.name.lower() in {"images", "labels"}:
+                                # Directory mtimes miss edits and changes in
+                                # subdirs (images/train/...), so fold in a
+                                # bounded stat aggregate of the contents.
+                                count, mtime, size = _stat_aggregate(Path(entry.path))
+                                hasher.update(f"agg:{entry.path}:{count}:{mtime}:{size}".encode("utf-8"))
+                            else:
                                 queue.append((Path(entry.path), depth + 1))
                         elif entry.is_file():
                             if entry.name.lower().endswith((".yaml", ".yml", ".json")):
@@ -234,7 +460,7 @@ def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> 
 
     # Cache check
     sig = _dataset_signature(root)
-    cache_dir = Path("datasets") / ".yolomatic_cache" / "summaries"
+    cache_dir = project_root() / "datasets" / ".yolomatic_cache" / "summaries"
     cache_path = cache_dir / f"{root.name}_{sig}_limit{sample_limit}.json"
 
     if cache_path.exists():
@@ -269,11 +495,7 @@ def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> 
         summary.image_count = len(_iter_images(root))
         summary.errors.append("No data.yaml or COCO annotations were found.")
 
-    tasks = set()
-    for split in summary.splits.values():
-        if split.annotation_count:
-            tasks.add("segmentation" if summary.task == "segmentation" else "detection")
-    if not tasks and summary.annotation_count == 0:
+    if summary.annotation_count == 0:
         summary.task = "empty" if summary.image_count else "unknown"
     summary.compatibility = {
         "yolo": "native" if summary.format in {"yolo", "mixed"} else "conversion required",
@@ -296,47 +518,67 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
     yaml_path = root / "data.yaml"
     if not yaml_path.exists():
         yaml_path = root / "dataset.yaml"
-    if not yaml_path.exists():
-        return
-    data = _read_yaml(yaml_path)
+    data = _read_yaml(yaml_path) if yaml_path.exists() else {}
     summary.classes = summary.classes or _normalize_names(data.get("names"))
     # Authoritative pose marker: Ultralytics tags keypoint datasets with
     # ``kpt_shape``. Pose label rows (class + bbox + K*ndim) otherwise look like
     # neither a 5-col bbox nor an odd-length polygon, so the column heuristic
     # alone would leave the task unclassified.
+    kpt_shape = _normalize_kpt_shape(data.get("kpt_shape"))
     is_pose = bool(data.get("kpt_shape"))
+    pose_values = 4 + kpt_shape[0] * kpt_shape[1] if kpt_shape else 0
     detection_hits = segmentation_hits = 0
-    for canonical, aliases in SPLIT_ALIASES.items():
-        value = next((data.get(alias) for alias in aliases if data.get(alias)), None)
-        images_path = _resolve_dataset_path(yaml_path.parent, value)
-        labels_path = None
-        if images_path is not None:
-            labels_path = _resolve_label_dir(images_path) or images_path.parent / "labels"
-        split = SplitSummary(canonical, str(images_path) if images_path else None, str(labels_path) if labels_path else None)
-        images = _iter_images(images_path)[:sample_limit]
-        split.image_count = len(images)
-        label_files = sorted(labels_path.glob("*.txt"))[:sample_limit] if labels_path and labels_path.exists() else []
-        labeled_stems: set[str] = set()
-        for label_file in label_files:
+
+    def _summarize_dir(split: SplitSummary, images_path: Path) -> None:
+        nonlocal detection_hits, segmentation_hits
+        labels_path = _resolve_label_dir(images_path) or images_path.parent / "labels"
+        if split.images_path is None:
+            split.images_path = str(images_path)
+            split.labels_path = str(labels_path)
+        all_images = _iter_images(images_path)
+        split.image_count += len(all_images)
+        if len(all_images) > sample_limit:
+            summary.warnings.append(
+                f"{split.name}: label statistics sampled from the first {sample_limit} of {len(all_images)} images."
+            )
+        # Pair-driven counting: resolve each image's own label file so nested
+        # layouts and >sample_limit splits keep labeled/unlabeled counts honest.
+        for image_path in all_images[:sample_limit]:
+            label_path = _label_path_for(image_path, images_path, labels_path)
+            if not label_path.exists():
+                split.unlabeled_image_count += 1
+                continue
             try:
-                lines = [line.strip() for line in label_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+                lines = [line.strip() for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip()]
             except OSError:
                 split.missing_file_count += 1
+                split.unlabeled_image_count += 1
                 continue
             if not lines:
                 split.empty_label_count += 1
-            else:
-                labeled_stems.add(label_file.stem)
+                split.unlabeled_image_count += 1
+                continue
+            split.labeled_image_count += 1
             for line in lines:
                 parts = line.split()
-                if len(parts) == 5:
+                if pose_values and len(parts) == 1 + pose_values:
+                    pass  # pose row: neither detection nor segmentation evidence
+                elif len(parts) == 5:
                     detection_hits += 1
                 elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
                     segmentation_hits += 1
                 split.annotation_count += 1
-        image_stems = {p.stem for p in images}
-        split.labeled_image_count = len(image_stems & labeled_stems)
-        split.unlabeled_image_count = max(0, split.image_count - split.labeled_image_count)
+
+    # Union of data.yaml split keys and conventional split folders found on disk.
+    split_dirs = discover_split_dirs(root, data, warnings=summary.warnings)
+    for canonical, image_dirs in split_dirs.items():
+        split = SplitSummary(canonical)
+        for images_path in image_dirs:
+            _summarize_dir(split, images_path)
+        if len(image_dirs) > 1:
+            summary.warnings.append(
+                f"{canonical}: counts aggregated across {len(image_dirs)} image directories."
+            )
         split.status = "valid" if split.image_count and (split.annotation_count or split.empty_label_count) else "warning"
         summary.splits[canonical] = split
 
@@ -345,41 +587,25 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
     if not any(s.image_count > 0 for s in summary.splits.values()):
         flat_images = root / "images"
         if flat_images.exists():
-            flat_labels = _resolve_label_dir(flat_images)
-            flat_images_list = _iter_images(flat_images)[:sample_limit]
-            flat_split = SplitSummary(
-                "train",
-                str(flat_images),
-                str(flat_labels) if flat_labels else None,
-            )
-            flat_split.image_count = len(flat_images_list)
-            if flat_labels and flat_labels.exists():
-                flat_labeled_stems: set[str] = set()
-                for label_file in sorted(flat_labels.glob("*.txt"))[:sample_limit]:
-                    try:
-                        lines = [ln.strip() for ln in label_file.read_text(encoding="utf-8").splitlines() if ln.strip()]
-                    except OSError:
-                        flat_split.missing_file_count += 1
-                        continue
-                    if not lines:
-                        flat_split.empty_label_count += 1
-                    else:
-                        flat_labeled_stems.add(label_file.stem)
-                    for ln in lines:
-                        parts_ln = ln.split()
-                        if len(parts_ln) == 5:
-                            detection_hits += 1
-                        elif len(parts_ln) >= 7 and (len(parts_ln) - 1) % 2 == 0:
-                            segmentation_hits += 1
-                        flat_split.annotation_count += 1
-                image_stems_flat = {p.stem for p in flat_images_list}
-                flat_split.labeled_image_count = len(image_stems_flat & flat_labeled_stems)
-                flat_split.unlabeled_image_count = max(0, flat_split.image_count - flat_split.labeled_image_count)
+            flat_split = SplitSummary("train")
+            _summarize_dir(flat_split, flat_images)
             flat_split.status = "valid" if flat_split.image_count else "warning"
             summary.splits["train"] = flat_split
 
     _rollup(summary)
-    if is_pose:
+    # Task priority: explicit task key in data.yaml (prepare writes one), then
+    # kpt_shape, then the label line-shape heuristic.
+    declared_task = str(data.get("task", "")).lower()
+    task_map = {
+        "pose": "pose",
+        "segment": "segmentation",
+        "segmentation": "segmentation",
+        "detect": "detection",
+        "detection": "detection",
+    }
+    if declared_task in task_map:
+        summary.task = task_map[declared_task]
+    elif is_pose:
         summary.task = "pose"
     elif segmentation_hits and detection_hits:
         summary.task = "mixed"
@@ -395,8 +621,15 @@ def _summarize_coco(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         categories = sorted(data.get("categories", []), key=lambda c: c.get("id", 0))
         if categories and not summary.classes:
             summary.classes = [str(c.get("name", c.get("id"))) for c in categories]
+        total_images = len(data.get("images", []))
+        total_annotations = len(data.get("annotations", []))
         images = data.get("images", [])[:sample_limit]
         annotations = data.get("annotations", [])[:sample_limit]
+        if total_images > sample_limit or total_annotations > sample_limit:
+            summary.warnings.append(
+                f"{split_name}: COCO statistics sampled from the first {sample_limit} of "
+                f"{total_images} images / {total_annotations} annotations."
+            )
         image_ids = {image.get("id") for image in images}
         labeled = {ann.get("image_id") for ann in annotations}
         split = summary.splits.get(split_name, SplitSummary(split_name))
@@ -425,7 +658,7 @@ def _rollup(summary: DatasetSummary) -> None:
 
 def _cache_dir(source: Path, family: str, prepared_format: str) -> Path:
     digest = hashlib.sha1(f"{source.resolve()}:{source.stat().st_mtime_ns}:{prepared_format}".encode()).hexdigest()[:12]
-    return Path("datasets") / ".yolomatic_cache" / family / source.name / digest
+    return project_root() / "datasets" / ".yolomatic_cache" / family / source.name / digest
 
 
 def prepare_dataset_for_family(dataset_path: str | Path, family: str, *, task: str | None = None) -> dict[str, Any]:
@@ -468,7 +701,10 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
     source = Path(source_dir).resolve()
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    data = _read_yaml(source / "data.yaml")
+    yaml_path = source / "data.yaml"
+    if not yaml_path.exists():
+        yaml_path = source / "dataset.yaml"
+    data = _read_yaml(yaml_path) if yaml_path.exists() else {}
     classes = _normalize_names(data.get("names"))
     kpt_shape = data.get("kpt_shape")
     num_kpts = ndim = 0
@@ -479,14 +715,27 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
             num_kpts = ndim = 0
     kpt_names = [f"kpt_{i}" for i in range(num_kpts)]
     manifest = {"source": str(source), "format": "coco", "warnings": [], "classes": classes}
-    for split_name, aliases in SPLIT_ALIASES.items():
-        value = next((data.get(alias) for alias in aliases if data.get(alias)), None)
-        images_path = _resolve_dataset_path(source, value)
-        if images_path is None:
+    # Same union discovery as prepare/summarize so the exported COCO dataset
+    # covers split folders that data.yaml does not reference (or has no yaml).
+    split_dirs = discover_split_dirs(source, data, warnings=manifest["warnings"])
+    for split_name, image_dirs in split_dirs.items():
+        if not image_dirs:
             continue
         target_images = output / split_name / "images"
         target_images.mkdir(parents=True, exist_ok=True)
-        images = _iter_images(images_path)
+        used_names: set[str] = set()
+        images: list[tuple[Path, Path, str]] = []
+        for images_path in image_dirs:
+            label_dir = _resolve_label_dir(images_path) or images_path.parent / "labels"
+            for image_path in _iter_images(images_path):
+                file_name = image_path.name
+                if file_name in used_names:
+                    counter = 1
+                    while f"{image_path.stem}_{counter}{image_path.suffix}" in used_names:
+                        counter += 1
+                    file_name = f"{image_path.stem}_{counter}{image_path.suffix}"
+                used_names.add(file_name)
+                images.append((image_path, _label_path_for(image_path, images_path, label_dir), file_name))
         category_list: list[dict[str, Any]] = []
         for i, name in enumerate(classes):
             cat: dict[str, Any] = {"id": i + 1, "name": name}
@@ -500,20 +749,19 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
             "categories": category_list,
         }
         ann_id = 1
-        for image_id, image_path in enumerate(images, start=1):
+        for image_id, (image_path, label_path, file_name) in enumerate(images, start=1):
             width, height = _image_size(image_path)
-            target = target_images / image_path.name
+            target = target_images / file_name
             if not target.exists():
                 shutil.copy2(image_path, target)
             coco["images"].append(
                 {
                     "id": image_id,
-                    "file_name": str(Path(split_name) / "images" / image_path.name),
+                    "file_name": str(Path(split_name) / "images" / file_name),
                     "width": int(width),
                     "height": int(height),
                 }
             )
-            label_path = (_resolve_label_dir(images_path) or images_path.parent / "labels") / f"{image_path.stem}.txt"
             if not label_path.exists():
                 continue
             pose_len = 4 + num_kpts * ndim if num_kpts else -1

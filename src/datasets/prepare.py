@@ -20,12 +20,14 @@ from src.datasets.core import (
     DatasetValidationError,
     _image_size,
     _iter_images,
+    _label_path_for,
+    _normalize_kpt_shape,
     _normalize_names,
     _read_json,
     _read_yaml,
-    _resolve_dataset_path,
     _resolve_label_dir,
     detect_dataset_format,
+    discover_split_dirs,
     find_coco_annotation_files,
     summarize_dataset,
 )
@@ -221,32 +223,6 @@ def _coco_bbox_from_yolo(bbox: list[float], width: int, height: int) -> list[flo
     ]
 
 
-def _label_path_for(image_path: Path, image_dir: Path, label_dir: Path) -> Path:
-    """Return the label file path for an image, mirroring any subdirectory structure."""
-    try:
-        rel = image_path.relative_to(image_dir)
-        mirrored = label_dir / rel.with_suffix(".txt")
-        if mirrored.exists():
-            return mirrored
-    except ValueError:
-        pass
-    return label_dir / f"{image_path.stem}.txt"
-
-
-def _normalize_kpt_shape(value: Any) -> tuple[int, int] | None:
-    """Coerce a data.yaml ``kpt_shape`` value into ``(num_keypoints, ndim)``."""
-    if not isinstance(value, (list, tuple)) or len(value) != 2:
-        return None
-    try:
-        k = int(value[0])
-        ndim = int(value[1])
-    except (TypeError, ValueError):
-        return None
-    if k <= 0 or ndim not in (2, 3):
-        return None
-    return k, ndim
-
-
 def _read_yolo_annotations(
     image_path: Path,
     image_dir: Path,
@@ -295,7 +271,9 @@ def _read_yolo_records(
     yaml_path = source / "data.yaml"
     if not yaml_path.exists():
         yaml_path = source / "dataset.yaml"
-    data = _read_yaml(yaml_path)
+    data = _read_yaml(yaml_path) if yaml_path.exists() else {}
+    if not yaml_path.exists():
+        warnings.append("No data.yaml found; class names will be inferred from label files.")
     classes = _normalize_names(data.get("names"))
     task = str(data.get("task", "")).lower()
     kpt_shape = _normalize_kpt_shape(data.get("kpt_shape"))
@@ -304,46 +282,48 @@ def _read_yolo_records(
     records: list[ImageRecord] = []
     seg_hits = bbox_hits = pose_hits = 0
     seen_image_dirs: set[Path] = set()
+    consumed_labels: set[Path] = set()
+    orphan_label_dirs: set[Path] = set()
 
-    for aliases in (
-        ("train", "training"),
-        ("val", "valid", "validation"),
-        ("test", "testing"),
-    ):
-        raw_path = next((data.get(alias) for alias in aliases if data.get(alias)), None)
-        image_dir = _resolve_dataset_path(yaml_path.parent, raw_path)
-        if image_dir is None or not image_dir.exists():
-            continue
+    def _consume_dir(image_dir: Path) -> None:
+        nonlocal bbox_hits, seg_hits, pose_hits
         image_dir = image_dir.resolve()
         if image_dir in seen_image_dirs:
-            continue
+            return
         seen_image_dirs.add(image_dir)
-
         label_dir = _resolve_label_dir(image_dir) or image_dir.parent / "labels"
-
+        if label_dir != image_dir:
+            orphan_label_dirs.add(label_dir)
         for image_path in _iter_images(image_dir):
             width, height = _image_size(image_path)
             file_name = _dedupe_filename(image_path.name, used_names)
+            consumed_labels.add(_label_path_for(image_path, image_dir, label_dir))
             anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, warnings, kpt_shape)
             bbox_hits += b
             seg_hits += s
             pose_hits += p
             records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
 
-    # Flat-structure fallback: if data.yaml has no split keys, scan images/ and labels/ at root
-    if not records:
-        flat_image_dir = (source / "images").resolve()
-        flat_label_dir = (source / "labels").resolve() if (source / "labels").exists() else None
-        if flat_image_dir.exists() and flat_image_dir not in seen_image_dirs:
-            label_dir = flat_label_dir or flat_image_dir.parent / "labels"
-            for image_path in _iter_images(flat_image_dir):
-                width, height = _image_size(image_path)
-                file_name = _dedupe_filename(image_path.name, used_names)
-                anns, b, s, p = _read_yolo_annotations(image_path, flat_image_dir, label_dir, warnings, kpt_shape)
-                bbox_hits += b
-                seg_hits += s
-                pose_hits += p
-                records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
+    # Union of data.yaml split keys and conventional split folders found on disk
+    # (train/valid/test layouts not referenced in the yaml are pooled too).
+    split_dirs = discover_split_dirs(source, data, warnings=warnings)
+    for image_dirs in split_dirs.values():
+        for image_dir in image_dirs:
+            _consume_dir(image_dir)
+
+    # Flat-structure fallback: if no split folders were found, scan images/ and labels/ at root
+    if not records and (source / "images").exists():
+        _consume_dir(source / "images")
+
+    # Labels that no scanned image claimed point at missing/renamed images.
+    for label_dir in sorted(orphan_label_dirs):
+        if not label_dir.exists():
+            continue
+        orphaned = sorted(p for p in label_dir.rglob("*.txt") if p not in consumed_labels)
+        if orphaned:
+            warnings.append(
+                f"{len(orphaned)} label file(s) in {label_dir} have no matching image (e.g. {orphaned[0].name})"
+            )
 
     pose_meta: dict[str, Any] | None = None
     if kpt_shape and pose_hits:

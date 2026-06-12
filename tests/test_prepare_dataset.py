@@ -380,12 +380,7 @@ class PrepareDatasetTest(unittest.TestCase):
 class DatasetSummaryCacheTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
-        from pathlib import Path as RealPath
-        def mock_path(*args, **kwargs):
-            if args and args[0] == "datasets":
-                return RealPath(self.tmp / "datasets")
-            return RealPath(*args, **kwargs)
-        self.patcher = patch("src.datasets.core.Path", side_effect=mock_path)
+        self.patcher = patch("src.datasets.core.project_root", return_value=self.tmp)
         self.patcher.start()
 
     def tearDown(self) -> None:
@@ -420,12 +415,74 @@ class DatasetSummaryCacheTest(unittest.TestCase):
         cache_files = list((self.tmp / "datasets" / ".yolomatic_cache" / "summaries").glob("*.json"))
         self.assertEqual(len(cache_files), 1)
 
-        # Patch os.fwalk to raise error to prove it's not called on second run
-        with patch("os.fwalk", side_effect=AssertionError("Should load from cache")):
+        # Prove the second run is served from cache: the summary body
+        # (_summarize_yolo) must never execute again.
+        with patch(
+            "src.datasets.core._summarize_yolo",
+            side_effect=AssertionError("Should load from cache"),
+        ):
             summary2 = summarize_dataset(dataset_path)
             self.assertEqual(summary2.image_count, 1)
             self.assertEqual(summary2.annotation_count, 1)
             self.assertEqual(summary2.total_size_bytes, summary1.total_size_bytes)
+
+    def test_cache_invalidated_by_image_added_under_images_dir(self) -> None:
+        from src.datasets.core import summarize_dataset
+
+        dataset_path = self.tmp / "growing_dataset"
+        dataset_path.mkdir()
+        self._write_yolo_dataset(dataset_path)
+
+        summary1 = summarize_dataset(dataset_path)
+        self.assertEqual(summary1.image_count, 1)
+
+        (dataset_path / "train" / "images" / "img2.jpg").write_text("dummy 2", encoding="utf-8")
+        (dataset_path / "train" / "labels" / "img2.txt").write_text(
+            "0 0.5 0.5 0.1 0.1\n", encoding="utf-8"
+        )
+
+        summary2 = summarize_dataset(dataset_path)
+        self.assertEqual(summary2.image_count, 2)
+        self.assertEqual(summary2.annotation_count, 2)
+
+    def test_cache_invalidated_by_label_edit(self) -> None:
+        from src.datasets.core import summarize_dataset
+
+        dataset_path = self.tmp / "edited_dataset"
+        dataset_path.mkdir()
+        self._write_yolo_dataset(dataset_path)
+
+        summary1 = summarize_dataset(dataset_path)
+        self.assertEqual(summary1.annotation_count, 1)
+
+        (dataset_path / "train" / "labels" / "img.txt").write_text(
+            "0 0.5 0.5 0.2 0.2\n0 0.25 0.25 0.1 0.1\n", encoding="utf-8"
+        )
+
+        summary2 = summarize_dataset(dataset_path)
+        self.assertEqual(summary2.annotation_count, 2)
+
+    def test_cache_dir_anchored_at_project_root_not_cwd(self) -> None:
+        import os as _os
+
+        from src.datasets.core import summarize_dataset
+
+        dataset_path = self.tmp / "anchored_dataset"
+        dataset_path.mkdir()
+        self._write_yolo_dataset(dataset_path)
+
+        other_cwd = Path(tempfile.mkdtemp())
+        old_cwd = Path.cwd()
+        try:
+            _os.chdir(other_cwd)
+            summarize_dataset(dataset_path)
+            self.assertFalse((other_cwd / "datasets").exists())
+        finally:
+            _os.chdir(old_cwd)
+            shutil.rmtree(other_cwd, ignore_errors=True)
+
+        cache_files = list((self.tmp / "datasets" / ".yolomatic_cache" / "summaries").glob("*.json"))
+        self.assertGreaterEqual(len(cache_files), 1)
 
 
 class PreparePoseTest(unittest.TestCase):
@@ -521,6 +578,182 @@ class PreparePoseTest(unittest.TestCase):
                     output_format="YOLO Pose",
                 )
             )
+
+
+class SplitDiscoveryTest(unittest.TestCase):
+    """Union split discovery: data.yaml keys + conventional folders on disk."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp)
+
+    def _write_image(self, path: Path, value: int = 120) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        image = np.full((16, 16, 3), value, dtype=np.uint8)
+        cv2.imwrite(str(path), image)
+
+    def _write_label(self, path: Path, row: str = "0 0.5 0.5 0.25 0.25\n") -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(row, encoding="utf-8")
+
+    def _write_split(self, root: Path, split: str, count: int = 1) -> None:
+        for idx in range(count):
+            self._write_image(root / split / "images" / f"{split}_{idx}.jpg", value=60 + idx)
+            self._write_label(root / split / "labels" / f"{split}_{idx}.txt")
+
+    def test_resolve_dataset_paths_relative_and_roboflow(self) -> None:
+        from src.datasets.core import _resolve_dataset_paths
+
+        base = self.tmp / "ds"
+        (base / "train" / "images").mkdir(parents=True)
+
+        self.assertEqual(
+            _resolve_dataset_paths(base, "train/images"),
+            [(base / "train" / "images").resolve()],
+        )
+        # Roboflow quirk: '../train/images' means './train/images'.
+        self.assertEqual(
+            _resolve_dataset_paths(base, "../train/images"),
+            [(base / "train" / "images").resolve()],
+        )
+        # Multi-level '../../' is stripped entirely.
+        self.assertEqual(
+            _resolve_dataset_paths(base, "../../train/images"),
+            [(base / "train" / "images").resolve()],
+        )
+
+    def test_resolve_dataset_paths_list_and_path_root(self) -> None:
+        from src.datasets.core import _resolve_dataset_paths
+
+        base = self.tmp / "ds"
+        (base / "train" / "images").mkdir(parents=True)
+        (base / "extra" / "images").mkdir(parents=True)
+        other = self.tmp / "other"
+        (other / "train" / "images").mkdir(parents=True)
+
+        self.assertEqual(
+            _resolve_dataset_paths(base, ["train/images", "extra/images"]),
+            [(base / "train" / "images").resolve(), (base / "extra" / "images").resolve()],
+        )
+        # The yaml `path:` root wins over base-relative resolution.
+        self.assertEqual(
+            _resolve_dataset_paths(base, "train/images", path_root=other),
+            [(other / "train" / "images").resolve()],
+        )
+        # Nothing exists: the yaml-relative interpretation is still returned so
+        # callers can warn about a concrete path.
+        self.assertEqual(
+            _resolve_dataset_paths(base, "nope/images"),
+            [(base / "nope" / "images").resolve()],
+        )
+
+    def test_discover_includes_disk_only_split_with_warning(self) -> None:
+        from src.datasets.core import discover_split_dirs
+
+        root = self.tmp / "ds"
+        self._write_split(root, "train")
+        self._write_split(root, "test")
+        data = {"train": "train/images"}
+
+        warnings: list[str] = []
+        result = discover_split_dirs(root, data, warnings=warnings)
+
+        self.assertEqual(result["train"], [(root / "train" / "images").resolve()])
+        self.assertEqual(result["test"], [(root / "test" / "images").resolve()])
+        self.assertTrue(any("not referenced" in w for w in warnings))
+
+    def test_discover_warns_on_missing_yaml_dir_and_uses_disk(self) -> None:
+        from src.datasets.core import discover_split_dirs
+
+        root = self.tmp / "ds"
+        self._write_split(root, "train")
+        data = {"train": "missing/images"}
+
+        warnings: list[str] = []
+        result = discover_split_dirs(root, data, warnings=warnings)
+
+        self.assertTrue(any("missing" in w for w in warnings))
+        self.assertEqual(result["train"], [(root / "train" / "images").resolve()])
+
+    def test_discover_pools_val_and_valid_keys(self) -> None:
+        from src.datasets.core import discover_split_dirs
+
+        root = self.tmp / "ds"
+        self._write_image(root / "val_a" / "images" / "a.jpg")
+        self._write_image(root / "val_b" / "images" / "b.jpg")
+        data = {"val": "val_a/images", "valid": "val_b/images"}
+
+        result = discover_split_dirs(root, data)
+
+        self.assertEqual(
+            sorted(result["val"]),
+            sorted([(root / "val_a" / "images").resolve(), (root / "val_b" / "images").resolve()]),
+        )
+
+    def test_prepare_pools_disk_only_test_split(self) -> None:
+        root = self.tmp / "source"
+        self._write_split(root, "train", count=2)
+        self._write_split(root, "valid", count=1)
+        self._write_split(root, "test", count=2)
+        (root / "data.yaml").write_text(
+            "train: train/images\nval: valid/images\nnc: 1\nnames: [cat]\ntask: detect\n",
+            encoding="utf-8",
+        )
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=root,
+                output_root=self.tmp / "datasets",
+                output_slug="pooled",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+            )
+        )
+
+        self.assertEqual(stats.total_images, 5)
+        self.assertTrue(any("not referenced" in w for w in stats.warnings))
+
+    def test_prepare_without_data_yaml(self) -> None:
+        root = self.tmp / "source"
+        self._write_split(root, "train", count=2)
+        self._write_split(root, "valid", count=1)
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=root,
+                output_root=self.tmp / "datasets",
+                output_slug="noyaml",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+            )
+        )
+
+        self.assertEqual(stats.total_images, 3)
+        self.assertEqual(stats.classes, ["class_0"])
+        self.assertTrue(any("No data.yaml" in w for w in stats.warnings))
+
+    def test_prepare_warns_about_orphaned_labels(self) -> None:
+        root = self.tmp / "source"
+        self._write_split(root, "train", count=1)
+        self._write_label(root / "train" / "labels" / "ghost.txt")
+        (root / "data.yaml").write_text(
+            "train: train/images\nnc: 1\nnames: [cat]\ntask: detect\n",
+            encoding="utf-8",
+        )
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=root,
+                output_root=self.tmp / "datasets",
+                output_slug="orphans",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+            )
+        )
+
+        self.assertTrue(any("no matching image" in w for w in stats.warnings))
 
 
 if __name__ == "__main__":

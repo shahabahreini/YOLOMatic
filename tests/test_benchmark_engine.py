@@ -276,5 +276,32 @@ class TestBenchmarkConfigNewFields(unittest.TestCase):
         self.assertEqual(cfg.max_workers, 2)
 
 
+class TestLoadYoloDataUnreadableImage(unittest.TestCase):
+    def test_unreadable_image_warns_and_falls_back_to_640(self):
+        from src.benchmark.engine import _load_yolo_data
+
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "images").mkdir()
+            (d / "labels").mkdir()
+            img = d / "images" / "broken.jpg"
+            img.write_bytes(b"not a real image")
+            # Full-frame polygon: with the 640x640 fallback the denormalized
+            # GT box must span exactly 0..640.
+            (d / "labels" / "broken.txt").write_text(
+                "0 0.0 0.0 1.0 0.0 1.0 1.0 0.0 1.0\n", encoding="utf-8"
+            )
+
+            log_lines: list[str] = []
+            with self.assertLogs("src.benchmark.engine", level="WARNING") as captured:
+                fname_to_gts = _load_yolo_data(d, [img], log=log_lines.append)
+
+            self.assertTrue(any("640" in msg for msg in captured.output))
+            self.assertTrue(any("640" in line for line in log_lines))
+            gts = fname_to_gts["broken.jpg"]
+            self.assertEqual(len(gts), 1)
+            self.assertEqual(tuple(gts[0].box_xyxy), (0.0, 0.0, 640.0, 640.0))
+
+
 if __name__ == "__main__":
     unittest.main()

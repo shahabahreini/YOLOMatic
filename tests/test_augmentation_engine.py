@@ -137,6 +137,43 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             self.assertEqual(len(pairs), 1)
             self.assertEqual(pairs[0][1], root / "valid" / "labels" / "a.txt")
 
+    def test_run_augmentation_zero_test_ratio_leaves_test_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: detect\nnames: [item]\ntrain: train/images\n",
+                encoding="utf-8",
+            )
+            # 9 images at 0.8/0.2/0.0: int truncation leaves a remainder that
+            # must land in train, never test.
+            for idx in range(9):
+                self._write_image(root / "train" / "images" / f"img_{idx}.jpg")
+                self._write_label(root / "train" / "labels" / f"img_{idx}.txt")
+
+            stats = run_augmentation(
+                root,
+                "augmented",
+                self._noop_profile(),
+                SplitConfig(train_ratio=0.8, val_ratio=0.2, test_ratio=0.0),
+                output_format="YOLO Detection",
+                max_workers=1,
+            )
+
+            out_root = root.parent / "augmented"
+            self.assertEqual(stats.split_counts["test"], 0)
+            # 9 originals + 9 augmented copies, all split between train/valid.
+            self.assertEqual(
+                stats.split_counts["train"] + stats.split_counts["valid"],
+                stats.total_output_images,
+            )
+            self.assertEqual(stats.total_output_images, 18)
+            self.assertFalse((out_root / "test").exists())
+            data_yaml = yaml.safe_load(
+                (out_root / "data.yaml").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("test", data_yaml)
+
     def test_run_augmentation_pools_all_source_splits_then_redistributes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "source"
@@ -174,10 +211,11 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             out_root = root.parent / "augmented"
             self.assertEqual(stats.total_source_images, 3)
             self.assertEqual(stats.total_output_images, 6)
-            self.assertEqual(stats.split_counts, {"train": 3, "valid": 1, "test": 2})
+            # Int-truncation remainder goes to train (never test).
+            self.assertEqual(stats.split_counts, {"train": 4, "valid": 1, "test": 1})
             self.assertEqual(
                 len(list((out_root / "train" / "images").glob("*.jpg"))),
-                3,
+                4,
             )
             self.assertEqual(
                 len(list((out_root / "valid" / "images").glob("*.jpg"))),
@@ -185,7 +223,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             )
             self.assertEqual(
                 len(list((out_root / "test" / "images").glob("*.jpg"))),
-                2,
+                1,
             )
 
             data_yaml = yaml.safe_load(

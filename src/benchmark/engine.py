@@ -205,11 +205,13 @@ def _load_gt_from_yolo_txt(
 def _load_yolo_data(
     validation_dir: Path,
     all_images: list[Path],
+    log: "Callable[[str], None] | None" = None,
 ) -> dict[str, list[GTObject]]:
     """Load YOLO .txt labels → filename-keyed GT dict."""
     labels_dir = _find_yolo_labels_dir(validation_dir)
     fname_to_gts: dict[str, list[GTObject]] = {}
     pose_values = _pose_label_values(validation_dir)
+    size_fallbacks = 0
 
     for img_path in all_images:
         if not img_path.exists():
@@ -224,12 +226,25 @@ def _load_yolo_data(
             with _PILImage.open(img_path) as _im:
                 img_w, img_h = _im.size
         except Exception:
+            # Keep the fallback (metric denominators stay stable) but never
+            # silently: denormalized GT boxes for this image may be distorted.
             img_w, img_h = 640, 640
+            size_fallbacks += 1
+            logger.warning(
+                "Could not read image size for %s; assuming 640x640 — "
+                "ground-truth boxes for this image may be inaccurate.",
+                img_path,
+            )
 
         fname_to_gts[img_path.name] = (
             _load_gt_from_yolo_txt(label_path, img_w, img_h, pose_values)
             if label_path.exists()
             else []
+        )
+    if size_fallbacks and log is not None:
+        log(
+            f"  [WARN] {size_fallbacks} image(s) could not be read; assumed 640x640 — "
+            "their ground-truth boxes may be inaccurate."
         )
     return fname_to_gts
 
@@ -485,7 +500,7 @@ def _evaluate_model_worker(
     # Re-load GT data inside the worker to avoid shipping large arrays
     # across process boundaries.
     if ann_format == "yolo":
-        fname_to_gts = _load_yolo_data(validation_dir, all_images)
+        fname_to_gts = _load_yolo_data(validation_dir, all_images, log=log)
         id_to_path: dict[int, Path] = {}
         id_to_gts: dict[int, list[GTObject]] = {}
         fname_to_id: dict[str, int] = {}
@@ -628,6 +643,12 @@ def run_benchmark(
     ann_format = detect_annotation_format(config.validation_dir)
     if config.annotations_file is not None:
         ann_format = "coco"
+
+    if ann_format == "yolo" and _pose_label_values(config.validation_dir):
+        logger_fn(
+            "Pose dataset detected: evaluation uses bounding-box IoU only; "
+            "keypoint OKS is not computed."
+        )
 
     raw_device = config.device if config.device != "auto" else ""
     is_gpu = _has_gpu() and raw_device.lower() not in ("cpu",)
