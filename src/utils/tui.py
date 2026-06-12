@@ -289,6 +289,7 @@ class MenuRenderer:
         # Layout cache — invalidated on any state change to avoid rebuilding every frame
         self._layout_dirty: bool = True
         self._cached_layout: Layout | None = None
+        self._last_gpu_status: str | None = None
 
     def _is_header(self, option: str) -> bool:
         """Check if an option is a header (non-selectable)."""
@@ -540,10 +541,10 @@ class MenuRenderer:
         gpu_status = get_gpu_status()
         if gpu_status == "Detecting...":
             gpu_markup = "[dim]GPU: 🔍[/dim]"
-        elif gpu_status in ("CUDA", "MPS"):
-            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
-        else:
+        elif gpu_status == "CPU":
             gpu_markup = "[dim]GPU: CPU[/dim]"
+        else:
+            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
 
         status_text = Text.from_markup(f"v{__version__}  •  {gpu_markup}")
 
@@ -714,6 +715,11 @@ class MenuRenderer:
             self._layout_dirty = True
         if w is not None and w != _term_w:
             _term_w = w
+            self._layout_dirty = True
+
+        current_gpu = get_gpu_status()
+        if current_gpu != self._last_gpu_status:
+            self._last_gpu_status = current_gpu
             self._layout_dirty = True
 
         try:
@@ -1044,6 +1050,7 @@ class MultiSelectRenderer:
         # Layout cache — invalidated on any state change to avoid rebuilding every frame
         self._layout_dirty: bool = True
         self._cached_layout: Layout | None = None
+        self._last_gpu_status: str | None = None
 
     def _render_checkbox(self, param: ParameterDefinition, is_active: bool) -> Text:
         checked = "[x]" if param.name in self.selected else "[ ]"
@@ -1303,10 +1310,10 @@ class MultiSelectRenderer:
         gpu_status = get_gpu_status()
         if gpu_status == "Detecting...":
             gpu_markup = "[dim]GPU: 🔍[/dim]"
-        elif gpu_status in ("CUDA", "MPS"):
-            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
-        else:
+        elif gpu_status == "CPU":
             gpu_markup = "[dim]GPU: CPU[/dim]"
+        else:
+            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
 
         selected_count = len(self.selected)
         right_text = Text.from_markup(f"{gpu_markup}  •  [bold cyan]Selected: {selected_count}[/bold cyan]")
@@ -1366,6 +1373,11 @@ class MultiSelectRenderer:
             self._layout_dirty = True
         if w is not None and w != _term_w:
             _term_w = w
+            self._layout_dirty = True
+
+        current_gpu = get_gpu_status()
+        if current_gpu != self._last_gpu_status:
+            self._last_gpu_status = current_gpu
             self._layout_dirty = True
 
         try:
@@ -1765,9 +1777,20 @@ def _detect_gpu_background() -> None:
         from src.utils.ml_dependencies import import_torch
         torch = import_torch()
         if torch.cuda.is_available():
-            status = "CUDA"
+            try:
+                status = torch.cuda.get_device_name(0)
+            except Exception:
+                status = "CUDA"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            status = "MPS"
+            import subprocess
+            try:
+                chip_name = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], text=True).strip()
+                if chip_name:
+                    status = chip_name
+                else:
+                    status = "Apple Silicon"
+            except Exception:
+                status = "Apple Silicon"
     except Exception:
         pass
     with _gpu_lock:

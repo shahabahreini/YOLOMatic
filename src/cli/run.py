@@ -4248,10 +4248,10 @@ def settings_ai_page() -> None:
             gpu_status = get_gpu_status()
             if gpu_status == "Detecting...":
                 gpu_markup = "[dim]GPU: 🔍[/dim]"
-            elif gpu_status in ("CUDA", "MPS"):
-                gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
-            else:
+            elif gpu_status == "CPU":
                 gpu_markup = "[dim]GPU: CPU[/dim]"
+            else:
+                gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
 
             status_table.add_row(
                 Text.from_markup("  " + "  │  ".join(hints), style="bold white"),
