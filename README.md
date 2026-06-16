@@ -37,7 +37,7 @@ RF-DETR, SAM 3.1, and Detectron2 from one terminal workflow.
 ## 30-Second Quickstart
 
 ```sh
-uv tool install yolomatic
+uv tool install --python 3.12 yolomatic
 yolomatic
 ```
 

@@ -20,7 +20,7 @@ description: Reference for all YOLOmatic command-line entrypoints, flags, and us
 | `yolomatic-ultralytics` | Ultralytics Platform helper workflows |
 | `bump patch\|minor\|major\|VERSION` | Update the package version |
 
-All commands are available as `uv run <command>` from the repository root, or directly after `uv tool install yolomatic`.
+All commands are available as `uv run <command>` from the repository root, or directly after `uv tool install --python 3.12 yolomatic`.
 
 ---
 

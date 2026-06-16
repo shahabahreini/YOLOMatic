@@ -7,7 +7,7 @@ description: Start YOLOmatic, generate a training config, train a model, and run
 ## 30-Second Path
 
 ```sh
-uv tool install yolomatic
+uv tool install --python 3.12 yolomatic
 yolomatic
 ```
 

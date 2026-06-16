@@ -50,7 +50,7 @@ YOLOmatic targets Python `>=3.12,<3.13`.
 For end users:
 
 ```sh
-uv tool install yolomatic
+uv tool install --python 3.12 yolomatic
 yolomatic
 ```
 
@@ -75,6 +75,10 @@ Yes. Windows is supported, including CUDA-capable systems. For manual PyTorch
 CUDA repairs on Windows, prefer `.venv\Scripts\python.exe -m pip ...` instead of
 `uv run pip ...` so `uv` does not resync the environment back to the locked
 state.
+
+For tool installs on Windows, use `uv tool install --python 3.12 yolomatic`.
+This avoids source-building ONNX dependencies that do not publish Python 3.13
+Windows wheels.
 
 ### Does YOLOmatic support macOS?
 

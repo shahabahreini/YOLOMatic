@@ -31,7 +31,8 @@ def _refresh_term_size(*_: Any) -> None:
     _term_h = TUI_TERM.height
 
 
-signal.signal(signal.SIGWINCH, _refresh_term_size)
+if hasattr(signal, "SIGWINCH"):
+    signal.signal(signal.SIGWINCH, _refresh_term_size)
 _refresh_term_size()
 
 # Module-level imports — avoid repeated sys.modules lookups inside render methods
