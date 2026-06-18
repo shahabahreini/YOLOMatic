@@ -1558,6 +1558,11 @@ logging.basicConfig(
     handlers=[RichHandler(rich_tracebacks=True)],
 )
 logging.getLogger("src.config.generator").setLevel(logging.WARNING)
+# matplotlib (pulled in by ultralytics during training) logs font-cache build
+# details at INFO, e.g. "Failed to extract font properties from NotoColorEmoji.ttf:
+# Non-scalable fonts are not supported". These are harmless cache-build notices, so
+# force the logger to WARNING regardless of the active root level.
+logging.getLogger("matplotlib").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

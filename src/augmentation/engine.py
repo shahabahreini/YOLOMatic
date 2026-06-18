@@ -797,8 +797,10 @@ def run_augmentation(
       1. Detect annotation format from source
       2. Collect all images from all splits
       3. Augment every image (multiplier × each)
-      4. Pool originals + augmented (if include_originals)
-      5. Shuffle with seed, split by ratios
+      4. Group each source image with its augmented variants (and its original,
+         if include_originals)
+      5. Shuffle groups with seed, then assign whole groups to splits by ratio so
+         a source image and all its variants always stay in the same split (no leakage)
       6. Write output dataset
       7. If COCO: convert using existing convert_yolo_to_coco()
     """
@@ -908,8 +910,10 @@ def run_augmentation(
             _, orig_buf = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
             return aug_items, (orig_buf.tobytes(), bboxes, cls_ids), orig_discarded
 
-    aug_pool: list[tuple[bytes, list, list]] = []
-    orig_pool: list[tuple[bytes, list, list]] = []
+    # One group per source image: [original?] + its augmented variants. Splitting at
+    # the group level (rather than per-item) keeps every variant of an image in the
+    # same split, preventing train/val/test leakage.
+    groups: list[list[tuple[bytes, list, list]]] = []
     done_count = 0
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -919,11 +923,16 @@ def run_augmentation(
             done_count += 1
             try:
                 aug_items, orig_item, n_disc = future.result()
-                aug_pool.extend(aug_items)
-                if orig_item is not None:
-                    orig_pool.append(orig_item)
-                else:
+                if orig_item is None:
+                    # Unreadable image — nothing produced.
                     skipped += 1
+                else:
+                    group: list[tuple[bytes, list, list]] = []
+                    if profile.include_originals:
+                        group.append(orig_item)
+                    group.extend(aug_items)
+                    if group:
+                        groups.append(group)
                 discarded += n_disc
             except Exception as exc:
                 logger.warning("Failed to augment %s: %s", pair[0].name, exc)
@@ -932,29 +941,29 @@ def run_augmentation(
             if progress_callback and done_count % max(1, total_source // 100) == 0:
                 progress_callback(done_count, total_source, pair[0].name)
 
-    # Assemble final pool
-    final_pool: list[tuple[bytes, list, list]] = []
-    if profile.include_originals:
-        final_pool.extend(orig_pool)
-    final_pool.extend(aug_pool)
-
-    # Shuffle
+    # Shuffle groups, then assign whole groups to splits by ratio.
     rng = random.Random(profile.seed)
-    rng.shuffle(final_pool)
+    rng.shuffle(groups)
 
-    total_out = len(final_pool)
-    n_train = int(total_out * split_config.train_ratio)
-    n_val = int(total_out * split_config.val_ratio)
-    n_test = int(total_out * split_config.test_ratio)
-    # Int truncation leaves a remainder; give it to train so a 0.0 test ratio
-    # never receives leftover images.
-    n_train += total_out - n_train - n_val - n_test
+    total_out = sum(len(g) for g in groups)
+    n_val_target = int(total_out * split_config.val_ratio)
+    n_test_target = int(total_out * split_config.test_ratio)
 
-    split_data = {
-        "train": final_pool[:n_train],
-        "valid": final_pool[n_train:n_train + n_val],
-        "test":  final_pool[n_train + n_val:n_train + n_val + n_test],
+    # Fill test then val up to their targets (whole groups only); the remainder goes
+    # to train, so a 0.0 test ratio never receives leftover images.
+    split_data: dict[str, list[tuple[bytes, list, list]]] = {
+        "train": [], "valid": [], "test": [],
     }
+    val_count = test_count = 0
+    for g in groups:
+        if split_config.test_ratio > 0 and test_count < n_test_target:
+            split_data["test"].extend(g)
+            test_count += len(g)
+        elif split_config.val_ratio > 0 and val_count < n_val_target:
+            split_data["valid"].extend(g)
+            val_count += len(g)
+        else:
+            split_data["train"].extend(g)
 
     if progress_callback:
         progress_callback(total_source, total_source, "Writing output dataset...")

@@ -211,19 +211,22 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             out_root = root.parent / "augmented"
             self.assertEqual(stats.total_source_images, 3)
             self.assertEqual(stats.total_output_images, 6)
-            # Int-truncation remainder goes to train (never test).
-            self.assertEqual(stats.split_counts, {"train": 4, "valid": 1, "test": 1})
+            # Group-aware split: each source image (original + its 1 augmented copy)
+            # is a 2-item group kept intact, so the 3 groups land one per split —
+            # {2, 2, 2}, never the per-item {4, 1, 1}. The even distribution itself
+            # proves no variant of a source image leaks across splits.
+            self.assertEqual(stats.split_counts, {"train": 2, "valid": 2, "test": 2})
             self.assertEqual(
                 len(list((out_root / "train" / "images").glob("*.jpg"))),
-                4,
+                2,
             )
             self.assertEqual(
                 len(list((out_root / "valid" / "images").glob("*.jpg"))),
-                1,
+                2,
             )
             self.assertEqual(
                 len(list((out_root / "test" / "images").glob("*.jpg"))),
-                1,
+                2,
             )
 
             data_yaml = yaml.safe_load(

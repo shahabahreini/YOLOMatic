@@ -9,8 +9,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from rich.live import Live
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 from src.augmentation.engine import (
     AugmentationStats,
@@ -931,7 +939,6 @@ def _run_with_progress(
     split_config: SplitConfig,
     output_format: str,
 ) -> None:
-    log_lines: list[str] = []
     stats_holder: list[AugmentationStats] = []
     error_holder: list[Exception] = []
     progress_state: dict = {"done": 0, "total": 0, "current": ""}
@@ -941,8 +948,6 @@ def _run_with_progress(
         try:
             def callback(done: int, total: int, msg: str) -> None:
                 progress_state.update({"done": done, "total": total, "current": msg})
-                if msg:
-                    log_lines.append(f"  [{done}/{total}] {msg}")
 
             stats = run_augmentation(
                 source_dataset_path=dataset_path,
@@ -961,25 +966,33 @@ def _run_with_progress(
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
 
-    with Live(refresh_per_second=4) as live:
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[cyan]Augmenting[/cyan]"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        MofNCompleteColumn(),
+        TextColumn("[dim]{task.fields[current]}[/dim]"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        # total=None → indeterminate spinner until the first callback arrives.
+        task = progress.add_task("aug", total=None, current="starting…")
         while not done_event.is_set():
-            done = progress_state["done"]
             total = progress_state["total"]
-            pct = f"{done / total * 100:.0f}%" if total > 0 else "..."
-            lines = log_lines[-18:]
-            live.update(Panel(
-                "\n".join(lines) or "[dim]Initializing...[/dim]",
-                title=f"[cyan]Augmenting [{pct}][/cyan]",
-                border_style="cyan",
-            ))
-            time.sleep(0.25)
-        # Final frame
-        lines = log_lines[-18:]
-        live.update(Panel(
-            "\n".join(lines) or "[dim]Done.[/dim]",
-            title="[green]Augmentation Complete[/green]",
-            border_style="green",
-        ))
+            if total > 0:
+                progress.update(
+                    task,
+                    total=total,
+                    completed=progress_state["done"],
+                    current=progress_state["current"][:48],
+                )
+            time.sleep(0.1)
+        # Final frame: snap the bar to 100% if any work was tracked.
+        total = progress_state["total"]
+        if total > 0:
+            progress.update(task, total=total, completed=total, current="done")
 
     thread.join()
 
@@ -1082,10 +1095,27 @@ def _run_augmentation_flow() -> None:
     except Exception:
         source_count = "unknown"
 
+    # Nothing to augment — bail out before the confirm/run steps.
+    if source_count == 0:
+        console.print(Panel(
+            "[bold yellow]No images found in this dataset — nothing to augment.[/bold yellow]\n\n"
+            "Check that the dataset contains an images/ folder with .jpg/.png files.",
+            border_style="yellow", padding=(1, 2),
+        ))
+        input("\nPress Enter to continue...")
+        return
+
+    est_splits = "unknown"
     if isinstance(source_count, int):
         aug_count = source_count * profile.multiplier
         orig_count = source_count if profile.include_originals else 0
-        estimated: str = f"~{aug_count + orig_count:,}"
+        est_total = aug_count + orig_count
+        estimated: str = f"~{est_total:,}"
+        # Mirror the engine's split math (remainder → train) for a per-split estimate.
+        est_test = int(est_total * split_config.test_ratio)
+        est_val = int(est_total * split_config.val_ratio)
+        est_train = est_total - est_val - est_test
+        est_splits = f"{est_train:,} / {est_val:,} / {est_test:,}"
     else:
         estimated = "unknown"
 
@@ -1098,7 +1128,7 @@ def _run_augmentation_flow() -> None:
         "Source Dataset":         dataset_path.name,
         "Source Images":          str(source_count),
         "Profile":                profile.name,
-        "Active Transforms":      str(active_transforms),
+        "Profile Transforms":     f"{active_transforms} (fixed per profile, applies to every image)",
         "Multiplier":             f"×{profile.multiplier}",
         "Include Originals":      str(profile.include_originals),
         "Output Format":          output_format,
@@ -1108,6 +1138,7 @@ def _run_augmentation_flow() -> None:
             f"{split_config.test_ratio:.0%}"
         ),
         "Estimated Output":       estimated,
+        "Est. Train / Val / Test": est_splits,
         "Output Location":        f"datasets/{output_name}/",
     })
 
