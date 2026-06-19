@@ -31,8 +31,9 @@ from src.datasets.core import (
     find_coco_annotation_files,
     summarize_dataset,
 )
+from src.datasets.ndjson import pose_metadata_from_rows
 
-OUTPUT_FORMATS = {"YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO"}
+OUTPUT_FORMATS = {"YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose"}
 SPLIT_NAMES = ("train", "valid", "test")
 SPLIT_STRATEGIES = {"class_balanced", "smart_balanced"}
 OBJECT_SIZE_BUCKETS = ("small", "medium", "large")
@@ -471,12 +472,17 @@ def _ultralytics_class_names(rows: list[dict[str, Any]]) -> list[str]:
     return []
 
 
-def _parse_ultralytics_annotation_payload(payload: Any) -> tuple[list[Annotation], bool, int]:
+def _parse_ultralytics_annotation_payload(
+    payload: Any,
+    kpt_shape: list[int] | None = None,
+) -> tuple[list[Annotation], bool, bool, int, int]:
     annotations: list[Annotation] = []
     has_seg = False
+    has_pose = False
     max_class_id = -1
+    invalid_pose = 0
     if not isinstance(payload, dict):
-        return annotations, has_seg, max_class_id
+        return annotations, has_seg, has_pose, max_class_id, invalid_pose
 
     for raw_segment in payload.get("segments") or []:
         if not isinstance(raw_segment, list) or len(raw_segment) < 7:
@@ -502,7 +508,24 @@ def _parse_ultralytics_annotation_payload(payload: Any) -> tuple[list[Annotation
         annotations.append(Annotation(class_id, bbox=bbox))
         max_class_id = max(max_class_id, class_id)
 
-    return annotations, has_seg, max_class_id
+    if kpt_shape:
+        expected_length = 5 + int(kpt_shape[0]) * int(kpt_shape[1])
+        for raw_pose in payload.get("pose") or []:
+            if not isinstance(raw_pose, list) or len(raw_pose) != expected_length:
+                invalid_pose += 1
+                continue
+            try:
+                class_id = int(float(raw_pose[0]))
+                bbox = [max(0.0, min(1.0, float(value))) for value in raw_pose[1:5]]
+                keypoints = [float(value) for value in raw_pose[5:]]
+            except (TypeError, ValueError):
+                invalid_pose += 1
+                continue
+            annotations.append(Annotation(class_id, bbox=bbox, keypoints=keypoints))
+            has_pose = True
+            max_class_id = max(max_class_id, class_id)
+
+    return annotations, has_seg, has_pose, max_class_id, invalid_pose
 
 
 def _ensure_class_names(classes: list[str], max_class_id: int) -> None:
@@ -517,12 +540,18 @@ def _read_ultralytics_ndjson_records(
     *,
     max_workers: int,
     use_multiprocessing: bool,
-) -> tuple[list[ImageRecord], list[str], str]:
+) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     classes = _ultralytics_class_names(rows)
+    has_pose_rows = any(
+        isinstance(row.get("annotations"), dict) and bool(row["annotations"].get("pose"))
+        for row in rows
+    )
+    pose_meta = pose_metadata_from_rows(rows) if has_pose_rows else None
     image_rows = [(idx, row) for idx, row in enumerate(rows, start=1) if row.get("type") == "image"]
     records: list[ImageRecord] = []
     used_names: set[str] = set()
     has_seg = False
+    has_pose = False
 
     import tempfile
 
@@ -541,6 +570,7 @@ def _read_ultralytics_ndjson_records(
                 parse_futures[idx] = parse_executor.submit(
                     _parse_ultralytics_annotation_payload,
                     row.get("annotations"),
+                    pose_meta["kpt_shape"] if pose_meta else None,
                 )
                 url = row.get("url")
                 if not url:
@@ -567,12 +597,18 @@ def _read_ultralytics_ndjson_records(
                     except Exception:
                         warnings.append(f"Skipped Ultralytics NDJSON row {idx}: image size missing and downloaded image could not be inspected")
                         continue
-                annotations, row_has_seg, max_class_id = parse_futures[idx].result()
+                annotations, row_has_seg, row_has_pose, max_class_id, invalid_pose = parse_futures[idx].result()
+                if invalid_pose:
+                    warnings.append(
+                        f"Skipped {invalid_pose} malformed pose annotation(s) in Ultralytics NDJSON row {idx}"
+                    )
                 _ensure_class_names(classes, max_class_id)
                 has_seg = has_seg or row_has_seg
+                has_pose = has_pose or row_has_pose
                 records.append(ImageRecord(image_path, image_path.name, int(width), int(height), annotations))
 
-    return records, classes, "segment" if has_seg else "detect"
+    task = "pose" if has_pose else ("segment" if has_seg else "detect")
+    return records, classes, task, pose_meta if has_pose else None
 
 
 _ALLOWED_NDJSON_SCHEMES = {"http", "https"}
@@ -608,7 +644,7 @@ def _read_ndjson_records(
     *,
     max_workers: int,
     use_multiprocessing: bool,
-) -> tuple[list[ImageRecord], list[str], str]:
+) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     from PIL import Image
 
     rows = [json.loads(line) for line in source.read_text("utf-8").splitlines() if line.strip()]
@@ -686,7 +722,7 @@ def _read_ndjson_records(
             records.append(ImageRecord(image_path, image_path.name, int(width), int(height), annotations))
 
     class_names = [name for name, _ in sorted(classes.items(), key=lambda item: item[1])]
-    return records, class_names, "segment" if has_seg else "detect"
+    return records, class_names, "segment" if has_seg else "detect", None
 
 
 def _load_records(
@@ -696,13 +732,13 @@ def _load_records(
     if not source.exists():
         raise FileNotFoundError(f"Source path does not exist: {source}")
     if source.is_file() and source.suffix.lower() == ".ndjson":
-        records, classes, task = _read_ndjson_records(
+        records, classes, task, pose_meta = _read_ndjson_records(
             source,
             warnings,
             max_workers=config.max_workers,
             use_multiprocessing=config.use_multiprocessing,
         )
-        return records, classes, task, "ndjson", None
+        return records, classes, task, "ndjson", pose_meta
     source_format = detect_dataset_format(source)
     if source_format == "unknown":
         summary = summarize_dataset(source)
@@ -1059,6 +1095,7 @@ def _write_coco_dataset(
     split_records_by_name: dict[str, list[ImageRecord]],
     classes: list[str],
     pose_meta: dict[str, Any] | None = None,
+    require_keypoints: bool = False,
 ) -> int:
     total_annotations = 0
     ann_dir = output / "annotations"
@@ -1073,7 +1110,7 @@ def _write_coco_dataset(
         category: dict[str, Any] = {"id": idx + 1, "name": name}
         if num_kpts:
             category["keypoints"] = kpt_names
-            category["skeleton"] = []
+            category["skeleton"] = pose_meta.get("skeleton") or []
         categories.append(category)
     for split_name, records in split_records_by_name.items():
         img_dir = output / split_name / "images"
@@ -1092,6 +1129,8 @@ def _write_coco_dataset(
                 }
             )
             for ann in record.annotations:
+                if require_keypoints and ann.keypoints is None:
+                    continue
                 if ann.bbox is not None:
                     bbox = _coco_bbox_from_yolo(ann.bbox, record.width, record.height)
                 elif ann.segmentation is not None:
@@ -1181,9 +1220,9 @@ def prepare_dataset(
 
     warnings: list[str] = []
     records, classes, task, source_format, pose_meta = _load_records(config, warnings)
-    if config.output_format == "YOLO Pose" and not pose_meta:
+    if config.output_format in {"YOLO Pose", "COCO Pose"} and not pose_meta:
         raise DatasetValidationError(
-            "YOLO Pose output requires a source dataset with keypoint annotations "
+            f"{config.output_format} output requires a source dataset with keypoint annotations "
             "(a data.yaml with kpt_shape, or COCO keypoints). Keypoints cannot be "
             "synthesized from bounding boxes — choose YOLO Detection or YOLO Segmentation instead.",
             path=config.source_path,
@@ -1225,8 +1264,14 @@ def prepare_dataset(
     if progress_callback:
         progress_callback(len(records), len(records), "Writing output dataset...")
 
-    if config.output_format == "COCO":
-        total_annotations = _write_coco_dataset(output, split_records_by_name, classes, pose_meta)
+    if config.output_format in {"COCO", "COCO Pose"}:
+        total_annotations = _write_coco_dataset(
+            output,
+            split_records_by_name,
+            classes,
+            pose_meta,
+            require_keypoints=config.output_format == "COCO Pose",
+        )
     else:
         total_annotations = _write_yolo_dataset(output, split_records_by_name, classes, config.output_format, pose_meta)
     if source_format == "ndjson" and records:

@@ -178,7 +178,10 @@ def list_dataset_directories(
     if not root.exists():
         return []
 
-    folders = sorted(f for f in root.iterdir() if f.is_dir())
+    folders = sorted(
+        folder for folder in root.iterdir()
+        if folder.is_dir() and folder.name != ".yolomatic_cache"
+    )
 
     def _process(folder: Path) -> dict[str, Any]:
         entry: dict[str, Any] = {"name": folder.name, "path": folder.resolve()}

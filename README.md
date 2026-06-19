@@ -112,7 +112,8 @@ guidance.
 ### Can YOLOmatic convert Labelbox NDJSON?
 
 Yes. It converts Labelbox and Ultralytics-platform NDJSON exports into YOLO or
-COCO datasets with concurrent image downloads.
+COCO datasets with concurrent image downloads. Ultralytics pose exports can be
+converted explicitly to YOLO Pose or COCO Pose while preserving keypoints.
 
 ### Can I benchmark trained models?
 

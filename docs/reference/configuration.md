@@ -49,6 +49,10 @@ roboflow:
   weight: best.pt
 ```
 
+`training.cache` accepts `false`, `true`, or `ram`. Legacy `disk` values are
+changed to `false` at runtime, and matching dataset-local `.npy` image caches are
+removed before training.
+
 To start training from a saved config:
 
 ```sh

@@ -9,6 +9,8 @@ All notable changes to YOLOmatic are documented here. The format follows [Keep a
 ## [Unreleased] - 2026-06-10
 
 ### Added
+- Added split-aware Ultralytics NDJSON conversion to YOLO Pose and COCO Pose,
+  including keypoint metadata and matching TUI/Platform format choices.
 - Added support for YOLO pose estimation tasks (YOLO26-pose, YOLOv11-pose, YOLOv8-pose model families).
 - Implemented authoritative pose detection via `kpt_shape` in dataset yaml.
 - Added TensorRT dynamic batch compilation mode (`trt_dynamic_batch` parameter).

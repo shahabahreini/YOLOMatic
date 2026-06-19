@@ -233,7 +233,7 @@ def _select_source() -> Path | None:
 
 def _select_output_format(source: Path) -> str | None:
     choice = get_user_choice(
-        ["YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "Back"],
+        ["YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose", "Back"],
         title="Output Format",
         text="Choose the format for the prepared training dataset:",
         descriptions={
@@ -253,6 +253,10 @@ def _select_output_format(source: Path) -> str | None:
             "COCO": (
                 "Writes COCO instances JSON per split under annotations/.\n\n"
                 "Best for Detectron2, benchmarking, and frameworks expecting COCO."
+            ),
+            "COCO Pose": (
+                "Writes COCO JSON with bbox, keypoints, num_keypoints, and pose categories.\n\n"
+                "Requires a keypoint source and preserves available pose metadata."
             ),
         },
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Format"],

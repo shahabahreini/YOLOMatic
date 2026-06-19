@@ -12,7 +12,7 @@ description: Reference for all YOLOmatic command-line entrypoints, flags, and us
 | `yolomatic-train` | Train from a saved YAML config |
 | `yolomatic-predict` | Run YOLO/RF-DETR prediction workflows |
 | `yolomatic-sam` | Run SAM 3.1 segmentation inference |
-| `yolomatic-convert` | Convert Labelbox or Ultralytics NDJSON to YOLO/COCO |
+| `yolomatic-convert` | Convert Labelbox or Ultralytics NDJSON to YOLO/COCO, including pose |
 | `yolomatic-prepare` | Prepare and split datasets |
 | `yolomatic-benchmark` | Benchmark checkpoints with an HTML report |
 | `yolomatic-upload` | Upload or deploy checkpoints to Roboflow |
@@ -122,7 +122,8 @@ This command is wizard-only — all options are presented interactively. See [SA
 
 ## `yolomatic-convert`
 
-Convert Labelbox or Ultralytics-platform NDJSON exports to YOLO or COCO format. Includes concurrent image downloading.
+Convert Labelbox or Ultralytics-platform NDJSON exports to YOLO or COCO format,
+including explicit YOLO Pose and COCO Pose targets. Includes concurrent image downloading.
 
 ```sh
 uv run yolomatic-convert

@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from src.utils.project import project_root
+from src.datasets.cache import is_dataset_runtime_cache
 
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 SPLIT_ALIASES = {
@@ -55,6 +56,8 @@ class DatasetSummary:
     empty_label_count: int = 0
     missing_file_count: int = 0
     total_size_bytes: int = 0
+    runtime_cache_file_count: int = 0
+    runtime_cache_size_bytes: int = 0
     splits: dict[str, SplitSummary] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -391,8 +394,12 @@ def _stat_aggregate(path: Path, *, max_depth: int = 2) -> tuple[int, int, int]:
         for dirpath, dirnames, filenames, dirfd in os.fwalk(str(path)):
             if len(Path(dirpath).parts) - base_depth >= max_depth:
                 dirnames[:] = []
+            sibling_names = {name.lower() for name in filenames}
             for fname in filenames:
                 try:
+                    file_path = Path(dirpath) / fname
+                    if is_dataset_runtime_cache(file_path, sibling_names):
+                        continue
                     stat = os.stat(fname, dir_fd=dirfd)
                 except OSError:
                     continue
@@ -478,9 +485,16 @@ def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> 
     try:
         total = 0
         for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(root)):
+            sibling_names = {name.lower() for name in filenames}
             for fname in filenames:
                 try:
-                    total += os.stat(fname, dir_fd=dirfd).st_size
+                    stat = os.stat(fname, dir_fd=dirfd)
+                    file_path = Path(_dirpath) / fname
+                    if is_dataset_runtime_cache(file_path, sibling_names):
+                        summary.runtime_cache_file_count += 1
+                        summary.runtime_cache_size_bytes += stat.st_size
+                        continue
+                    total += stat.st_size
                 except OSError:
                     pass
         summary.total_size_bytes = total
@@ -640,7 +654,11 @@ def _summarize_coco(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         split.unlabeled_image_count = max(0, split.image_count - split.labeled_image_count)
         split.status = "valid" if split.image_count else "warning"
         summary.splits[split_name] = split
-        if any(ann.get("segmentation") for ann in annotations):
+        has_pose = any(isinstance(category.get("keypoints"), list) and category["keypoints"] for category in categories)
+        has_pose = has_pose or any(isinstance(ann.get("keypoints"), list) and ann["keypoints"] for ann in annotations)
+        if has_pose:
+            summary.task = "pose"
+        elif any(ann.get("segmentation") for ann in annotations):
             summary.task = "segmentation" if summary.task in {"unknown", "empty"} else "mixed"
         elif annotations and summary.task == "unknown":
             summary.task = "detection"

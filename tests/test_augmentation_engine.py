@@ -268,6 +268,33 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
                 1,
             )
 
+    def test_run_augmentation_removes_source_image_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: detect\nnames: [item]\ntrain: train/images\n",
+                encoding="utf-8",
+            )
+            image_path = root / "train" / "images" / "a.jpg"
+            self._write_image(image_path)
+            self._write_label(root / "train" / "labels" / "a.txt")
+            cache_path = image_path.with_suffix(".npy")
+            cache_path.write_bytes(b"uncompressed-cache")
+
+            stats = run_augmentation(
+                root,
+                "augmented",
+                self._noop_profile(multiplier=0, include_originals=True),
+                SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0),
+                output_format="YOLO Detection",
+                max_workers=1,
+            )
+
+            self.assertFalse(cache_path.exists())
+            self.assertEqual(stats.cache_files_removed, 1)
+            self.assertEqual(stats.cache_bytes_reclaimed, len(b"uncompressed-cache"))
+
     def test_run_augmentation_deduplicates_identical_label_rows(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "source"

@@ -15,6 +15,7 @@ import yaml
 from rich.live import Live
 from rich.panel import Panel
 
+from src.datasets.ndjson import pose_metadata_from_rows
 from src.datasets.prepare import slugify
 from src.utils.cli import (
     NAV_BACK,
@@ -28,7 +29,7 @@ from src.utils.cli import (
     render_summary_panel,
 )
 
-OUTPUT_FORMATS = ("YOLO Detection", "YOLO Segmentation", "COCO")
+OUTPUT_FORMATS = ("YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose")
 WIZARD_STEPS = ["Source", "Format", "Output", "Confirm", "Convert"]
 
 
@@ -176,6 +177,7 @@ def _extract_ultralytics_objects(
     img_w: int,
     img_h: int,
     class_names: list[str],
+    pose_meta: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Convert Ultralytics-platform NDJSON annotations to Labelbox-shaped pixel-space objects."""
     payload = row.get("annotations")
@@ -219,6 +221,29 @@ def _extract_ultralytics_objects(
             },
         })
 
+    if pose_meta:
+        kpt_shape = pose_meta["kpt_shape"]
+        expected_length = 5 + int(kpt_shape[0]) * int(kpt_shape[1])
+        for raw_pose in payload.get("pose") or []:
+            if not isinstance(raw_pose, list) or len(raw_pose) != expected_length:
+                continue
+            try:
+                class_id = int(float(raw_pose[0]))
+                xc, yc, width, height = (float(value) for value in raw_pose[1:5])
+                keypoints = [float(value) for value in raw_pose[5:]]
+            except (TypeError, ValueError):
+                continue
+            objects.append({
+                "name": _name_for(class_id),
+                "bounding_box": {
+                    "left": (xc - width / 2) * img_w,
+                    "top": (yc - height / 2) * img_h,
+                    "width": width * img_w,
+                    "height": height * img_h,
+                },
+                "keypoints": keypoints,
+            })
+
     return objects
 
 
@@ -261,10 +286,29 @@ def _write_yolo_label(
     output_format: str,
     img_w: int,
     img_h: int,
+    pose_meta: dict[str, Any] | None = None,
 ) -> int:
     lines: list[str] = []
     for obj in objects:
         cls = _class_id(classes, obj.get("name"))
+        if output_format == "YOLO Pose":
+            bbox = obj.get("bounding_box")
+            keypoints = obj.get("keypoints")
+            if not isinstance(bbox, dict) or not isinstance(keypoints, list) or pose_meta is None:
+                continue
+            expected = int(pose_meta["kpt_shape"][0]) * int(pose_meta["kpt_shape"][1])
+            if len(keypoints) != expected:
+                continue
+            box = _bbox_to_yolo(
+                float(bbox["left"]),
+                float(bbox["top"]),
+                float(bbox["width"]),
+                float(bbox["height"]),
+                img_w,
+                img_h,
+            )
+            lines.append(f"{cls} {box} " + " ".join(f"{float(value):.6f}" for value in keypoints))
+            continue
         if "bounding_box" in obj:
             bbox = obj["bounding_box"]
             left = float(bbox["left"])
@@ -301,11 +345,14 @@ def _append_coco_annotations(
     img_w: int,
     img_h: int,
     next_annotation_id: int,
+    pose_meta: dict[str, Any] | None = None,
 ) -> int:
     image_id = len(coco_images) + 1
     coco_images.append({"id": image_id, "file_name": filename, "width": img_w, "height": img_h})
     annotation_id = next_annotation_id
     for obj in objects:
+        if pose_meta is not None and not isinstance(obj.get("keypoints"), list):
+            continue
         cls = _class_id(classes, obj.get("name")) + 1
         segmentation: list[list[float]] = []
         if "polygon" in obj:
@@ -325,17 +372,32 @@ def _append_coco_annotations(
             height = float(bbox["height"])
         else:
             continue
-        coco_annotations.append(
-            {
-                "id": annotation_id,
-                "image_id": image_id,
-                "category_id": cls,
-                "segmentation": segmentation,
-                "bbox": [left, top, width, height],
-                "area": max(0.0, width * height),
-                "iscrowd": 0,
-            }
-        )
+        annotation = {
+            "id": annotation_id,
+            "image_id": image_id,
+            "category_id": cls,
+            "segmentation": segmentation,
+            "bbox": [left, top, width, height],
+            "area": max(0.0, width * height),
+            "iscrowd": 0,
+        }
+        if pose_meta is not None:
+            kpt_count, kpt_ndim = (int(value) for value in pose_meta["kpt_shape"])
+            raw_keypoints = obj["keypoints"]
+            if len(raw_keypoints) != kpt_count * kpt_ndim:
+                continue
+            keypoints: list[float | int] = []
+            visible = 0
+            for offset in range(0, len(raw_keypoints), kpt_ndim):
+                x = float(raw_keypoints[offset]) * img_w
+                y = float(raw_keypoints[offset + 1]) * img_h
+                visibility = int(float(raw_keypoints[offset + 2])) if kpt_ndim == 3 else 2
+                keypoints.extend([x, y, visibility])
+                if visibility > 0:
+                    visible += 1
+            annotation["keypoints"] = keypoints
+            annotation["num_keypoints"] = visible
+        coco_annotations.append(annotation)
         annotation_id += 1
     return annotation_id
 
@@ -354,6 +416,12 @@ def _row_filename(row: dict[str, Any], url: str, fallback_idx: int) -> str:
     return Path(str(data_row.get("global_key") or row.get("file") or Path(urlparse(url).path).name or f"row_{fallback_idx:06d}.jpg")).name
 
 
+def _row_split(row: dict[str, Any]) -> tuple[str, bool]:
+    raw = str(row.get("split") or "").strip().lower()
+    aliases = {"train": "train", "val": "val", "valid": "val", "validation": "val", "test": "test"}
+    return aliases.get(raw, "train"), raw not in aliases
+
+
 def convert_ndjson_to_format(
     ndjson_path: Path,
     output_format: str,
@@ -370,12 +438,29 @@ def convert_ndjson_to_format(
         raise ValueError(f"Unsupported output format: {output_format}")
     if not ndjson_path.exists() or not ndjson_path.is_file():
         raise FileNotFoundError(f"NDJSON file not found: {ndjson_path}")
+
+    rows = _read_ndjson(ndjson_path)
+    pose_output = output_format in {"YOLO Pose", "COCO Pose"}
+    # Detect Ultralytics-platform NDJSON (presence of a dataset header row OR normalized image annotations).
+    is_ultralytics = any(row.get("type") == "dataset" for row in rows) or any(
+        row.get("type") == "image" and isinstance(row.get("annotations"), dict)
+        and (
+            row["annotations"].get("segments")
+            or row["annotations"].get("boxes")
+            or row["annotations"].get("bboxes")
+            or row["annotations"].get("pose")
+        )
+        for row in rows
+    )
+    if pose_output and not is_ultralytics:
+        raise ValueError("Pose conversion currently requires an Ultralytics-platform NDJSON export.")
+    pose_meta = pose_metadata_from_rows(rows) if pose_output else None
+
     if output_dir.exists() and overwrite:
         shutil.rmtree(output_dir)
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Output directory already exists and is not empty: {output_dir}")
 
-    rows = _read_ndjson(ndjson_path)
     images_dir = output_dir / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     labels_dir = output_dir / "labels"
@@ -388,18 +473,13 @@ def convert_ndjson_to_format(
         output_format=output_format,
         total_rows=len(rows),
     )
-    # Detect Ultralytics-platform NDJSON (presence of a dataset header row OR an image row with normalized annotations)
-    is_ultralytics = any(row.get("type") == "dataset" for row in rows) or any(
-        row.get("type") == "image" and isinstance(row.get("annotations"), dict)
-        and (row["annotations"].get("segments") or row["annotations"].get("boxes") or row["annotations"].get("bboxes"))
-        for row in rows
-    )
     ultralytics_class_names = _ultralytics_class_names_from_header(rows) if is_ultralytics else []
 
     classes: dict[str, int] = {name: idx for idx, name in enumerate(ultralytics_class_names)}
     coco_images: list[dict[str, Any]] = []
     coco_annotations: list[dict[str, Any]] = []
     next_annotation_id = 1
+    coco_splits: dict[str, dict[str, Any]] = {}
     used_names: set[str] = set()
 
     if progress_callback:
@@ -415,12 +495,15 @@ def convert_ndjson_to_format(
                     stats.skipped_rows += 1
                 continue
             filename = _dedupe_filename(_row_filename(row, url, idx), used_names)
-            image_path = images_dir / filename
-            futures[executor.submit(_download_image, url, image_path)] = (idx, row, filename, image_path)
+            split, used_fallback = _row_split(row)
+            if pose_output and used_fallback:
+                stats.warnings.append(f"Row {idx}: missing or unknown split; defaulted to train")
+            image_path = images_dir / split / filename if pose_output else images_dir / filename
+            futures[executor.submit(_download_image, url, image_path)] = (idx, row, filename, image_path, split)
 
         total_downloads = len(futures)
         for completed, future in enumerate(as_completed(futures), start=1):
-            idx, row, filename, image_path = futures[future]
+            idx, row, filename, image_path, split = futures[future]
             ok, reason = future.result()
             if not ok:
                 stats.warnings.append(f"Skipped row {idx}: image download failed ({reason or 'unknown error'})")
@@ -441,31 +524,60 @@ def convert_ndjson_to_format(
                 continue
 
             if is_ultralytics:
-                objects = _extract_ultralytics_objects(row, int(img_w), int(img_h), ultralytics_class_names)
+                objects = _extract_ultralytics_objects(
+                    row,
+                    int(img_w),
+                    int(img_h),
+                    ultralytics_class_names,
+                    pose_meta,
+                )
             else:
                 objects = _extract_labelbox_objects(row)
+            if pose_output:
+                annotations = row.get("annotations")
+                raw_pose = annotations.get("pose") or [] if isinstance(annotations, dict) else []
+                valid_pose_count = sum(1 for obj in objects if isinstance(obj.get("keypoints"), list))
+                if len(raw_pose) != valid_pose_count:
+                    stats.warnings.append(
+                        f"Row {idx}: skipped {len(raw_pose) - valid_pose_count} malformed pose annotation(s)"
+                    )
             if output_format.startswith("YOLO"):
                 stats.total_annotations += _write_yolo_label(
-                    labels_dir / f"{Path(filename).stem}.txt",
+                    (labels_dir / split if pose_output else labels_dir) / f"{Path(filename).stem}.txt",
                     objects,
                     classes,
                     output_format,
                     int(img_w),
                     int(img_h),
+                    pose_meta,
                 )
             else:
-                previous_id = next_annotation_id
-                next_annotation_id = _append_coco_annotations(
-                    coco_images,
-                    coco_annotations,
+                state = coco_splits.setdefault(
+                    split,
+                    {"images": [], "annotations": [], "next_annotation_id": 1},
+                ) if pose_output else {
+                    "images": coco_images,
+                    "annotations": coco_annotations,
+                    "next_annotation_id": next_annotation_id,
+                }
+                previous_id = int(state["next_annotation_id"])
+                new_annotation_id = _append_coco_annotations(
+                    state["images"],
+                    state["annotations"],
                     objects,
                     classes,
-                    filename,
+                    str(Path("images") / split / filename) if pose_output else filename,
                     int(img_w),
                     int(img_h),
-                    next_annotation_id,
+                    previous_id,
+                    pose_meta,
                 )
-                stats.total_annotations += next_annotation_id - previous_id
+                state["next_annotation_id"] = new_annotation_id
+                if pose_output:
+                    coco_splits[split] = state
+                else:
+                    next_annotation_id = new_annotation_id
+                stats.total_annotations += new_annotation_id - previous_id
             stats.converted_images += 1
             if progress_callback:
                 progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
@@ -475,16 +587,44 @@ def convert_ndjson_to_format(
     if output_format.startswith("YOLO"):
         data_yaml = {
             "path": str(output_dir.resolve()),
-            "train": "images",
             "nc": len(class_names),
             "names": class_names,
-            "task": "segment" if output_format == "YOLO Segmentation" else "detect",
         }
+        if output_format == "YOLO Pose":
+            for split in ("train", "val", "test"):
+                if (images_dir / split).is_dir():
+                    data_yaml[split] = f"images/{split}"
+            data_yaml["task"] = "pose"
+            data_yaml["kpt_shape"] = pose_meta["kpt_shape"]
+            if pose_meta.get("flip_idx") is not None:
+                data_yaml["flip_idx"] = pose_meta["flip_idx"]
+        else:
+            data_yaml["train"] = "images"
+            data_yaml["task"] = "segment" if output_format == "YOLO Segmentation" else "detect"
         (output_dir / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False), encoding="utf-8")
     else:
-        categories = [{"id": idx + 1, "name": name} for idx, name in enumerate(class_names)]
-        payload = {"images": coco_images, "annotations": coco_annotations, "categories": categories}
-        (output_dir / "annotations.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        categories = []
+        for idx, name in enumerate(class_names):
+            category: dict[str, Any] = {"id": idx + 1, "name": name}
+            if pose_output:
+                category["keypoints"] = pose_meta["kpt_names"]
+                category["skeleton"] = pose_meta["skeleton"]
+            categories.append(category)
+        if pose_output:
+            annotations_dir = output_dir / "annotations"
+            annotations_dir.mkdir(parents=True, exist_ok=True)
+            for split, state in sorted(coco_splits.items()):
+                payload = {
+                    "images": state["images"],
+                    "annotations": state["annotations"],
+                    "categories": categories,
+                }
+                (annotations_dir / f"instances_{split}.json").write_text(
+                    json.dumps(payload, indent=2), encoding="utf-8"
+                )
+        else:
+            payload = {"images": coco_images, "annotations": coco_annotations, "categories": categories}
+            (output_dir / "annotations.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     stats.elapsed_seconds = time.time() - started
     manifest = stats.to_dict()
@@ -545,7 +685,9 @@ def _select_output_format(source: Path) -> str | None:
         descriptions={
             "YOLO Detection": "Writes YOLO box labels and converts polygons to tight boxes.",
             "YOLO Segmentation": "Writes YOLO polygon labels and converts boxes to rectangle polygons.",
+            "YOLO Pose": "Preserves Ultralytics pose boxes and keypoints in split-aware YOLO labels.",
             "COCO": "Writes images/ plus annotations.json with COCO instances.",
+            "COCO Pose": "Writes split-aware COCO annotations with boxes, keypoints, and pose metadata.",
         },
         breadcrumbs=["YOLOmatic", "Convert Dataset", "Format"],
         status_fields={"Source": str(source)},

@@ -205,7 +205,9 @@ COCO JSON annotations with concurrent image downloads.
 ### Can YOLOmatic convert Ultralytics-platform NDJSON?
 
 Yes. YOLOmatic auto-detects Ultralytics-platform image rows and reads normalized
-`annotations.segments` and `annotations.boxes` into YOLO or COCO output.
+`annotations.segments`, `annotations.boxes`, and `annotations.pose` into YOLO or
+COCO output. Select **YOLO Pose** or **COCO Pose** to require and preserve
+keypoints, pose metadata, and available source splits.
 
 ### Can YOLOmatic convert polygons and boxes?
 

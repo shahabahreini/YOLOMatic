@@ -24,6 +24,8 @@ import cv2
 import numpy as np
 import yaml
 
+from src.datasets.cache import clean_dataset_image_cache
+
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
@@ -58,6 +60,8 @@ class AugmentationStats:
     images_skipped: int = 0
     annotations_discarded: int = 0
     elapsed_seconds: float = 0.0
+    cache_files_removed: int = 0
+    cache_bytes_reclaimed: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -806,6 +810,16 @@ def run_augmentation(
     """
     t0 = time.time()
 
+    cache_cleanup = clean_dataset_image_cache(source_dataset_path)
+    if cache_cleanup.removed_files:
+        logger.info(
+            "Removed %d Ultralytics image-cache files (%.2f GiB) before augmentation.",
+            cache_cleanup.removed_files,
+            cache_cleanup.reclaimed_bytes / 1024**3,
+        )
+    for error in cache_cleanup.errors:
+        logger.warning("Could not remove dataset cache artifact: %s", error)
+
     try:
         from src.datasets.core import convert_yolo_to_coco, read_yaml_file
     except ImportError:
@@ -824,6 +838,8 @@ def run_augmentation(
             output_format=output_format,
             total_source_images=0,
             total_output_images=0,
+            cache_files_removed=cache_cleanup.removed_files,
+            cache_bytes_reclaimed=cache_cleanup.reclaimed_bytes,
         )
 
     if progress_callback:
@@ -1059,4 +1075,6 @@ def run_augmentation(
         images_skipped=skipped,
         annotations_discarded=discarded,
         elapsed_seconds=time.time() - t0,
+        cache_files_removed=cache_cleanup.removed_files,
+        cache_bytes_reclaimed=cache_cleanup.reclaimed_bytes,
     )

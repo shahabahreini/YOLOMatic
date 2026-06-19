@@ -228,6 +228,64 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertTrue(label.exists())
         self.assertTrue(label.read_text(encoding="utf-8").startswith("0 0.250000 0.250000"))
 
+    def test_prepare_ultralytics_pose_ndjson_to_yolo_and_coco_pose(self) -> None:
+        ndjson = self.tmp / "pose.ndjson"
+        rows = [
+            {
+                "type": "dataset",
+                "task": "pose",
+                "class_names": {"0": "pole"},
+                "kpt_shape": [1, 3],
+                "flip_idx": [0],
+            },
+            {
+                "type": "image",
+                "file": "pole.jpg",
+                "url": "https://cdn.ul.run/example/pole.jpg",
+                "width": 16,
+                "height": 16,
+                "split": "train",
+                "annotations": {"pose": [[0, 0.5, 0.5, 0.25, 0.25, 0.5, 0.5, 2]]},
+            },
+        ]
+        ndjson.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+        with patch("requests.get") as mock_get:
+            response = MagicMock()
+            response.content = cv2.imencode(".jpg", np.full((16, 16, 3), 120, dtype=np.uint8))[1].tobytes()
+            response.raise_for_status.return_value = None
+            mock_get.return_value = response
+            yolo_stats = prepare_dataset(
+                PrepareDatasetConfig(
+                    source_path=ndjson,
+                    output_root=self.tmp / "datasets",
+                    output_slug="pose_yolo",
+                    output_format="YOLO Pose",
+                    split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+                )
+            )
+            coco_stats = prepare_dataset(
+                PrepareDatasetConfig(
+                    source_path=ndjson,
+                    output_root=self.tmp / "datasets",
+                    output_slug="pose_coco",
+                    output_format="COCO Pose",
+                    split_config=PrepareSplitConfig(1.0, 0.0, 0.0),
+                )
+            )
+
+        yolo_root = Path(yolo_stats.output_path)
+        yolo_data = yaml.safe_load((yolo_root / "data.yaml").read_text())
+        self.assertEqual(yolo_data["task"], "pose")
+        self.assertEqual(yolo_data["kpt_shape"], [1, 3])
+        self.assertEqual(len((yolo_root / "train" / "labels" / "pole.txt").read_text().split()), 8)
+
+        coco_root = Path(coco_stats.output_path)
+        coco = json.loads((coco_root / "annotations" / "instances_train.json").read_text())
+        self.assertEqual(coco["annotations"][0]["keypoints"], [8.0, 8.0, 2])
+        self.assertEqual(coco["annotations"][0]["num_keypoints"], 1)
+        self.assertEqual(coco["categories"][0]["keypoints"], ["kpt_0"])
+
     def test_split_records_is_deterministic_and_preserves_counts(self) -> None:
         records = [
             ImageRecord(Path(f"img_{idx}.jpg"), f"img_{idx}.jpg", 10, 10, [Annotation(idx % 2, bbox=[0.5, 0.5, 0.1, 0.1])])

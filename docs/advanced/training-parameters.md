@@ -28,7 +28,7 @@ Parameters are organized into eight categories matching the wizard's interface.
 |---|---|---|---|
 | `device` | `"0"` | `0`, `0,1`, `cpu`, `mps`, `cuda`, `npu` | Compute device. `0` = first NVIDIA GPU. `cpu` = CPU inference (slow). `mps` = Apple Silicon. `0,1` = multi-GPU. |
 | `workers` | `8` | 0–64 | CPU dataloader threads. Increase if GPU utilization is below 80%; decrease if high CPU usage or DataLoader warnings appear. |
-| `cache` | `False` | `False`, `True`/`"ram"`, `"disk"` | Dataset caching. `"ram"` caches images in memory (fast, requires RAM ≥ dataset size). `"disk"` caches to a temp file. `False` reads from disk each epoch. |
+| `cache` | `False` | `False`, `True`/`"ram"` | Dataset caching. `"ram"` caches images in memory (fast, requires sufficient RAM). Persistent disk caching is disabled because it writes uncompressed `.npy` files beside source images. `False` reads images from storage each epoch. |
 
 ---
 

@@ -17,6 +17,12 @@ from src.datasets.prepare import (
     SPLIT_STRATEGIES,
     prepare_dataset,
 )
+from src.datasets.cache import (
+    DatasetCacheStats,
+    clean_dataset_image_cache,
+    inspect_dataset_cache,
+    normalize_yolo_cache_setting,
+)
 
 __all__ = [
     "DatasetAnalyzer",
@@ -34,4 +40,8 @@ __all__ = [
     "PrepareSplitConfig",
     "SPLIT_STRATEGIES",
     "prepare_dataset",
+    "DatasetCacheStats",
+    "clean_dataset_image_cache",
+    "inspect_dataset_cache",
+    "normalize_yolo_cache_setting",
 ]

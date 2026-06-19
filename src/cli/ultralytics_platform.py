@@ -47,7 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
     download_dataset.add_argument("--version", type=int, help="Dataset version number. Defaults to latest.")
     download_dataset.add_argument("--output-root", type=Path, default=Path("datasets"))
     download_dataset.add_argument("--slug", help="Prepared output dataset slug.")
-    download_dataset.add_argument("--format", choices=["YOLO Detection", "YOLO Segmentation", "COCO"], default="YOLO Detection")
+    download_dataset.add_argument(
+        "--format",
+        choices=["YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose"],
+        default="YOLO Detection",
+    )
     download_dataset.add_argument("--train", type=float, default=0.70)
     download_dataset.add_argument("--val", type=float, default=0.20)
     download_dataset.add_argument("--test", type=float, default=0.10)
@@ -357,9 +361,16 @@ def _flow_download_dataset(args: argparse.Namespace) -> None:
         return
 
     raw_format = get_user_choice(
-        ["YOLO Detection", "YOLO Segmentation", "COCO", "Back"],
+        ["YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose", "Back"],
         title="Output Format",
         text="Output format for the prepared local dataset:",
+        descriptions={
+            "YOLO Detection": "Ultralytics bounding-box labels.",
+            "YOLO Segmentation": "Ultralytics polygon labels.",
+            "YOLO Pose": "Ultralytics bbox and keypoint labels; requires pose annotations.",
+            "COCO": "COCO instances JSON per split.",
+            "COCO Pose": "COCO bbox and keypoint annotations; requires pose annotations.",
+        },
         breadcrumbs=["YOLOmatic", "Ultralytics Platform", "Download Dataset"],
         **_wizard_kwargs(2),
     )

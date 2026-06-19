@@ -48,7 +48,7 @@
         ["Does YOLOmatic support Detectron2?", "Yes. It supports Detectron2 training flows for Faster R-CNN, RetinaNet, and Mask R-CNN style configurations."],
         ["What dataset formats does YOLOmatic understand?", "YOLOmatic works with YOLO folders, COCO JSON, Labelbox NDJSON, and Ultralytics-platform NDJSON."],
         ["Can YOLOmatic convert Labelbox NDJSON?", "Yes. YOLOmatic converts Labelbox exports into YOLO or COCO formats with concurrent image downloads."],
-        ["Can YOLOmatic convert Ultralytics-platform NDJSON?", "Yes. It reads normalized annotations.segments and annotations.boxes from Ultralytics-platform image rows."],
+        ["Can YOLOmatic convert Ultralytics-platform NDJSON?", "Yes. It reads normalized annotations.segments, annotations.boxes, and annotations.pose from Ultralytics-platform image rows, including YOLO Pose and COCO Pose output."],
         ["Can YOLOmatic split datasets?", "Yes. It supports random, class-balanced, and smart-balanced dataset splitting."],
         ["What is smart-balanced splitting?", "Smart-balanced splitting preserves rare classes first, then fills remaining split capacity with deterministic random tie-breaking."],
         ["Can YOLOmatic augment datasets offline?", "Yes. It includes Albumentations-powered offline augmentation with reusable profiles and YOLO/COCO output support."],

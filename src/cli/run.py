@@ -361,8 +361,8 @@ YOLO_TRAINING_PARAMETERS: list[ParameterDefinition] = [
         default=False,
         value_type="bool_or_str",
         description="Dataset RAM caching",
-        help_text="Loads the entire dataset into RAM so the GPU doesn't have to wait for the disk. Significantly speeds up training if you have enough RAM.\n\n[bold yellow]Practice:[/bold yellow] Set to 'ram' if your dataset is smaller than your available RAM. If training crashes with 'Out of Memory', set back to 'False'.",
-        allowed_values=["True", "False", "ram", "disk"],
+        help_text="Optionally loads the dataset into RAM so the GPU doesn't have to wait for storage. Persistent disk caching is intentionally disabled because uncompressed .npy copies can be much larger than the source images.\n\n[bold yellow]Practice:[/bold yellow] Set to 'ram' only if the dataset comfortably fits in available RAM. Otherwise keep 'False'.",
+        allowed_values=["True", "False", "ram"],
     ),
     ParameterDefinition(
         name="optimizer",
@@ -1442,7 +1442,6 @@ YOLO_PARAMETER_OPTION_DESCRIPTIONS = {
         "True": "Cache images in RAM when possible. Fastest, but can exhaust system memory on large datasets.",
         "False": "Do not cache. Safest default when RAM is limited or dataset size is unknown.",
         "ram": "Explicitly cache in RAM. Use only when the dataset comfortably fits in available memory.",
-        "disk": "Cache preprocessed data on disk. Slower than RAM, but can help when storage is fast and RAM is tight.",
     },
     "optimizer": {
         "auto": "Let Ultralytics choose optimizer settings. Best default for most runs.",
@@ -4572,8 +4571,8 @@ def _main_loop_iteration():
                     "like TensorRT (engine), ONNX, CoreML, OpenVINO, etc."
                 ),
                 "Convert Dataset Format": (
-                    "Convert Labelbox NDJSON exports into YOLO or COCO formats. "
-                    "Supports concurrent image downloads and handles both bounding boxes and polygons."
+                    "Convert Labelbox or Ultralytics NDJSON exports into YOLO or COCO formats. "
+                    "Supports concurrent image downloads and handles boxes, polygons, and pose keypoints."
                 ),
                 "Prepare / Split Dataset": (
                     "Create a versioned, training-ready YOLO or COCO dataset from a YOLO folder, "

@@ -55,9 +55,9 @@ from src.utils.cli import (
 )
 
 try:
-    from src.utils.project import list_dataset_directories
+    from src.utils.project import format_size, list_dataset_directories
 except ImportError:
-    from utils.project import list_dataset_directories  # type: ignore[no-redef]
+    from utils.project import format_size, list_dataset_directories  # type: ignore[no-redef]
 
 
 # ---------------------------------------------------------------------------
@@ -1019,6 +1019,8 @@ def _run_with_progress(
             "Test":                 str(s.split_counts.get("test", 0)),
             "Skipped":              str(s.images_skipped),
             "Annotations Removed":  str(s.annotations_discarded),
+            "Cache Files Removed":  str(s.cache_files_removed),
+            "Cache Space Reclaimed": format_size(s.cache_bytes_reclaimed),
             "Time":                 f"{s.elapsed_seconds:.1f}s",
         })
 

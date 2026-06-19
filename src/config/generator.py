@@ -10,6 +10,7 @@ import yaml
 try:
     from src.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
     from src.datasets import prepare_dataset_for_family, summarize_dataset
+    from src.datasets.cache import is_dataset_runtime_cache
     from src.models.detectron2 import get_detectron2_variant
     from src.models.rfdetr import get_rfdetr_variant
     from src.models.data import model_data_dict
@@ -17,6 +18,7 @@ try:
 except ImportError:
     try:
         from datasets import prepare_dataset_for_family, summarize_dataset
+        from datasets.cache import is_dataset_runtime_cache
         from models.detectron2 import get_detectron2_variant
         from models.rfdetr import get_rfdetr_variant
         from models.data import model_data_dict
@@ -381,15 +383,24 @@ class BaseConfigGenerator:
         image_count = 0
         label_count = 0
         other_file_count = 0
+        runtime_cache_file_count = 0
+        runtime_cache_size_bytes = 0
 
         for file_path in self.dataset_path.rglob("*"):
             if not file_path.is_file():
                 continue
 
             try:
-                total_size_bytes += file_path.stat().st_size
+                file_size = file_path.stat().st_size
             except OSError:
                 continue
+
+            if is_dataset_runtime_cache(file_path):
+                runtime_cache_file_count += 1
+                runtime_cache_size_bytes += file_size
+                continue
+
+            total_size_bytes += file_size
 
             suffix = file_path.suffix.lower()
             if suffix in IMAGE_EXTENSIONS:
@@ -405,6 +416,8 @@ class BaseConfigGenerator:
             "label_count": label_count,
             "other_file_count": other_file_count,
             "total_file_count": image_count + label_count + other_file_count,
+            "runtime_cache_file_count": runtime_cache_file_count,
+            "runtime_cache_size_bytes": runtime_cache_size_bytes,
         }
         self.dataset_metrics = metrics
         return metrics

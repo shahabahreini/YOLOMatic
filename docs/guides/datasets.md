@@ -139,9 +139,9 @@ uv run yolomatic-convert
 The converter:
 
 - Auto-detects Labelbox-style rows vs Ultralytics-platform `type: image` rows
-- Supports bounding boxes and polygon annotations
+- Supports bounding boxes, polygon annotations, and Ultralytics pose annotations
 - Downloads images concurrently using a thread pool
-- Emits YOLO `.txt` labels or COCO `_annotations.coco.json`
+- Emits YOLO detection/segmentation/pose labels or COCO/COCO Pose JSON
 
 See [NDJSON Conversion](../reference/ndjson-conversion.md) for details.
 

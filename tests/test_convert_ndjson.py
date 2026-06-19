@@ -4,9 +4,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 import shutil
 import tempfile
+import yaml
 
 from src.cli import convert_ndjson
 from src.cli.convert_ndjson import convert_ndjson_to_format, _discover_ndjson_files
+from src.datasets.core import summarize_dataset
 
 
 class TestConvertNDJSON(unittest.TestCase):
@@ -132,6 +134,111 @@ class TestConvertNDJSON(unittest.TestCase):
             self.assertEqual(len(lines), 2)
             self.assertTrue(lines[0].startswith("0 0.200000 0.100000 0.600000 0.100000"))
             self.assertTrue(lines[1].startswith("1 0.100000 0.100000 0.200000 0.100000 0.200000 0.200000"))
+
+    def _write_pose_ndjson(self, *, include_shape: bool = True) -> None:
+        header = {
+            "type": "dataset",
+            "task": "pose",
+            "class_names": {"0": "pole"},
+            "flip_idx": [0],
+        }
+        if include_shape:
+            header["kpt_shape"] = [1, 3]
+        rows = [
+            header,
+            {
+                "type": "image",
+                "file": "train.jpg",
+                "url": "https://example.com/train.jpg",
+                "width": 100,
+                "height": 50,
+                "split": "train",
+                "annotations": {"pose": [[0, 0.5, 0.5, 0.4, 0.2, 0.6, 0.7, 2]]},
+            },
+            {
+                "type": "image",
+                "file": "val.jpg",
+                "url": "https://example.com/val.jpg",
+                "width": 100,
+                "height": 50,
+                "split": "val",
+                "annotations": {"pose": []},
+            },
+        ]
+        self.ndjson_file.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+
+    def test_convert_ultralytics_ndjson_to_yolo_pose_preserves_splits(self):
+        self._write_pose_ndjson(include_shape=False)
+        output_dir = self.tmp_dir / "output_yolo_pose"
+
+        with patch("requests.get") as mock_get, patch("PIL.Image.open") as mock_image_open:
+            mock_get.return_value.content = b"fake image content"
+            mock_img = MagicMock()
+            mock_img.size = (100, 50)
+            mock_img.__enter__.return_value = mock_img
+            mock_image_open.return_value = mock_img
+
+            stats = convert_ndjson_to_format(self.ndjson_file, "YOLO Pose", output_dir)
+
+        label = output_dir / "labels" / "train" / "train.txt"
+        self.assertEqual(
+            label.read_text(encoding="utf-8"),
+            "0 0.500000 0.500000 0.400000 0.200000 0.600000 0.700000 2.000000",
+        )
+        self.assertEqual((output_dir / "labels" / "val" / "val.txt").read_text(), "")
+        data = yaml.safe_load((output_dir / "data.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(data["task"], "pose")
+        self.assertEqual(data["kpt_shape"], [1, 3])
+        self.assertEqual(data["flip_idx"], [0])
+        self.assertEqual(data["train"], "images/train")
+        self.assertEqual(data["val"], "images/val")
+        self.assertEqual(stats.total_annotations, 1)
+        self.assertEqual(summarize_dataset(output_dir).task, "pose")
+
+    def test_convert_ultralytics_ndjson_to_coco_pose(self):
+        self._write_pose_ndjson()
+        output_dir = self.tmp_dir / "output_coco_pose"
+
+        with patch("requests.get") as mock_get, patch("PIL.Image.open") as mock_image_open:
+            mock_get.return_value.content = b"fake image content"
+            mock_img = MagicMock()
+            mock_img.size = (100, 50)
+            mock_img.__enter__.return_value = mock_img
+            mock_image_open.return_value = mock_img
+
+            convert_ndjson_to_format(self.ndjson_file, "COCO Pose", output_dir)
+
+        train = json.loads((output_dir / "annotations" / "instances_train.json").read_text())
+        annotation = train["annotations"][0]
+        self.assertEqual(annotation["bbox"], [30.0, 20.0, 40.0, 10.0])
+        self.assertEqual(annotation["keypoints"], [60.0, 35.0, 2])
+        self.assertEqual(annotation["num_keypoints"], 1)
+        self.assertEqual(train["categories"][0]["keypoints"], ["kpt_0"])
+        self.assertEqual(train["images"][0]["file_name"], "images/train/train.jpg")
+        self.assertTrue((output_dir / "annotations" / "instances_val.json").exists())
+        self.assertEqual(summarize_dataset(output_dir).task, "pose")
+
+    def test_invalid_pose_metadata_is_rejected_before_overwrite(self):
+        rows = [
+            {"type": "dataset", "task": "pose", "class_names": {"0": "pole"}, "kpt_shape": [2, 3]},
+            {
+                "type": "image",
+                "file": "bad.jpg",
+                "url": "https://example.com/bad.jpg",
+                "split": "train",
+                "annotations": {"pose": [[0, 0.5, 0.5, 0.2, 0.2, 0.5, 0.5, 2]]},
+            },
+        ]
+        self.ndjson_file.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+        output_dir = self.tmp_dir / "existing"
+        output_dir.mkdir()
+        marker = output_dir / "keep.txt"
+        marker.write_text("keep", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "no annotations matching"):
+            convert_ndjson_to_format(self.ndjson_file, "YOLO Pose", output_dir, overwrite=True)
+
+        self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
 
     def test_discover_ndjson_files_for_conversion(self):
         root_export = self.tmp_dir / "labels.ndjson"

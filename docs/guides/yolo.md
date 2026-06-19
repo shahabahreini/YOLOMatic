@@ -324,7 +324,7 @@ training:
   epochs: 150
   imgsz: 640
   batch: 16
-  cache: true
+  cache: false
   workers: 8
   label_smoothing: 0.1
   close_mosaic: 50
@@ -336,6 +336,12 @@ training:
   fliplr: 0.5
   device: auto
 ```
+
+Use `cache: ram` only when the decoded dataset comfortably fits in available
+memory. YOLOmatic disables `cache: disk` because Ultralytics writes an
+uncompressed `.npy` beside each image; these files can consume several times the
+space used by the compressed source dataset. Verified `.npy` image caches from
+older runs are removed automatically when a dataset is selected for training.
 
 ### Model-Specific Recommendations
 
@@ -549,19 +555,21 @@ Access from the TUI under **Augment Dataset**:
 
 ## NDJSON Conversion
 
-YOLOmatic can convert **Labelbox NDJSON** exports into YOLO or COCO formats, automatically downloading images from the provided URLs.
+YOLOmatic can convert **Labelbox or Ultralytics-platform NDJSON** exports into
+YOLO or COCO formats, automatically downloading images from the provided URLs.
+Ultralytics pose exports support explicit YOLO Pose and COCO Pose targets.
 
 ### Features
 - **Concurrent downloads** — uses a thread pool for fast image retrieval.
-- **Task detection** — extracts both bounding boxes and polygons.
-- **YOLO/COCO support** — generates valid `data.yaml` for YOLO or `annotations.json` for COCO.
+- **Task detection** — extracts bounding boxes, polygons, and Ultralytics pose keypoints.
+- **YOLO/COCO support** — generates valid detection, segmentation, or pose datasets.
 - **Public/Presigned URLs** — supports direct image downloads from Labelbox-hosted or presigned asset URLs.
 
 ### Usage
-1. Export your project from Labelbox in **NDJSON** format.
+1. Export your project from Labelbox or Ultralytics Platform in **NDJSON** format.
 2. Select **Convert Dataset Format** from the YOLOmatic main menu.
 3. Provide the path to the `.ndjson` file.
-4. Choose the target format (YOLO or COCO) and output directory.
+4. Choose the target format, including YOLO Pose or COCO Pose when applicable, and output directory.
 
 ---
 

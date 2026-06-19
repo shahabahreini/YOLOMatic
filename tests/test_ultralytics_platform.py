@@ -100,6 +100,8 @@ class UltralyticsPlatformCliTests(unittest.TestCase):
             "--smart-split",
             "--max-workers",
             "12",
+            "--format",
+            "COCO Pose",
             "--multiprocessing",
         ])
 
@@ -108,6 +110,7 @@ class UltralyticsPlatformCliTests(unittest.TestCase):
         self.assertEqual(args.version, 5)
         self.assertTrue(args.smart_split)
         self.assertEqual(args.max_workers, 12)
+        self.assertEqual(args.format, "COCO Pose")
         self.assertTrue(args.multiprocessing)
 
     def test_cli_parses_uri_helper(self) -> None:

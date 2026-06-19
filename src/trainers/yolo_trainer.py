@@ -23,10 +23,12 @@ from src.utils.ml_dependencies import (
     import_ultralytics_yolo,
 )
 from src.utils.project import (
+    format_size,
     list_config_files,
     resolve_config_path,
     verify_dataset_directories,
 )
+from src.datasets.cache import clean_dataset_image_cache, normalize_yolo_cache_setting
 from src.utils.project import (
     load_dataset_config as load_project_dataset_config,
 )
@@ -427,7 +429,7 @@ def main():
             return
         settings = config["settings"]
         clearml_settings = effective_clearml_settings(config.get("clearml", {}))
-        training_params = config["training"]
+        training_params = dict(config["training"])
         export_params = config["export"]
 
         # Load dataset configuration
@@ -438,6 +440,30 @@ def main():
         )
         dataset_config, data_yaml_path, dataset_path = load_dataset_config(dataset_name_or_path)
         verify_directories(dataset_config)
+
+        normalized_cache, disk_cache_disabled = normalize_yolo_cache_setting(
+            training_params.get("cache", False)
+        )
+        training_params["cache"] = normalized_cache
+        config["training"] = training_params
+        if disk_cache_disabled:
+            console.print(
+                "[bold yellow]Persistent dataset cache 'disk' is disabled to prevent "
+                "large .npy files; continuing with cache=False.[/bold yellow]"
+            )
+
+        cache_cleanup = clean_dataset_image_cache(dataset_path)
+        if cache_cleanup.removed_files:
+            console.print(
+                "[bold green]Removed "
+                f"{cache_cleanup.removed_files:,} dataset image-cache files and reclaimed "
+                f"{format_size(cache_cleanup.reclaimed_bytes)}.[/bold green]"
+            )
+        if cache_cleanup.errors:
+            console.print(
+                f"[bold yellow]Warning: {len(cache_cleanup.errors)} dataset cache files "
+                "could not be removed.[/bold yellow]"
+            )
         print_config_summary(config, dataset_config)
 
         # Get the correct model name based on config type
