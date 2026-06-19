@@ -1,0 +1,177 @@
+settings:
+  model_family: yolo
+  model_type: yolo26x-pose
+  dataset: poles_yolo_pose
+  task: pose
+
+clearml:
+  enabled: true
+  require_configured: false
+  project_name_template: '{family} Training - {model}'
+  task_name_format: '%Y-%m-%d-%H-%M'
+  upload_final_model: true
+  upload_artifacts: true
+  log_hyperparameters: true
+  log_dataset_summary: true
+  project_name: YOLO Training - YOLO26X-POSE
+
+training:
+  epochs: 300
+  patience: 50
+  imgsz: 640
+  # Keep this as a fixed integer. Ultralytics 8.4.71 AutoBatch substantially
+  # overestimates YOLO26x-Pose memory (batch: 0.85 selected only 3 images and
+  # used ~4.75 GiB). Batch 12 was verified on the 16 GiB RTX 4070 Ti SUPER at
+  # ~13.1 GiB PyTorch memory with no OOM; do not restore fractional/-1 AutoBatch
+  # without first confirming that the upstream pose profiler has been fixed.
+  batch: 12
+  cache: true
+  workers: 8
+  optimizer: auto
+  device: '0'
+  save: true
+  close_mosaic: 20
+  cos_lr: false
+  amp: true
+  pretrained: true
+  seed: 0
+
+model:
+  data_dir: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose
+  train_images_dir: images/train
+  train_labels_dir: labels/train
+  val_images_dir: images/val
+  val_labels_dir: labels/val
+  test_images_dir: images/test
+  test_labels_dir: labels/test
+  kpt_shape: [1, 3]
+  classes: &id001
+    - pole
+
+dataset:
+  name: poles_yolo_pose
+  source_format: yolo
+  prepared_format: yolo
+  source_dir: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose
+  prepared_dir: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose
+  classes: *id001
+  task: pose
+  summary:
+    path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose
+    name: poles_yolo_pose
+    format: yolo
+    task: pose
+    classes:
+      - pole
+    image_count: 50941
+    annotation_count: 64193
+    labeled_image_count: 42849
+    unlabeled_image_count: 8092
+    empty_label_count: 8092
+    missing_file_count: 0
+    total_size_bytes: 8983453432
+    splits:
+      train:
+        name: train
+        images_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/images/train
+        labels_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/labels/train
+        annotations_path:
+        image_count: 35646
+        annotation_count: 45522
+        labeled_image_count: 30076
+        unlabeled_image_count: 5570
+        empty_label_count: 5570
+        missing_file_count: 0
+        status: valid
+      val:
+        name: val
+        images_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/images/val
+        labels_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/labels/val
+        annotations_path:
+        image_count: 7929
+        annotation_count: 9212
+        labeled_image_count: 6589
+        unlabeled_image_count: 1340
+        empty_label_count: 1340
+        missing_file_count: 0
+        status: valid
+      test:
+        name: test
+        images_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/images/test
+        labels_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/labels/test
+        annotations_path:
+        image_count: 7366
+        annotation_count: 9459
+        labeled_image_count: 6184
+        unlabeled_image_count: 1182
+        empty_label_count: 1182
+        missing_file_count: 0
+        status: valid
+    warnings:
+      - 'NDJSON conversion skipped 10 train images containing 16 pose annotations after image downloads failed with ConnectionError; see conversion_manifest.json.'
+    errors: []
+    compatibility:
+      yolo: native
+      rfdetr: unsupported for pose
+      detectron2: conversion required
+  splits:
+    train:
+      name: train
+      images_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/images/train
+      labels_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/labels/train
+      annotations_path:
+      image_count: 35646
+      annotation_count: 45522
+      labeled_image_count: 30076
+      unlabeled_image_count: 5570
+      empty_label_count: 5570
+      missing_file_count: 0
+      status: valid
+    val:
+      name: val
+      images_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/images/val
+      labels_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/labels/val
+      annotations_path:
+      image_count: 7929
+      annotation_count: 9212
+      labeled_image_count: 6589
+      unlabeled_image_count: 1340
+      empty_label_count: 1340
+      missing_file_count: 0
+      status: valid
+    test:
+      name: test
+      images_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/images/test
+      labels_path: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose/labels/test
+      annotations_path:
+      image_count: 7366
+      annotation_count: 9459
+      labeled_image_count: 6184
+      unlabeled_image_count: 1182
+      empty_label_count: 1182
+      missing_file_count: 0
+      status: valid
+  base_dir: /home/gnosys/Documents/Shahab/Projects/YOLOMatic/datasets/poles_yolo_pose
+
+export:
+  format: onnx
+  optimize: true
+  half: false
+  nms: true
+  int8: false
+  dynamic: false
+  simplify: true
+  opset:
+
+roboflow:
+  upload: false
+  weight: best.pt
+  model_name_template: '{run_name}-best'
+  require_dataset_metadata: true
+  rfdetr_project_version: 1
+  workspace:
+  project_id:
+  version:
+
+prediction:
+  retina_masks: false
