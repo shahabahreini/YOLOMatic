@@ -17,6 +17,24 @@ from src.utils.ml_dependencies import MLDependencyError, import_rfdetr_model_cla
 console = Console()
 
 
+def _validate_local_weights(value: Any, *, label: str) -> None:
+    """Raise a clear error when a user-supplied weights path is missing.
+
+    Remote identifiers (URLs / HF-style ids) and pretrained names handled by the
+    rfdetr library are left untouched so auto-download still works.
+    """
+    if not value:
+        return
+    text = str(value)
+    if "://" in text:
+        return
+    if text.endswith((".pth", ".pt", ".ckpt")) and not Path(text).exists():
+        raise FileNotFoundError(
+            f"RF-DETR {label} file not found: {text}. Provide a valid checkpoint "
+            "path, or remove it to let RF-DETR auto-download pretrained weights."
+        )
+
+
 def instantiate_rfdetr_model(config: dict[str, Any]) -> object:
     settings = config["settings"]
     variant = get_rfdetr_variant(settings["model_type"])
@@ -24,6 +42,7 @@ def instantiate_rfdetr_model(config: dict[str, Any]) -> object:
     constructor_kwargs: dict[str, Any] = {}
     pretrain_weights = training.get("pretrain_weights")
     if pretrain_weights:
+        _validate_local_weights(pretrain_weights, label="pretrain_weights")
         constructor_kwargs["pretrain_weights"] = pretrain_weights
 
     model_class = import_rfdetr_model_class(variant.class_name)
@@ -103,9 +122,10 @@ def print_config_summary(config: dict[str, Any]) -> None:
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Category", style="dim", width=22)
     table.add_column("Details")
+    task = str(settings.get("task", "detection"))
     table.add_row("Model Type", "RF-DETR")
     table.add_row("Model", str(settings["model_type"]))
-    table.add_row("Task", str(settings.get("task", "detection")))
+    table.add_row("Task", task + (" (preview)" if task == "pose" else ""))
     table.add_row("Dataset", str(settings["dataset"]))
     table.add_row("Auto Download", str(settings.get("auto_download_pretrained", True)))
     table.add_row("Resolution", str(training.get("resolution", "N/A")))
@@ -113,8 +133,16 @@ def print_config_summary(config: dict[str, Any]) -> None:
     table.add_row("Grad Accum Steps", str(training.get("grad_accum_steps", "N/A")))
     table.add_row("Epochs", str(training.get("epochs", "N/A")))
     table.add_row("Device", str(training.get("device", "N/A")))
+    if task == "pose":
+        table.add_row("Keypoints/class", str(training.get("num_keypoints_per_class", "N/A")))
+        table.add_row("Flip pairs", str(training.get("keypoint_flip_pairs", "N/A")))
     console.print(Panel.fit("[bold]RF-DETR Configuration Summary[/bold]", style="bold blue"))
     console.print(table)
+    if task == "pose":
+        console.print(
+            "[bold yellow]RF-DETR keypoint/pose is a preview model "
+            "(RFDETRKeypointPreview) and expects COCO keypoint JSON data.[/bold yellow]"
+        )
 
 
 def train_from_config(config_file: str | Path) -> Path | None:
@@ -131,7 +159,9 @@ def train_from_config(config_file: str | Path) -> Path | None:
     run_dir = output_dir / run_name
 
     print_config_summary(config)
-    if settings.get("auto_download_pretrained", True):
+    _validate_local_weights(training.get("resume"), label="resume checkpoint")
+    uses_local_weights = bool(training.get("pretrain_weights") or training.get("resume"))
+    if settings.get("auto_download_pretrained", True) and not uses_local_weights:
         console.print(
             "[bold green]RF-DETR will auto-download/cache the selected pretrained weights if they are not already available.[/bold green]"
         )

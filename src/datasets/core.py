@@ -679,11 +679,32 @@ def _cache_dir(source: Path, family: str, prepared_format: str) -> Path:
     return project_root() / "datasets" / ".yolomatic_cache" / family / source.name / digest
 
 
+def prepared_format_for_family(family: str | None, task: str | None = None) -> str:
+    """Return the dataset format a model family expects for a given task.
+
+    - Detectron2 always trains from COCO instance annotations.
+    - RF-DETR detection/segmentation train from YOLO (the rfdetr library also
+      auto-detects COCO), but RF-DETR **pose** (RFDETRKeypointPreview) only
+      accepts COCO keypoint JSON.
+    - YOLO/Ultralytics always trains from YOLO format.
+    """
+    fam = (family or "").strip().lower()
+    task_norm = (task or "").strip().lower()
+    is_pose = task_norm in {"pose", "keypoint", "keypoints"}
+    if fam.startswith("detectron2"):
+        return "coco"
+    if fam.startswith("rfdetr") or fam.startswith("rf-detr"):
+        return "coco" if is_pose else "yolo"
+    return "yolo"
+
+
 def prepare_dataset_for_family(dataset_path: str | Path, family: str, *, task: str | None = None) -> dict[str, Any]:
     source = Path(dataset_path).resolve()
     summary = summarize_dataset(source)
-    family_key = "detectron2" if family == "detectron2" else "yolo"
-    prepared_format = "coco" if family_key == "detectron2" else "yolo"
+    prepared_format = prepared_format_for_family(family, task)
+    # Cache conversions by the target format so families that need the same
+    # output (e.g. Detectron2 and RF-DETR pose both need COCO) reuse one cache.
+    family_key = prepared_format
     if summary.format == "unknown":
         raise DatasetValidationError(
             "Dataset format could not be detected.",

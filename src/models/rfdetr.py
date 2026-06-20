@@ -54,10 +54,15 @@ RFDETR_VARIANTS: dict[str, RFDETRVariant] = {
     "RF-DETR-Seg-2XLarge": RFDETRVariant(
         "RF-DETR-Seg-2XLarge", "RFDETRSeg2XLarge", "segmentation", "2XL", 768, None, None, None, "Apache-2.0"
     ),
+    # Keypoint/pose is a preview architecture (RFDETRKeypointPreview), pretrained
+    # on COCO person keypoints. Training accepts COCO keypoint JSON only.
+    "RF-DETR-Keypoint": RFDETRVariant(
+        "RF-DETR-Keypoint", "RFDETRKeypointPreview", "pose", "Preview", 640, None, None, None, "Apache-2.0"
+    ),
 }
 
 
-RFDETR_FAMILY_KEYS = {"rfdetr", "rfdetr-seg"}
+RFDETR_FAMILY_KEYS = {"rfdetr", "rfdetr-seg", "rfdetr-pose"}
 
 
 def is_rfdetr_model(value: str | None) -> bool:

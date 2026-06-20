@@ -69,7 +69,7 @@ Concrete examples:
 - YOLOv9: detection and segmentation variants.
 - YOLOv8: detection, segmentation, classification, pose, and OBB variants.
 - YOLOX: detection variants.
-- RF-DETR: native detection and segmentation training with `.pth` checkpoints.
+- RF-DETR: native detection and segmentation training with `.pth` checkpoints, plus a preview keypoint/pose model (RFDETRKeypointPreview) trained from COCO keypoint JSON.
 - SAM 3.1: open-vocabulary segmentation and mask decoder fine-tuning.
 - Detectron2: Faster R-CNN, RetinaNet, and Mask R-CNN configs.
 

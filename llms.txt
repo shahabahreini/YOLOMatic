@@ -58,7 +58,7 @@ Detectron2 training.
 
 ## Supported Model Families
 
-- RF-DETR detection and segmentation variants: Nano, Small, Medium, Large, XLarge, 2XLarge.
+- RF-DETR detection and segmentation variants: Nano, Small, Medium, Large, XLarge, 2XLarge, plus a preview keypoint/pose model (RFDETRKeypointPreview).
 - YOLO26 detection, segmentation, and pose variants.
 - YOLOv12 detection and segmentation variants.
 - YOLOv11 detection, segmentation, classification, pose, and OBB variants.

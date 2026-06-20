@@ -108,11 +108,60 @@ def build_detectron2_cfg(config: dict[str, Any]) -> Any:
     cfg.MODEL.DEVICE = str(training.get("device", "cpu"))
     cfg.OUTPUT_DIR = str(training.get("output_dir") or "runs/detectron2")
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(config.get("dataset", {}).get("classes", []))
+
+    # Optional solver/input overrides exposed through the interactive configurator.
+    if "momentum" in training:
+        cfg.SOLVER.MOMENTUM = float(training["momentum"])
+    if "weight_decay" in training:
+        cfg.SOLVER.WEIGHT_DECAY = float(training["weight_decay"])
+    if "warmup_iters" in training:
+        cfg.SOLVER.WARMUP_ITERS = int(training["warmup_iters"])
+    if "gamma" in training:
+        cfg.SOLVER.GAMMA = float(training["gamma"])
+    steps = training.get("steps")
+    if steps:
+        cfg.SOLVER.STEPS = tuple(int(s) for s in steps)
+    elif steps == [] or steps == ():
+        cfg.SOLVER.STEPS = ()
+    if "roi_batch_size_per_image" in training:
+        cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = int(training["roi_batch_size_per_image"])
+    if "score_thresh_test" in training:
+        cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = float(training["score_thresh_test"])
+    if "min_size_train" in training:
+        cfg.INPUT.MIN_SIZE_TRAIN = (int(training["min_size_train"]),)
+    if "max_size_train" in training:
+        cfg.INPUT.MAX_SIZE_TRAIN = int(training["max_size_train"])
+
     weights = training.get("weights")
     if weights:
+        weights_path = Path(str(weights))
+        looks_like_local = weights_path.suffix in {".pth", ".pkl"} and "://" not in str(weights)
+        if looks_like_local and not weights_path.exists():
+            raise FileNotFoundError(
+                f"Detectron2 weights file not found: {weights}. Provide a valid "
+                "checkpoint path, or remove 'training.weights' to auto-download "
+                "the pretrained backbone from the model zoo."
+            )
         cfg.MODEL.WEIGHTS = str(weights)
     elif config.get("settings", {}).get("auto_download_pretrained", True):
-        cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(d2_config["weights_url"])
+        try:
+            cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(d2_config["weights_url"])
+        except Exception as error:
+            raise RuntimeError(
+                "Failed to resolve Detectron2 pretrained weights for "
+                f"'{d2_config['weights_url']}': {error}. Check the model config "
+                "path or disable auto-download and supply local weights."
+            ) from error
+        console.print(
+            "[bold green]Detectron2 will download/cache the pretrained model "
+            f"weights ({d2_config['weights_url']}) on first use.[/bold green]"
+        )
+    else:
+        console.print(
+            "[bold yellow]auto_download_pretrained is disabled and no local "
+            "weights were provided; training will start from random "
+            "initialization.[/bold yellow]"
+        )
     Path(cfg.OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
     return cfg
 

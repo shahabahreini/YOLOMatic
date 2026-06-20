@@ -35,6 +35,20 @@ YOLOmatic routes RF-DETR configs to the native RF-DETR trainer instead of the Ul
 | RF-DETR-Seg-XLarge | `RFDETRSegXLarge` | 624 | Apache-2.0 |
 | RF-DETR-Seg-2XLarge | `RFDETRSeg2XLarge` | 768 | Apache-2.0 |
 
+### Keypoint / Pose Variant (preview)
+
+| Model | Class | Default Resolution | License |
+|---|---|---:|---|
+| RF-DETR-Keypoint | `RFDETRKeypointPreview` | 640 | Apache-2.0 |
+
+!!! warning "Pose is a preview feature"
+    RF-DETR keypoint/pose uses the preview `RFDETRKeypointPreview` architecture,
+    pretrained on COCO person keypoints (default schema `[0, 17]`). Training
+    **requires COCO keypoint JSON** — YOLO pose datasets are automatically
+    converted to a cached COCO manifest before training. Configure keypoint loss
+    weights and the `num_keypoints_per_class`/`keypoint_flip_pairs` schema from
+    the interactive configurator.
+
 ---
 
 ## When to Use RF-DETR

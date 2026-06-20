@@ -203,6 +203,11 @@ def import_rfdetr_model_class(class_name: str) -> object:
         extra_hint = ""
         if class_name in {"RFDETRXLarge", "RFDETR2XLarge"}:
             extra_hint = " Plus detection models require the `rfdetr[plus]` extra."
+        elif class_name == "RFDETRKeypointPreview":
+            extra_hint = (
+                " RF-DETR keypoint/pose is a preview feature; upgrade with "
+                "`uv sync` to a recent rfdetr release that ships RFDETRKeypointPreview."
+            )
         raise MLDependencyError(
             f"RF-DETR model class '{class_name}' is not available in the installed package."
             f"{extra_hint}"

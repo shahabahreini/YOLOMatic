@@ -98,6 +98,8 @@ YOLOmatic also exposes RF-DETR segmentation classes from Nano through 2XLarge. T
 | RF-DETR-Seg-XLarge | `RFDETRSegXLarge` | 624 | Apache-2.0 |
 | RF-DETR-Seg-2XLarge | `RFDETRSeg2XLarge` | 768 | Apache-2.0 |
 
+RF-DETR also ships a preview keypoint/pose model, `RFDETRKeypointPreview` (`RF-DETR-Keypoint`, default resolution 640, Apache-2.0). Pose training requires COCO keypoint JSON; YOLO pose datasets are auto-converted to a cached COCO manifest.
+
 RF-DETR Plus (XLarge, 2XLarge) detection models require the `rfdetr[plus]` dependency extra and use PML-1.0 model licensing.
 
 ---

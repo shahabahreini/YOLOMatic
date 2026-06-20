@@ -1,3 +1,19 @@
+## [6.0.0] - 2026-06-19
+
+### Added
+- RF-DETR keypoint/pose support (preview) via `RFDETRKeypointPreview` (`rfdetr-pose` family, `RF-DETR-Keypoint` variant), with keypoint loss/schema parameters and automatic conversion of YOLO pose datasets to COCO keypoint JSON.
+- Task-filtered, per-family interactive configuration pages: RF-DETR and Detectron2 now expose full parameter pages (documented defaults, ranges, choices, and help) in the TUI, like YOLO. Parameters that do not apply to the selected task (e.g. mask params for detection, pose params for non-pose) are hidden.
+- Centralized training parameter catalogs in `src/config/parameters.py` with a `parameters_for(family, task)` helper.
+- Task-aware dataset preparation: `prepared_format_for_family()` selects COCO for RF-DETR pose and Detectron2, YOLO otherwise, so both RF-DETR and YOLO load COCO and YOLO datasets correctly.
+- Additional Detectron2 solver/input controls (warmup iters, gamma, steps, momentum, weight decay, RoI batch size, score threshold, train sizes).
+
+### Changed
+- Hardened pretrained-weight auto-download for RF-DETR and Detectron2 with explicit messaging and clear errors when local weights are missing.
+- Bumped project version to 6.0.0.
+
+### Removed
+- Stray repository clutter (accidental log dumps and downloaded model weights at the project root).
+
 ## [Unreleased] - 2026-06-10
 
 ### Added

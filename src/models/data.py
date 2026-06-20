@@ -9,6 +9,7 @@ model_data_dict = {
     "sam3.1": sam_table_rows(),
     "rfdetr": rfdetr_table_rows("detection"),
     "rfdetr-seg": rfdetr_table_rows("segmentation"),
+    "rfdetr-pose": rfdetr_table_rows("pose"),
     "yolov11": [
         {
             "Model": "YOLO11n",

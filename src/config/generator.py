@@ -9,7 +9,7 @@ import yaml
 
 try:
     from src.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
-    from src.datasets import prepare_dataset_for_family, summarize_dataset
+    from src.datasets import prepare_dataset_for_family, prepared_format_for_family, summarize_dataset
     from src.datasets.cache import is_dataset_runtime_cache
     from src.models.detectron2 import get_detectron2_variant
     from src.models.rfdetr import get_rfdetr_variant
@@ -17,7 +17,7 @@ try:
     from src.utils.ml_dependencies import MLDependencyError, import_torch
 except ImportError:
     try:
-        from datasets import prepare_dataset_for_family, summarize_dataset
+        from datasets import prepare_dataset_for_family, prepared_format_for_family, summarize_dataset
         from datasets.cache import is_dataset_runtime_cache
         from models.detectron2 import get_detectron2_variant
         from models.rfdetr import get_rfdetr_variant
@@ -221,7 +221,7 @@ class BaseConfigGenerator:
         except Exception as error:
             logger.warning(f"Dataset preparation metadata failed: {error}")
             summary = summarize_dataset(self.dataset_path)
-            prepared_format = "coco" if family == "detectron2" else "yolo"
+            prepared_format = prepared_format_for_family(family, task)
             return {
                 "name": self.dataset_path.name,
                 "source_format": summary.format,
@@ -998,7 +998,10 @@ class RFDETRConfigGenerator(BaseConfigGenerator):
             variant.resolution,
             system_metrics,
         )
-        task_name = "RF-DETR Segmentation" if variant.task == "segmentation" else "RF-DETR Detection"
+        task_name = {
+            "segmentation": "RF-DETR Segmentation",
+            "pose": "RF-DETR Keypoint",
+        }.get(variant.task, "RF-DETR Detection")
 
         training: dict[str, Any] = {
             "epochs": 100,
@@ -1015,6 +1018,18 @@ class RFDETRConfigGenerator(BaseConfigGenerator):
             "checkpoint_interval": 10,
             "output_dir": f"runs/rfdetr/{model_choice.lower().replace(' ', '-').replace('_', '-')}",
         }
+        if variant.task == "pose":
+            # RFDETRKeypointPreview defaults: COCO person-style 17 keypoints.
+            training.update(
+                {
+                    "num_keypoints_per_class": [0, 17],
+                    "keypoint_flip_pairs": [],
+                    "keypoint_l1_loss_coef": 1.0,
+                    "keypoint_findable_loss_coef": 1.0,
+                    "keypoint_visible_loss_coef": 1.0,
+                    "keypoint_nll_loss_coef": 1.0,
+                }
+            )
         if finetune_source:
             if finetune_strategy == "resume":
                 training["resume"] = finetune_source
