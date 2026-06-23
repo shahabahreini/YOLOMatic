@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Training parameter catalogs for the interactive configurator.
 
 Each model family exposes a list of :class:`ParameterDefinition` objects with
@@ -7,6 +5,8 @@ documented defaults, ranges, choices and help text. ``parameters_for`` returns
 the relevant, task-filtered catalog for a given family/task so the TUI only
 shows parameters that apply to the selected model and task.
 """
+
+from __future__ import annotations
 
 from src.utils.cli import ParameterDefinition
 

@@ -292,10 +292,6 @@ _MODEL_DESCRIPTIONS: dict[str, str] = {
 
 # Training parameter catalogs live in src/config/parameters.py
 from src.config.parameters import (  # noqa: E402
-    DETECTRON2_TRAINING_PARAMETERS,
-    RFDETR_TRAINING_PARAMETERS,
-    YOLO_PARAMETER_IMPACTS,
-    YOLO_PARAMETER_OPTION_DESCRIPTIONS,
     YOLO_TRAINING_PARAMETERS,
     parameters_for,
 )

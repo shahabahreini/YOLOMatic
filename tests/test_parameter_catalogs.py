@@ -10,7 +10,6 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import yaml
 
 from src.config.parameters import (
     DETECTRON2_TRAINING_PARAMETERS,

@@ -14,6 +14,9 @@ import sys
 from pathlib import Path
 from typing import List
 
+from .detect import should_compress
+from .validate import validate
+
 OUTER_FENCE_REGEX = re.compile(
     r"\A\s*(`{3,}|~{3,})[^\n]*\n(.*)\n\1\s*\Z", re.DOTALL
 )
@@ -109,9 +112,6 @@ def strip_llm_wrapper(text: str) -> str:
     if m:
         return m.group(2)
     return text
-
-from .detect import should_compress
-from .validate import validate
 
 MAX_RETRIES = 2
 

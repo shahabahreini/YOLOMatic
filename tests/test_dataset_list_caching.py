@@ -1,5 +1,4 @@
 import unittest
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import src.cli.run as run
