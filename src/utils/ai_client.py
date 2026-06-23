@@ -245,7 +245,7 @@ def fetch_multimodal_models(provider: str, api_key: str) -> list[str]:
 
 
 def get_dataset_ai_summary(dataset_path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Summarize dataset metadata and prepare 1-2 random images for multimodal API consumption."""
+    """Summarize dataset metadata and prepare 1 random image for multimodal API consumption."""
     path = Path(dataset_path)
     summary = summarize_dataset(path)
 
@@ -262,7 +262,7 @@ def get_dataset_ai_summary(dataset_path: str | Path) -> tuple[dict[str, Any], li
     image_stats = []
     
     if all_images:
-        num_samples = min(2, len(all_images))
+        num_samples = min(1, len(all_images))
         selected_samples = random.sample(all_images, num_samples)
         
         for img_path in selected_samples:
@@ -280,12 +280,12 @@ def get_dataset_ai_summary(dataset_path: str | Path) -> tuple[dict[str, Any], li
                         "color_mode": mode
                     })
                     
-                    # Resize to maximum 1024px on any dimension to respect payload limits
-                    if img.width > 1024 or img.height > 1024:
-                        img.thumbnail((1024, 1024))
+                    # Resize to maximum 512px on any dimension to respect payload limits
+                    if img.width > 512 or img.height > 512:
+                        img.thumbnail((512, 512))
                     
                     buffer = io.BytesIO()
-                    img.convert("RGB").save(buffer, format="JPEG", quality=85)
+                    img.convert("RGB").save(buffer, format="JPEG", quality=75)
                     b64_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
                     
                     samples_base64.append({

@@ -2698,6 +2698,8 @@ def settings_ai_page() -> None:
             model_scroll_index: int,
             is_fetching: bool = False,
             fetch_result: tuple[bool, str] | None = None,
+            gemini_models: list[str] | None = None,
+            openai_models: list[str] | None = None,
         ):
             self.provider = provider
             self.gemini_api_key = gemini_api_key
@@ -2713,6 +2715,8 @@ def settings_ai_page() -> None:
             self.model_scroll_index = model_scroll_index
             self.is_fetching = is_fetching
             self.fetch_result = fetch_result
+            self.gemini_models = list(gemini_models) if gemini_models is not None else list(FALLBACK_MODELS.get("Gemini", []))
+            self.openai_models = list(openai_models) if openai_models is not None else list(FALLBACK_MODELS.get("OpenAI", []))
 
             self.sidebar_items = [
                 ("provider", "API Provider"),
@@ -3076,6 +3080,8 @@ def settings_ai_page() -> None:
     selected_model = ai_config.get("selected_model", "gemini-2.5-flash")
     gemini_key = ai_config.get("gemini_api_key", "")
     openai_key = ai_config.get("openai_api_key", "")
+    gemini_models = ai_config.get("gemini_models", list(FALLBACK_MODELS.get("Gemini", [])))
+    openai_models = ai_config.get("openai_models", list(FALLBACK_MODELS.get("OpenAI", [])))
 
     current_idx = 0
     focus = "sidebar"
@@ -3085,7 +3091,9 @@ def settings_ai_page() -> None:
     fetch_result = None
     is_testing = False
     is_fetching = False
-    model_list = FALLBACK_MODELS.get(provider, [])
+    model_list = list(gemini_models if provider == "Gemini" else openai_models)
+    if selected_model and selected_model not in model_list:
+        model_list.insert(0, selected_model)
     model_scroll_index = 0
     if selected_model in model_list:
         model_scroll_index = model_list.index(selected_model)
@@ -3105,6 +3113,8 @@ def settings_ai_page() -> None:
         model_scroll_index=model_scroll_index,
         is_fetching=is_fetching,
         fetch_result=fetch_result,
+        gemini_models=gemini_models,
+        openai_models=openai_models,
     )
 
     with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
@@ -3133,7 +3143,9 @@ def settings_ai_page() -> None:
                         elif active_item_key == "model":
                             renderer.focus = "select_model"
                             if not renderer.model_list:
-                                renderer.model_list = FALLBACK_MODELS.get(renderer.provider, [])
+                                renderer.model_list = list(renderer.gemini_models if renderer.provider == "Gemini" else renderer.openai_models)
+                            if renderer.selected_model and renderer.selected_model not in renderer.model_list:
+                                renderer.model_list.insert(0, renderer.selected_model)
                             try:
                                 renderer.model_scroll_index = renderer.model_list.index(renderer.selected_model)
                             except ValueError:
@@ -3149,6 +3161,10 @@ def settings_ai_page() -> None:
                                         if models:
                                             renderer.fetch_result = (True, f"Connected to {renderer.provider} successfully!\nFetched {len(models)} models.")
                                             renderer.model_list = models
+                                            if renderer.provider == "Gemini":
+                                                renderer.gemini_models = models
+                                            else:
+                                                renderer.openai_models = models
                                         else:
                                             renderer.fetch_result = (True, f"Connected to {renderer.provider} successfully, but fetched 0 models.")
                                     except Exception as e:
@@ -3167,6 +3183,10 @@ def settings_ai_page() -> None:
                                             renderer.test_result = (True, f"Connected to {renderer.provider} successfully!\nFetched {len(models)} models.")
                                             # Update the model list too while we are at it
                                             renderer.model_list = models
+                                            if renderer.provider == "Gemini":
+                                                renderer.gemini_models = models
+                                            else:
+                                                renderer.openai_models = models
                                         else:
                                             renderer.test_result = (True, f"Connected to {renderer.provider} successfully, but fetched 0 models.")
                                     except Exception as e:
@@ -3179,13 +3199,15 @@ def settings_ai_page() -> None:
                             ai_config["selected_model"] = renderer.selected_model
                             ai_config["gemini_api_key"] = renderer.gemini_api_key
                             ai_config["openai_api_key"] = renderer.openai_api_key
+                            ai_config["gemini_models"] = renderer.gemini_models
+                            ai_config["openai_models"] = renderer.openai_models
                             save_settings(settings)
                             break
                     elif key == " ":
                         if active_item_key == "provider":
                             # Instant toggle on Space
                             renderer.provider = "OpenAI" if renderer.provider == "Gemini" else "Gemini"
-                            renderer.model_list = FALLBACK_MODELS.get(renderer.provider, [])
+                            renderer.model_list = list(renderer.openai_models if renderer.provider == "OpenAI" else renderer.gemini_models)
                             renderer.selected_model = renderer.model_list[0] if renderer.model_list else ""
                     elif key.name == "KEY_F2" or key == "f2":
                         renderer.mask_keys = not renderer.mask_keys
@@ -3198,6 +3220,10 @@ def settings_ai_page() -> None:
                                     models = fetch_multimodal_models(renderer.provider, active_key)
                                     if models:
                                         renderer.model_list = models
+                                        if renderer.provider == "Gemini":
+                                            renderer.gemini_models = models
+                                        else:
+                                            renderer.openai_models = models
                                 except Exception:
                                     pass
                                 renderer.is_fetching = False
@@ -3209,7 +3235,7 @@ def settings_ai_page() -> None:
                 elif renderer.focus == "select_provider":
                     if key.name in ("KEY_LEFT", "KEY_RIGHT", "KEY_UP", "KEY_DOWN") or key.lower() in ("h", "l", "k", "j"):
                         renderer.provider = "OpenAI" if renderer.provider == "Gemini" else "Gemini"
-                        renderer.model_list = FALLBACK_MODELS.get(renderer.provider, [])
+                        renderer.model_list = list(renderer.openai_models if renderer.provider == "OpenAI" else renderer.gemini_models)
                         renderer.selected_model = renderer.model_list[0] if renderer.model_list else ""
                     elif is_enter_key(key):
                         renderer.focus = "sidebar"

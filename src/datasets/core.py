@@ -557,31 +557,48 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
             )
         # Pair-driven counting: resolve each image's own label file so nested
         # layouts and >sample_limit splits keep labeled/unlabeled counts honest.
-        for image_path in all_images[:sample_limit]:
+        for idx, image_path in enumerate(all_images):
             label_path = _label_path_for(image_path, images_path, labels_path)
             if not label_path.exists():
                 split.unlabeled_image_count += 1
                 continue
-            try:
-                lines = [line.strip() for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-            except OSError:
-                split.missing_file_count += 1
-                split.unlabeled_image_count += 1
-                continue
-            if not lines:
-                split.empty_label_count += 1
-                split.unlabeled_image_count += 1
-                continue
-            split.labeled_image_count += 1
-            for line in lines:
-                parts = line.split()
-                if pose_values and len(parts) == 1 + pose_values:
-                    pass  # pose row: neither detection nor segmentation evidence
-                elif len(parts) == 5:
-                    detection_hits += 1
-                elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
-                    segmentation_hits += 1
-                split.annotation_count += 1
+            
+            if idx < sample_limit:
+                try:
+                    lines = [line.strip() for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+                except OSError:
+                    split.missing_file_count += 1
+                    split.unlabeled_image_count += 1
+                    continue
+                if not lines:
+                    split.empty_label_count += 1
+                    split.unlabeled_image_count += 1
+                    continue
+                split.labeled_image_count += 1
+                for line in lines:
+                    parts = line.split()
+                    if pose_values and len(parts) == 1 + pose_values:
+                        pass  # pose row: neither detection nor segmentation evidence
+                    elif len(parts) == 5:
+                        detection_hits += 1
+                    elif len(parts) >= 7 and (len(parts) - 1) % 2 == 0:
+                        segmentation_hits += 1
+                    split.annotation_count += 1
+            else:
+                try:
+                    with open(label_path, "rb") as f:
+                        content = f.read()
+                    if not content.strip():
+                        split.empty_label_count += 1
+                        split.unlabeled_image_count += 1
+                        continue
+                    split.labeled_image_count += 1
+                    lines_count = sum(1 for line in content.split(b"\n") if line.strip())
+                    split.annotation_count += lines_count
+                except OSError:
+                    split.missing_file_count += 1
+                    split.unlabeled_image_count += 1
+                    continue
 
     # Union of data.yaml split keys and conventional split folders found on disk.
     split_dirs = discover_split_dirs(root, data, warnings=summary.warnings)
@@ -635,32 +652,31 @@ def _summarize_coco(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         categories = sorted(data.get("categories", []), key=lambda c: c.get("id", 0))
         if categories and not summary.classes:
             summary.classes = [str(c.get("name", c.get("id"))) for c in categories]
-        total_images = len(data.get("images", []))
-        total_annotations = len(data.get("annotations", []))
-        images = data.get("images", [])[:sample_limit]
-        annotations = data.get("annotations", [])[:sample_limit]
-        if total_images > sample_limit or total_annotations > sample_limit:
-            summary.warnings.append(
-                f"{split_name}: COCO statistics sampled from the first {sample_limit} of "
-                f"{total_images} images / {total_annotations} annotations."
-            )
-        image_ids = {image.get("id") for image in images}
-        labeled = {ann.get("image_id") for ann in annotations}
+        
+        all_images = data.get("images", [])
+        all_annotations = data.get("annotations", [])
+        total_images = len(all_images)
+        total_annotations = len(all_annotations)
+        
+        image_ids = {image.get("id") for image in all_images}
+        labeled = {ann.get("image_id") for ann in all_annotations}
+        
         split = summary.splits.get(split_name, SplitSummary(split_name))
         split.annotations_path = str(ann_path)
-        split.image_count = max(split.image_count, len(images))
-        split.annotation_count += len(annotations)
+        split.image_count = total_images
+        split.annotation_count = total_annotations
         split.labeled_image_count = len(image_ids & labeled)
         split.unlabeled_image_count = max(0, split.image_count - split.labeled_image_count)
         split.status = "valid" if split.image_count else "warning"
         summary.splits[split_name] = split
+        
         has_pose = any(isinstance(category.get("keypoints"), list) and category["keypoints"] for category in categories)
-        has_pose = has_pose or any(isinstance(ann.get("keypoints"), list) and ann["keypoints"] for ann in annotations)
+        has_pose = has_pose or any(isinstance(ann.get("keypoints"), list) and ann["keypoints"] for ann in all_annotations)
         if has_pose:
             summary.task = "pose"
-        elif any(ann.get("segmentation") for ann in annotations):
+        elif any(ann.get("segmentation") for ann in all_annotations):
             summary.task = "segmentation" if summary.task in {"unknown", "empty"} else "mixed"
-        elif annotations and summary.task == "unknown":
+        elif all_annotations and summary.task == "unknown":
             summary.task = "detection"
     _rollup(summary)
 

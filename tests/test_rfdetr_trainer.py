@@ -51,8 +51,9 @@ class RFDETRTrainerTests(unittest.TestCase):
         mock_import.assert_called_once_with("RFDETRSmall")
         self.assertEqual(model.kwargs, {})
 
+    @patch("src.trainers.rfdetr_trainer._validate_local_weights")
     @patch("src.trainers.rfdetr_trainer.import_rfdetr_model_class")
-    def test_instantiate_rfdetr_model_passes_finetune_checkpoint(self, mock_import) -> None:
+    def test_instantiate_rfdetr_model_passes_finetune_checkpoint(self, mock_import, mock_validate) -> None:
         class FakeModel:
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
