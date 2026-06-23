@@ -1,0 +1,3741 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Comprehensive YOLOmatic FAQ covering installation, model families, datasets, training, fine-tuning, prediction, benchmarking, integrations, troubleshooting, security, and citation.">
+      
+      
+      
+        <link rel="canonical" href="https://shahabahreini.github.io/YOLOMatic/faq/">
+      
+      
+        <link rel="prev" href="../advanced/training-parameters/">
+      
+      
+        <link rel="next" href="../comparison/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>FAQ - YOLOmatic</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon/favicon.svg">
+  <link rel="icon" type="image/png" sizes="96x96" href="../assets/favicon/favicon-96x96.png">
+  <link rel="shortcut icon" href="../assets/favicon/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="../assets/favicon/apple-touch-icon.png">
+  <link rel="manifest" href="../assets/favicon/site.webmanifest">
+
+  
+<meta property="og:type" content="website" />
+<meta property="og:title" content="FAQ - YOLOmatic" />
+<meta property="og:description" content="Comprehensive YOLOmatic FAQ covering installation, model families, datasets, training, fine-tuning, prediction, benchmarking, integrations, troubleshooting, security, and citation." />
+<meta property="og:image" content="https://shahabahreini.github.io/YOLOMatic/assets/images/social/faq.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:url" content="https://shahabahreini.github.io/YOLOMatic/faq/" />
+<meta property="twitter:card" content="summary_large_image" />
+<meta property="twitter:title" content="FAQ - YOLOmatic" />
+<meta property="twitter:description" content="Comprehensive YOLOmatic FAQ covering installation, model families, datasets, training, fine-tuning, prediction, benchmarking, integrations, troubleshooting, security, and citation." />
+<meta property="twitter:image" content="https://shahabahreini.github.io/YOLOMatic/assets/images/social/faq.png" />
+</head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#faq" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="YOLOmatic" class="md-header__button md-logo" aria-label="YOLOmatic" data-md-component="logo">
+      
+  <img src="../assets/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            YOLOmatic
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              FAQ
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/shahabahreini/YOLOMatic" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    shahabahreini/YOLOMatic
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="YOLOmatic" class="md-nav__button md-logo" aria-label="YOLOmatic" data-md-component="logo">
+      
+  <img src="../assets/logo.png" alt="logo">
+
+    </a>
+    YOLOmatic
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/shahabahreini/YOLOMatic" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    shahabahreini/YOLOMatic
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/first-training-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First Training Run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/yolo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YOLO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/rf-detr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF-DETR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/sam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAM 3.1
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/benchmarking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Export & Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/cloud-upload/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Upload
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/clearml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ClearML
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/tensorboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TensorBoard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/cli-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings File
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/smart-split/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Smart Split
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/ndjson-conversion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NDJSON Conversion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Options
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Options
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../advanced/training-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#product-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Product Fit
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Product Fit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-yolomatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is YOLOmatic?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-is-yolomatic-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who is YOLOmatic for?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#is-yolomatic-a-hosted-training-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is YOLOmatic a hosted training platform?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#is-yolomatic-only-a-wrapper-around-ultralytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is YOLOmatic only a wrapper around Ultralytics?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-should-i-choose-yolomatic-instead-of-the-raw-ultralytics-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When should I choose YOLOmatic instead of the raw Ultralytics CLI?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installation-and-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation And Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installation And Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-python-version-does-yolomatic-require" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Python version does YOLOmatic require?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-the-fastest-install-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is the fastest install path?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-i-use-pip-instead-of-uv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can I use pip instead of uv?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Windows?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support macOS?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Linux?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-require-a-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic require a GPU?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-happens-if-pytorch-is-cpu-only-on-a-gpu-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What happens if PyTorch is CPU-only on a GPU machine?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Families
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Families">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-model-families-does-yolomatic-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which model families does YOLOmatic support?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-tasks-are-supported" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which tasks are supported?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-yolo26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support YOLO26?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-yolov8-yolov9-yolov10-yolo11-and-yolov12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support YOLOv8, YOLOv9, YOLOv10, YOLO11, and YOLOv12?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-yolox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support YOLOX?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support RF-DETR?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-fine-tune-rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic fine-tune RF-DETR?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-sam-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support SAM 3.1?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-detectron2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Detectron2?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-still-support-yolo-nas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic still support YOLO-NAS?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-model-should-i-start-with" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which model should I start with?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasets-and-conversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Datasets And Conversion
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Datasets And Conversion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-dataset-formats-does-yolomatic-understand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What dataset formats does YOLOmatic understand?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-yolo-dataset-layout-is-expected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What YOLO dataset layout is expected?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-handle-flat-yolo-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic handle flat YOLO datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-convert-labelbox-ndjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic convert Labelbox NDJSON?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-convert-ultralytics-platform-ndjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic convert Ultralytics-platform NDJSON?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-convert-polygons-and-boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic convert polygons and boxes?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-prepare-coco-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic prepare COCO datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-split-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic split datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-smart-balanced-splitting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is smart-balanced splitting?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-happens-if-every-label-file-is-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What happens if every label file is empty?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-augment-datasets-offline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic augment datasets offline?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-combine-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic combine datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-and-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration And Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration And Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-generate-a-training-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I generate a training config?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-fine-tune-an-existing-checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I fine-tune an existing checkpoint?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-checkpoint-formats-are-supported" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which checkpoint formats are supported?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-does-yolomatic-choose-the-trainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How does YOLOmatic choose the trainer?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-download-pretrained-weights-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic download pretrained weights automatically?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-i-resume-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can I resume training?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-train-without-clearml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic train without ClearML?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-launch-tensorboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic launch TensorBoard?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-export-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic export models?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prediction-and-segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction And Segmentation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prediction And Segmentation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-run-prediction-on-one-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic run prediction on one image?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-run-batch-prediction-on-a-folder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic run batch prediction on a folder?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-discover-trained-weights-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic discover trained weights automatically?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-run-sam-segmentation-from-yolo-boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic run SAM segmentation from YOLO boxes?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-do-text-prompted-segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic do text-prompted segmentation?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmarking-and-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmarking And Reports
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmarking And Reports">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-benchmark-trained-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic benchmark trained models?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-benchmark-metrics-are-included" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which benchmark metrics are included?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-checkpoints-can-be-benchmarked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which checkpoints can be benchmarked?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-rf-detr-sam-or-detectron2-checkpoints-be-benchmarked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can RF-DETR, SAM, or Detectron2 checkpoints be benchmarked?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-annotation-format-does-benchmarking-require" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What annotation format does benchmarking require?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Integrations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-upload-trained-models-to-roboflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic upload trained models to Roboflow?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-upload-automatically-after-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic upload automatically after training?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-roboflow-credentials-are-needed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Roboflow credentials are needed?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-clearml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support ClearML?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-huggingface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support HuggingFace?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-roboflow-deployment-for-rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Roboflow deployment for RF-DETR?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-secrets-and-project-hygiene" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files, Secrets, And Project Hygiene
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Files, Secrets, And Project Hygiene">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-should-secrets-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where should secrets go?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-vendor-datasets-or-model-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic vendor datasets or model weights?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-are-generated-configs-stored" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where are generated configs stored?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-are-docs-for-model-benchmarks-and-architecture-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where are docs for model benchmarks and architecture details?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-does-uv-run-pip-install-torch-not-fix-my-cuda-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does uv run pip install torch ... not fix my CUDA install?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-does-nvidia-smi-show-a-gpu-while-pytorch-says-cuda-is-unavailable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does nvidia-smi show a GPU while PyTorch says CUDA is unavailable?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-does-my-validation-key-fail-when-datayaml-uses-valid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does my validation key fail when data.yaml uses valid?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-are-my-converted-labels-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why are my converted labels empty?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-does-class-balanced-splitting-warn-about-empty-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does class-balanced splitting warn about empty labels?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-is-training-slow-on-cpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why is training slow on CPU?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#community-citation-and-licensing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Community, Citation, And Licensing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Community, Citation, And Licensing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-contribute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I contribute?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-report-a-security-issue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I report a security issue?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-license-does-yolomatic-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What license does YOLOmatic use?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-should-i-cite-yolomatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How should I cite YOLOmatic?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../citation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Citation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#product-fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Product Fit
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Product Fit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-yolomatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is YOLOmatic?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-is-yolomatic-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who is YOLOmatic for?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#is-yolomatic-a-hosted-training-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is YOLOmatic a hosted training platform?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#is-yolomatic-only-a-wrapper-around-ultralytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Is YOLOmatic only a wrapper around Ultralytics?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-should-i-choose-yolomatic-instead-of-the-raw-ultralytics-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When should I choose YOLOmatic instead of the raw Ultralytics CLI?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#installation-and-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation And Environment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installation And Environment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-python-version-does-yolomatic-require" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Python version does YOLOmatic require?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-the-fastest-install-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is the fastest install path?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-i-use-pip-instead-of-uv" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can I use pip instead of uv?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-windows" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Windows?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-macos" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support macOS?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Linux?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-require-a-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic require a GPU?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-happens-if-pytorch-is-cpu-only-on-a-gpu-machine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What happens if PyTorch is CPU-only on a GPU machine?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-families" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Families
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Families">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-model-families-does-yolomatic-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which model families does YOLOmatic support?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-tasks-are-supported" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which tasks are supported?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-yolo26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support YOLO26?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-yolov8-yolov9-yolov10-yolo11-and-yolov12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support YOLOv8, YOLOv9, YOLOv10, YOLO11, and YOLOv12?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-yolox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support YOLOX?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support RF-DETR?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-fine-tune-rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic fine-tune RF-DETR?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-sam-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support SAM 3.1?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-detectron2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Detectron2?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-still-support-yolo-nas" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic still support YOLO-NAS?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-model-should-i-start-with" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which model should I start with?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datasets-and-conversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Datasets And Conversion
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Datasets And Conversion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-dataset-formats-does-yolomatic-understand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What dataset formats does YOLOmatic understand?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-yolo-dataset-layout-is-expected" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What YOLO dataset layout is expected?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-handle-flat-yolo-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic handle flat YOLO datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-convert-labelbox-ndjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic convert Labelbox NDJSON?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-convert-ultralytics-platform-ndjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic convert Ultralytics-platform NDJSON?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-convert-polygons-and-boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic convert polygons and boxes?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-prepare-coco-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic prepare COCO datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-split-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic split datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-smart-balanced-splitting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is smart-balanced splitting?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-happens-if-every-label-file-is-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What happens if every label file is empty?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-augment-datasets-offline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic augment datasets offline?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-combine-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic combine datasets?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-and-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration And Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration And Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-generate-a-training-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I generate a training config?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-fine-tune-an-existing-checkpoint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I fine-tune an existing checkpoint?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-checkpoint-formats-are-supported" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which checkpoint formats are supported?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-does-yolomatic-choose-the-trainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How does YOLOmatic choose the trainer?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-download-pretrained-weights-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic download pretrained weights automatically?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-i-resume-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can I resume training?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-train-without-clearml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic train without ClearML?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-launch-tensorboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic launch TensorBoard?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-export-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic export models?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prediction-and-segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction And Segmentation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prediction And Segmentation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-run-prediction-on-one-image" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic run prediction on one image?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-run-batch-prediction-on-a-folder" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic run batch prediction on a folder?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-discover-trained-weights-automatically" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic discover trained weights automatically?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-run-sam-segmentation-from-yolo-boxes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic run SAM segmentation from YOLO boxes?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-do-text-prompted-segmentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic do text-prompted segmentation?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmarking-and-reports" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmarking And Reports
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Benchmarking And Reports">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-benchmark-trained-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic benchmark trained models?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-benchmark-metrics-are-included" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which benchmark metrics are included?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-checkpoints-can-be-benchmarked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which checkpoints can be benchmarked?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-rf-detr-sam-or-detectron2-checkpoints-be-benchmarked" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can RF-DETR, SAM, or Detectron2 checkpoints be benchmarked?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-annotation-format-does-benchmarking-require" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What annotation format does benchmarking require?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integrations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Integrations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-upload-trained-models-to-roboflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic upload trained models to Roboflow?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#can-yolomatic-upload-automatically-after-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Can YOLOmatic upload automatically after training?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-roboflow-credentials-are-needed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which Roboflow credentials are needed?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-clearml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support ClearML?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-huggingface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support HuggingFace?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-support-roboflow-deployment-for-rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic support Roboflow deployment for RF-DETR?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#files-secrets-and-project-hygiene" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Files, Secrets, And Project Hygiene
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Files, Secrets, And Project Hygiene">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-should-secrets-go" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where should secrets go?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#does-yolomatic-vendor-datasets-or-model-weights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Does YOLOmatic vendor datasets or model weights?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-are-generated-configs-stored" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where are generated configs stored?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-are-docs-for-model-benchmarks-and-architecture-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where are docs for model benchmarks and architecture details?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-does-uv-run-pip-install-torch-not-fix-my-cuda-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does uv run pip install torch ... not fix my CUDA install?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-does-nvidia-smi-show-a-gpu-while-pytorch-says-cuda-is-unavailable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does nvidia-smi show a GPU while PyTorch says CUDA is unavailable?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-does-my-validation-key-fail-when-datayaml-uses-valid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does my validation key fail when data.yaml uses valid?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-are-my-converted-labels-empty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why are my converted labels empty?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-does-class-balanced-splitting-warn-about-empty-labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why does class-balanced splitting warn about empty labels?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-is-training-slow-on-cpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why is training slow on CPU?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#community-citation-and-licensing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Community, Citation, And Licensing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Community, Citation, And Licensing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-contribute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I contribute?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-do-i-report-a-security-issue" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How do I report a security issue?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-license-does-yolomatic-use" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What license does YOLOmatic use?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-should-i-cite-yolomatic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How should I cite YOLOmatic?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="faq">FAQ<a class="headerlink" href="#faq" title="Permanent link">&para;</a></h1>
+<h2 id="product-fit">Product Fit<a class="headerlink" href="#product-fit" title="Permanent link">&para;</a></h2>
+<h3 id="what-is-yolomatic">What is YOLOmatic?<a class="headerlink" href="#what-is-yolomatic" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic is a Python 3.12 CLI/TUI for configuring, training, fine-tuning,
+predicting, benchmarking, augmenting, converting, monitoring, and uploading
+computer-vision models from a local terminal workflow.</p>
+<h3 id="who-is-yolomatic-for">Who is YOLOmatic for?<a class="headerlink" href="#who-is-yolomatic-for" title="Permanent link">&para;</a></h3>
+<p>It is for practitioners who want repeatable local training workflows, researchers
+who need citable and reproducible experiments, and teams that want one CLI for
+dataset preparation, model configuration, training, evaluation, and deployment
+handoff.</p>
+<h3 id="is-yolomatic-a-hosted-training-platform">Is YOLOmatic a hosted training platform?<a class="headerlink" href="#is-yolomatic-a-hosted-training-platform" title="Permanent link">&para;</a></h3>
+<p>No. YOLOmatic runs locally in your Python environment. It can integrate with
+hosted services such as Roboflow, ClearML, HuggingFace, and TensorBoard, but the
+core workflows are local and scriptable.</p>
+<h3 id="is-yolomatic-only-a-wrapper-around-ultralytics">Is YOLOmatic only a wrapper around Ultralytics?<a class="headerlink" href="#is-yolomatic-only-a-wrapper-around-ultralytics" title="Permanent link">&para;</a></h3>
+<p>No. YOLOmatic uses Ultralytics for YOLO-family training, but it also includes
+native RF-DETR routing, SAM 3.1 inference and fine-tuning workflows, Detectron2
+training support, dataset conversion tools, augmentation, benchmarking, and
+cloud upload helpers.</p>
+<h3 id="when-should-i-choose-yolomatic-instead-of-the-raw-ultralytics-cli">When should I choose YOLOmatic instead of the raw Ultralytics CLI?<a class="headerlink" href="#when-should-i-choose-yolomatic-instead-of-the-raw-ultralytics-cli" title="Permanent link">&para;</a></h3>
+<p>Choose YOLOmatic when you want guided configuration, model-family routing,
+hardware-aware defaults, dataset conversion, smart splitting, benchmark reports,
+Roboflow upload, ClearML/TensorBoard wiring, and a repeatable terminal UX around
+the training lifecycle.</p>
+<h2 id="installation-and-environment">Installation And Environment<a class="headerlink" href="#installation-and-environment" title="Permanent link">&para;</a></h2>
+<h3 id="what-python-version-does-yolomatic-require">What Python version does YOLOmatic require?<a class="headerlink" href="#what-python-version-does-yolomatic-require" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic targets Python <code>&gt;=3.12,&lt;3.13</code>.</p>
+<h3 id="what-is-the-fastest-install-path">What is the fastest install path?<a class="headerlink" href="#what-is-the-fastest-install-path" title="Permanent link">&para;</a></h3>
+<p>For end users:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>--python<span class="w"> </span><span class="m">3</span>.12<span class="w"> </span>yolomatic
+yolomatic
+</code></pre></div>
+<p>For repository development:</p>
+<div class="highlight"><pre><span></span><code>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/shahabahreini/YOLOMatic.git
+<span class="nb">cd</span><span class="w"> </span>YOLOMatic
+uv<span class="w"> </span>sync
+uv<span class="w"> </span>run<span class="w"> </span>yolomatic
+</code></pre></div>
+<h3 id="can-i-use-pip-instead-of-uv">Can I use pip instead of uv?<a class="headerlink" href="#can-i-use-pip-instead-of-uv" title="Permanent link">&para;</a></h3>
+<p>The project metadata is standard Python packaging metadata, but the documented
+and tested workflow uses <code>uv</code>. <code>uv</code> is preferred because the dependency set is
+large and includes ML packages that benefit from reproducible locking.</p>
+<h3 id="does-yolomatic-support-windows">Does YOLOmatic support Windows?<a class="headerlink" href="#does-yolomatic-support-windows" title="Permanent link">&para;</a></h3>
+<p>Yes. Windows is supported, including CUDA-capable systems. For manual PyTorch
+CUDA repairs on Windows, prefer <code>.venv\Scripts\python.exe -m pip ...</code> instead of
+<code>uv run pip ...</code> so <code>uv</code> does not resync the environment back to the locked
+state.</p>
+<p>For tool installs on Windows, use <code>uv tool install --python 3.12 yolomatic</code>.
+This avoids source-building ONNX dependencies that do not publish Python 3.13
+Windows wheels.</p>
+<h3 id="does-yolomatic-support-macos">Does YOLOmatic support macOS?<a class="headerlink" href="#does-yolomatic-support-macos" title="Permanent link">&para;</a></h3>
+<p>Yes. macOS can use CPU or Apple Silicon MPS when PyTorch supports it. NVIDIA
+CUDA is not available on macOS.</p>
+<h3 id="does-yolomatic-support-linux">Does YOLOmatic support Linux?<a class="headerlink" href="#does-yolomatic-support-linux" title="Permanent link">&para;</a></h3>
+<p>Yes. Linux is the most common target for CUDA training. YOLOmatic includes
+preflight handling for CUDA/cuDNN runtime library paths when the active <code>.venv</code>
+contains the needed NVIDIA runtime packages.</p>
+<h3 id="does-yolomatic-require-a-gpu">Does YOLOmatic require a GPU?<a class="headerlink" href="#does-yolomatic-require-a-gpu" title="Permanent link">&para;</a></h3>
+<p>No. A CUDA GPU is strongly recommended for training, but CPU and Apple Silicon
+MPS fallbacks are supported. YOLOmatic detects common CUDA/PyTorch mismatches and
+offers repair guidance before training starts.</p>
+<h3 id="what-happens-if-pytorch-is-cpu-only-on-a-gpu-machine">What happens if PyTorch is CPU-only on a GPU machine?<a class="headerlink" href="#what-happens-if-pytorch-is-cpu-only-on-a-gpu-machine" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic detects the mismatch when a GPU is visible but <code>torch.cuda.is_available()</code>
+is false. The TUI can guide you toward a repair path, CPU fallback, or
+cancellation.</p>
+<h2 id="model-families">Model Families<a class="headerlink" href="#model-families" title="Permanent link">&para;</a></h2>
+<h3 id="which-model-families-does-yolomatic-support">Which model families does YOLOmatic support?<a class="headerlink" href="#which-model-families-does-yolomatic-support" title="Permanent link">&para;</a></h3>
+<p>YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, SAM
+3, and Detectron2.</p>
+<h3 id="which-tasks-are-supported">Which tasks are supported?<a class="headerlink" href="#which-tasks-are-supported" title="Permanent link">&para;</a></h3>
+<p>Supported tasks include object detection, instance segmentation, image
+classification, pose estimation, oriented object detection, open-vocabulary
+segmentation, and mask fine-tuning where the selected model family supports the
+task.</p>
+<h3 id="does-yolomatic-support-yolo26">Does YOLOmatic support YOLO26?<a class="headerlink" href="#does-yolomatic-support-yolo26" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLO26 detection, segmentation, and pose estimation variants are exposed through the YOLO
+configuration flow, with model-size choices such as nano, small, medium, large,
+and xlarge where supported.</p>
+<h3 id="does-yolomatic-support-yolov8-yolov9-yolov10-yolo11-and-yolov12">Does YOLOmatic support YOLOv8, YOLOv9, YOLOv10, YOLO11, and YOLOv12?<a class="headerlink" href="#does-yolomatic-support-yolov8-yolov9-yolov10-yolo11-and-yolov12" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOmatic supports those YOLO generations through the Ultralytics training
+route, including detection and the additional task heads supported by each
+family.</p>
+<h3 id="does-yolomatic-support-yolox">Does YOLOmatic support YOLOX?<a class="headerlink" href="#does-yolomatic-support-yolox" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOX detection variants are included in the supported model metadata and
+configuration workflow.</p>
+<h3 id="does-yolomatic-support-rf-detr">Does YOLOmatic support RF-DETR?<a class="headerlink" href="#does-yolomatic-support-rf-detr" title="Permanent link">&para;</a></h3>
+<p>Yes. RF-DETR detection and segmentation variants route to the native RF-DETR
+trainer and use <code>.pth</code> checkpoints instead of Ultralytics <code>.pt</code> checkpoints.</p>
+<h3 id="can-yolomatic-fine-tune-rf-detr">Can YOLOmatic fine-tune RF-DETR?<a class="headerlink" href="#can-yolomatic-fine-tune-rf-detr" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOmatic discovers RF-DETR <code>.pth</code> checkpoints and writes fine-tuning
+configs that pass the checkpoint as RF-DETR pretraining or resume input as
+appropriate.</p>
+<h3 id="does-yolomatic-support-sam-31">Does YOLOmatic support SAM 3.1?<a class="headerlink" href="#does-yolomatic-support-sam-31" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOmatic supports SAM 3 and SAM 3.1 inference workflows, including auto,
+text-prompted, and box-prompted segmentation. It also supports SAM 3.1
+fine-tuning on COCO-format mask datasets.</p>
+<h3 id="does-yolomatic-support-detectron2">Does YOLOmatic support Detectron2?<a class="headerlink" href="#does-yolomatic-support-detectron2" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOmatic supports Detectron2 training flows for Faster R-CNN, RetinaNet,
+and Mask R-CNN style configurations.</p>
+<h3 id="does-yolomatic-still-support-yolo-nas">Does YOLOmatic still support YOLO-NAS?<a class="headerlink" href="#does-yolomatic-still-support-yolo-nas" title="Permanent link">&para;</a></h3>
+<p>No. YOLO-NAS training is deprecated in this build because SuperGradients
+conflicts with the modern RF-DETR dependency stack.</p>
+<h3 id="which-model-should-i-start-with">Which model should I start with?<a class="headerlink" href="#which-model-should-i-start-with" title="Permanent link">&para;</a></h3>
+<p>For a first smoke test, start with a small model such as <code>YOLO26n</code>, <code>YOLO11n</code>,
+or another nano/small variant. For transformer detection experiments, start with
+RF-DETR Nano or Small before moving to larger variants.</p>
+<h2 id="datasets-and-conversion">Datasets And Conversion<a class="headerlink" href="#datasets-and-conversion" title="Permanent link">&para;</a></h2>
+<h3 id="what-dataset-formats-does-yolomatic-understand">What dataset formats does YOLOmatic understand?<a class="headerlink" href="#what-dataset-formats-does-yolomatic-understand" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic works with YOLO folder datasets, COCO JSON annotations, Labelbox
+NDJSON exports, and Ultralytics-platform NDJSON exports.</p>
+<h3 id="what-yolo-dataset-layout-is-expected">What YOLO dataset layout is expected?<a class="headerlink" href="#what-yolo-dataset-layout-is-expected" title="Permanent link">&para;</a></h3>
+<p>A standard layout is:</p>
+<div class="highlight"><pre><span></span><code>datasets/name/
+  data.yaml
+  train/images/
+  train/labels/
+  valid/images/
+  valid/labels/
+  test/images/
+  test/labels/
+</code></pre></div>
+<p><code>data.yaml</code> should define <code>train</code>, <code>val</code> or <code>valid</code>, optional <code>test</code>, <code>nc</code>, and
+<code>names</code>.</p>
+<h3 id="can-yolomatic-handle-flat-yolo-datasets">Can YOLOmatic handle flat YOLO datasets?<a class="headerlink" href="#can-yolomatic-handle-flat-yolo-datasets" title="Permanent link">&para;</a></h3>
+<p>Yes. Recent dataset summary and parsing logic includes a fallback for flat
+datasets that have root-level <code>images/</code> and <code>labels/</code> folders.</p>
+<h3 id="can-yolomatic-convert-labelbox-ndjson">Can YOLOmatic convert Labelbox NDJSON?<a class="headerlink" href="#can-yolomatic-convert-labelbox-ndjson" title="Permanent link">&para;</a></h3>
+<p>Yes. The NDJSON converter supports Labelbox exports and can emit YOLO labels or
+COCO JSON annotations with concurrent image downloads.</p>
+<h3 id="can-yolomatic-convert-ultralytics-platform-ndjson">Can YOLOmatic convert Ultralytics-platform NDJSON?<a class="headerlink" href="#can-yolomatic-convert-ultralytics-platform-ndjson" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOmatic auto-detects Ultralytics-platform image rows and reads normalized
+<code>annotations.segments</code>, <code>annotations.boxes</code>, and <code>annotations.pose</code> into YOLO or
+COCO output. Select <strong>YOLO Pose</strong> or <strong>COCO Pose</strong> to require and preserve
+keypoints, pose metadata, and available source splits.</p>
+<h3 id="can-yolomatic-convert-polygons-and-boxes">Can YOLOmatic convert polygons and boxes?<a class="headerlink" href="#can-yolomatic-convert-polygons-and-boxes" title="Permanent link">&para;</a></h3>
+<p>Yes. The converter handles bounding boxes and polygons where the source export
+contains them. Polygon data can be preserved in segmentation-oriented outputs.</p>
+<h3 id="can-yolomatic-prepare-coco-datasets">Can YOLOmatic prepare COCO datasets?<a class="headerlink" href="#can-yolomatic-prepare-coco-datasets" title="Permanent link">&para;</a></h3>
+<p>Yes. COCO JSON is used for Detectron2, SAM 3.1 fine-tuning, and benchmarking.
+The NDJSON converter can emit COCO annotations when that output format is
+selected.</p>
+<h3 id="can-yolomatic-split-datasets">Can YOLOmatic split datasets?<a class="headerlink" href="#can-yolomatic-split-datasets" title="Permanent link">&para;</a></h3>
+<p>Yes. The dataset preparation wizard supports random, class-balanced, and
+smart-balanced splitting strategies.</p>
+<h3 id="what-is-smart-balanced-splitting">What is smart-balanced splitting?<a class="headerlink" href="#what-is-smart-balanced-splitting" title="Permanent link">&para;</a></h3>
+<p>Smart-balanced splitting preserves rare classes by seeding scarce class examples
+first, then filling each split with deterministic random tie-breaking and class
+balance pressure.</p>
+<h3 id="what-happens-if-every-label-file-is-empty">What happens if every label file is empty?<a class="headerlink" href="#what-happens-if-every-label-file-is-empty" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic warns clearly that class balancing cannot be meaningful when all label
+files are empty. It can still split records, but the result cannot preserve class
+coverage.</p>
+<h3 id="can-yolomatic-augment-datasets-offline">Can YOLOmatic augment datasets offline?<a class="headerlink" href="#can-yolomatic-augment-datasets-offline" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOmatic includes Albumentations-powered offline augmentation with reusable
+profiles, more than 20 transforms, split redistribution, and YOLO/COCO output
+support.</p>
+<h3 id="can-yolomatic-combine-datasets">Can YOLOmatic combine datasets?<a class="headerlink" href="#can-yolomatic-combine-datasets" title="Permanent link">&para;</a></h3>
+<p>Yes. The dataset combiner can merge multiple YOLO-format datasets, preserve or
+remap class names, and hard-link images where possible.</p>
+<h2 id="configuration-and-training">Configuration And Training<a class="headerlink" href="#configuration-and-training" title="Permanent link">&para;</a></h2>
+<h3 id="how-do-i-generate-a-training-config">How do I generate a training config?<a class="headerlink" href="#how-do-i-generate-a-training-config" title="Permanent link">&para;</a></h3>
+<p>Run:</p>
+<div class="highlight"><pre><span></span><code>uv<span class="w"> </span>run<span class="w"> </span>yolomatic
+</code></pre></div>
+<p>Choose <strong>Configure Model</strong>, select a family and variant, select a dataset, review
+hardware-aware settings, and save the generated YAML under <code>configs/</code>.</p>
+<h3 id="how-do-i-fine-tune-an-existing-checkpoint">How do I fine-tune an existing checkpoint?<a class="headerlink" href="#how-do-i-fine-tune-an-existing-checkpoint" title="Permanent link">&para;</a></h3>
+<p>Use <strong>Configure Fine-Tune</strong> from the main TUI. YOLOmatic discovers compatible
+checkpoints, lets you bind one to a dataset, and writes a fresh fine-tuning YAML.</p>
+<h3 id="which-checkpoint-formats-are-supported">Which checkpoint formats are supported?<a class="headerlink" href="#which-checkpoint-formats-are-supported" title="Permanent link">&para;</a></h3>
+<p>YOLO-family workflows use <code>.pt</code>, RF-DETR uses <code>.pth</code>, Detectron2 commonly uses
+<code>.pth</code>, and SAM workflows can use HuggingFace model identifiers or local
+artifacts.</p>
+<h3 id="how-does-yolomatic-choose-the-trainer">How does YOLOmatic choose the trainer?<a class="headerlink" href="#how-does-yolomatic-choose-the-trainer" title="Permanent link">&para;</a></h3>
+<p>The smart training router reads the saved config and dispatches to the correct
+trainer: Ultralytics YOLO, native RF-DETR, SAM 3.1, or Detectron2.</p>
+<h3 id="does-yolomatic-download-pretrained-weights-automatically">Does YOLOmatic download pretrained weights automatically?<a class="headerlink" href="#does-yolomatic-download-pretrained-weights-automatically" title="Permanent link">&para;</a></h3>
+<p>Fresh configs use official pretrained weights where the underlying trainer
+supports automatic download. Local checkpoints are used for fine-tuning and
+resume workflows.</p>
+<h3 id="can-i-resume-training">Can I resume training?<a class="headerlink" href="#can-i-resume-training" title="Permanent link">&para;</a></h3>
+<p>Yes. Resume behavior depends on the selected trainer and checkpoint type.
+YOLOmatic distinguishes fresh training, fine-tuning, and resume paths in the
+generated configuration.</p>
+<h3 id="can-yolomatic-train-without-clearml">Can YOLOmatic train without ClearML?<a class="headerlink" href="#can-yolomatic-train-without-clearml" title="Permanent link">&para;</a></h3>
+<p>Yes. ClearML is optional. If ClearML is not configured, training can continue
+without it after an interactive prompt.</p>
+<h3 id="can-yolomatic-launch-tensorboard">Can YOLOmatic launch TensorBoard?<a class="headerlink" href="#can-yolomatic-launch-tensorboard" title="Permanent link">&para;</a></h3>
+<p>Yes. <code>uv run yolomatic-tensorboard</code> scans discovered training runs and starts
+TensorBoard without requiring you to manually locate log directories.</p>
+<h3 id="does-yolomatic-export-models">Does YOLOmatic export models?<a class="headerlink" href="#does-yolomatic-export-models" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic supports export-oriented training flows where the underlying trainer
+supports export, including ONNX-related preflight handling for Ultralytics
+workflows.</p>
+<h2 id="prediction-and-segmentation">Prediction And Segmentation<a class="headerlink" href="#prediction-and-segmentation" title="Permanent link">&para;</a></h2>
+<h3 id="can-yolomatic-run-prediction-on-one-image">Can YOLOmatic run prediction on one image?<a class="headerlink" href="#can-yolomatic-run-prediction-on-one-image" title="Permanent link">&para;</a></h3>
+<p>Yes. <code>uv run yolomatic-predict</code> supports single-image prediction from discovered
+weights or explicit command arguments.</p>
+<h3 id="can-yolomatic-run-batch-prediction-on-a-folder">Can YOLOmatic run batch prediction on a folder?<a class="headerlink" href="#can-yolomatic-run-batch-prediction-on-a-folder" title="Permanent link">&para;</a></h3>
+<p>Yes. Folder prediction is supported, including progress display and worker-based
+parallelism where applicable.</p>
+<h3 id="can-yolomatic-discover-trained-weights-automatically">Can YOLOmatic discover trained weights automatically?<a class="headerlink" href="#can-yolomatic-discover-trained-weights-automatically" title="Permanent link">&para;</a></h3>
+<p>Yes. Prediction workflows scan the project tree for compatible weights so you do
+not have to paste full checkpoint paths manually.</p>
+<h3 id="can-yolomatic-run-sam-segmentation-from-yolo-boxes">Can YOLOmatic run SAM segmentation from YOLO boxes?<a class="headerlink" href="#can-yolomatic-run-sam-segmentation-from-yolo-boxes" title="Permanent link">&para;</a></h3>
+<p>Yes. SAM 3.1 box-prompted mode can use YOLO detections as prompts for mask
+generation.</p>
+<h3 id="can-yolomatic-do-text-prompted-segmentation">Can YOLOmatic do text-prompted segmentation?<a class="headerlink" href="#can-yolomatic-do-text-prompted-segmentation" title="Permanent link">&para;</a></h3>
+<p>Yes. SAM 3.1 text-prompted segmentation is available through the SAM inference
+workflow.</p>
+<h2 id="benchmarking-and-reports">Benchmarking And Reports<a class="headerlink" href="#benchmarking-and-reports" title="Permanent link">&para;</a></h2>
+<h3 id="can-yolomatic-benchmark-trained-models">Can YOLOmatic benchmark trained models?<a class="headerlink" href="#can-yolomatic-benchmark-trained-models" title="Permanent link">&para;</a></h3>
+<p>Yes. <code>uv run yolomatic-benchmark</code> evaluates checkpoints on COCO validation data
+and generates an interactive HTML report.</p>
+<h3 id="which-benchmark-metrics-are-included">Which benchmark metrics are included?<a class="headerlink" href="#which-benchmark-metrics-are-included" title="Permanent link">&para;</a></h3>
+<p>Reports include mAP, F1, per-image rankings, prediction confidence inspection,
+parallel thumbnails, and UMAP vector scatter plots.</p>
+<h3 id="which-checkpoints-can-be-benchmarked">Which checkpoints can be benchmarked?<a class="headerlink" href="#which-checkpoints-can-be-benchmarked" title="Permanent link">&para;</a></h3>
+<p>Benchmarking currently targets Ultralytics YOLO checkpoints and exports from the
+project root, <code>runs/</code>, or <code>weights/</code>, including downloaded Platform weights
+under <code>weights/ultralytics/</code>. Supported artifacts include <code>.pt</code>, ONNX,
+TensorRT <code>.engine</code>, TorchScript, OpenVINO, TFLite, and other exports that
+<code>ultralytics.YOLO</code> can run. Detection and segmentation task type is
+auto-detected at runtime.</p>
+<h3 id="can-rf-detr-sam-or-detectron2-checkpoints-be-benchmarked">Can RF-DETR, SAM, or Detectron2 checkpoints be benchmarked?<a class="headerlink" href="#can-rf-detr-sam-or-detectron2-checkpoints-be-benchmarked" title="Permanent link">&para;</a></h3>
+<p>Not through the current benchmark engine. Use Ultralytics YOLO checkpoints or
+exports for the benchmark report workflow; RF-DETR, SAM, and Detectron2 have
+their own training or inference paths.</p>
+<h3 id="what-annotation-format-does-benchmarking-require">What annotation format does benchmarking require?<a class="headerlink" href="#what-annotation-format-does-benchmarking-require" title="Permanent link">&para;</a></h3>
+<p>Benchmark validation uses COCO JSON annotations, commonly named
+<code>_annotations.coco.json</code>.</p>
+<h2 id="integrations">Integrations<a class="headerlink" href="#integrations" title="Permanent link">&para;</a></h2>
+<h3 id="can-yolomatic-upload-trained-models-to-roboflow">Can YOLOmatic upload trained models to Roboflow?<a class="headerlink" href="#can-yolomatic-upload-trained-models-to-roboflow" title="Permanent link">&para;</a></h3>
+<p>Yes. YOLOmatic uploads YOLO checkpoints and deploys RF-DETR checkpoints through
+the upload TUI.</p>
+<h3 id="can-yolomatic-upload-automatically-after-training">Can YOLOmatic upload automatically after training?<a class="headerlink" href="#can-yolomatic-upload-automatically-after-training" title="Permanent link">&para;</a></h3>
+<p>Yes. Add a <code>roboflow</code> block to the training YAML with upload enabled and a target
+weight such as <code>best.pt</code>.</p>
+<h3 id="which-roboflow-credentials-are-needed">Which Roboflow credentials are needed?<a class="headerlink" href="#which-roboflow-credentials-are-needed" title="Permanent link">&para;</a></h3>
+<p>Use <code>.env</code> values such as <code>ROBOFLOW_API_KEY</code>, <code>ROBOFLOW_WORKSPACE</code>, and
+<code>ROBOFLOW_PROJECT_IDS</code>. The workspace value should be the workspace slug.</p>
+<h3 id="does-yolomatic-support-clearml">Does YOLOmatic support ClearML?<a class="headerlink" href="#does-yolomatic-support-clearml" title="Permanent link">&para;</a></h3>
+<p>Yes. ClearML can track hyperparameters, metrics, and artifacts. It is optional,
+and training can continue without ClearML when it is not configured.</p>
+<h3 id="does-yolomatic-support-huggingface">Does YOLOmatic support HuggingFace?<a class="headerlink" href="#does-yolomatic-support-huggingface" title="Permanent link">&para;</a></h3>
+<p>Yes. SAM 3.1 workflows use HuggingFace model access. Some SAM checkpoints may
+require HuggingFace authentication.</p>
+<h3 id="does-yolomatic-support-roboflow-deployment-for-rf-detr">Does YOLOmatic support Roboflow deployment for RF-DETR?<a class="headerlink" href="#does-yolomatic-support-roboflow-deployment-for-rf-detr" title="Permanent link">&para;</a></h3>
+<p>Yes. RF-DETR checkpoint deployment is available through the Roboflow upload
+workflow.</p>
+<h2 id="files-secrets-and-project-hygiene">Files, Secrets, And Project Hygiene<a class="headerlink" href="#files-secrets-and-project-hygiene" title="Permanent link">&para;</a></h2>
+<h3 id="where-should-secrets-go">Where should secrets go?<a class="headerlink" href="#where-should-secrets-go" title="Permanent link">&para;</a></h3>
+<p>Put secrets in <code>.env</code> or your shell environment. Do not commit Roboflow API keys,
+HuggingFace tokens, ClearML credentials, datasets, trained weights, or generated
+run artifacts.</p>
+<h3 id="does-yolomatic-vendor-datasets-or-model-weights">Does YOLOmatic vendor datasets or model weights?<a class="headerlink" href="#does-yolomatic-vendor-datasets-or-model-weights" title="Permanent link">&para;</a></h3>
+<p>No. The repository should not contain datasets, trained weights, or run
+artifacts. Workflows discover local project files at runtime.</p>
+<h3 id="where-are-generated-configs-stored">Where are generated configs stored?<a class="headerlink" href="#where-are-generated-configs-stored" title="Permanent link">&para;</a></h3>
+<p>Generated training configs are stored under <code>configs/</code> unless you choose a
+different path in the workflow.</p>
+<h3 id="where-are-docs-for-model-benchmarks-and-architecture-details">Where are docs for model benchmarks and architecture details?<a class="headerlink" href="#where-are-docs-for-model-benchmarks-and-architecture-details" title="Permanent link">&para;</a></h3>
+<p>Use the <a href="../guides/models/">models guide</a> for detailed supported model families,
+task support, benchmark tables, and model-selection recommendations.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="why-does-uv-run-pip-install-torch-not-fix-my-cuda-install">Why does <code>uv run pip install torch ...</code> not fix my CUDA install?<a class="headerlink" href="#why-does-uv-run-pip-install-torch-not-fix-my-cuda-install" title="Permanent link">&para;</a></h3>
+<p><code>uv run pip ...</code> can trigger environment synchronization and restore the locked
+dependency state. On Windows especially, use the environment Python directly for
+manual CUDA repairs, such as <code>.venv\Scripts\python.exe -m pip ...</code>.</p>
+<h3 id="why-does-nvidia-smi-show-a-gpu-while-pytorch-says-cuda-is-unavailable">Why does <code>nvidia-smi</code> show a GPU while PyTorch says CUDA is unavailable?<a class="headerlink" href="#why-does-nvidia-smi-show-a-gpu-while-pytorch-says-cuda-is-unavailable" title="Permanent link">&para;</a></h3>
+<p><code>nvidia-smi</code> only proves the driver can see the GPU. PyTorch also needs a CUDA
+enabled build and compatible runtime libraries. YOLOmatic checks this mismatch
+before training.</p>
+<h3 id="why-does-my-validation-key-fail-when-datayaml-uses-valid">Why does my validation key fail when <code>data.yaml</code> uses <code>valid</code>?<a class="headerlink" href="#why-does-my-validation-key-fail-when-datayaml-uses-valid" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic accepts <code>val</code> or <code>valid</code> in dataset configs. Recent fixes also avoid
+hard failures when one validation key is missing.</p>
+<h3 id="why-are-my-converted-labels-empty">Why are my converted labels empty?<a class="headerlink" href="#why-are-my-converted-labels-empty" title="Permanent link">&para;</a></h3>
+<p>Check whether the source NDJSON uses Labelbox-style rows or
+Ultralytics-platform <code>type: image</code> rows. YOLOmatic now auto-detects both, but an
+export without annotation objects will still produce empty labels.</p>
+<h3 id="why-does-class-balanced-splitting-warn-about-empty-labels">Why does class-balanced splitting warn about empty labels?<a class="headerlink" href="#why-does-class-balanced-splitting-warn-about-empty-labels" title="Permanent link">&para;</a></h3>
+<p>Class-balanced and smart-balanced splitting need class labels to preserve class
+coverage. Empty label files can be split as images, but they cannot contribute to
+class-balance decisions.</p>
+<h3 id="why-is-training-slow-on-cpu">Why is training slow on CPU?<a class="headerlink" href="#why-is-training-slow-on-cpu" title="Permanent link">&para;</a></h3>
+<p>Modern detection and segmentation training is compute-heavy. Use a small model
+for smoke tests, reduce image size or batch size, and switch to CUDA when
+available.</p>
+<h2 id="community-citation-and-licensing">Community, Citation, And Licensing<a class="headerlink" href="#community-citation-and-licensing" title="Permanent link">&para;</a></h2>
+<h3 id="how-do-i-contribute">How do I contribute?<a class="headerlink" href="#how-do-i-contribute" title="Permanent link">&para;</a></h3>
+<p>Read the <a href="../contributing/">contributing guide</a>, run <code>uv sync</code>, add or update
+tests for behavior changes, update relevant docs, and open a pull request using
+the repository template.</p>
+<h3 id="how-do-i-report-a-security-issue">How do I report a security issue?<a class="headerlink" href="#how-do-i-report-a-security-issue" title="Permanent link">&para;</a></h3>
+<p>Do not open a public issue. Follow the private disclosure process in
+<a href="https://github.com/shahabahreini/YOLOMatic/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+<h3 id="what-license-does-yolomatic-use">What license does YOLOmatic use?<a class="headerlink" href="#what-license-does-yolomatic-use" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic is licensed under Apache 2.0.</p>
+<h3 id="how-should-i-cite-yolomatic">How should I cite YOLOmatic?<a class="headerlink" href="#how-should-i-cite-yolomatic" title="Permanent link">&para;</a></h3>
+<p>Use <a href="https://github.com/shahabahreini/YOLOMatic/blob/main/CITATION.cff">CITATION.cff</a>
+for GitHub citation metadata or
+<a href="https://github.com/shahabahreini/YOLOMatic/blob/main/CITATION.bib">CITATION.bib</a>
+for BibTeX.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 Shahab Bahreini Jangjoo
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/shahabahreini/YOLOMatic" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.instant", "navigation.sections", "navigation.top", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../assets/javascripts/schema.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,3651 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Complete reference for YOLOmatic model families, benchmarks, task support, and model selection recommendations.">
+      
+      
+      
+        <link rel="canonical" href="https://shahabahreini.github.io/YOLOMatic/guides/models/">
+      
+      
+        <link rel="prev" href="../datasets/">
+      
+      
+        <link rel="next" href="../yolo/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Models - YOLOmatic</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  
+  <link rel="icon" type="image/svg+xml" href="../../assets/favicon/favicon.svg">
+  <link rel="icon" type="image/png" sizes="96x96" href="../../assets/favicon/favicon-96x96.png">
+  <link rel="shortcut icon" href="../../assets/favicon/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="../../assets/favicon/apple-touch-icon.png">
+  <link rel="manifest" href="../../assets/favicon/site.webmanifest">
+
+  
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Models - YOLOmatic" />
+<meta property="og:description" content="Complete reference for YOLOmatic model families, benchmarks, task support, and model selection recommendations." />
+<meta property="og:image" content="https://shahabahreini.github.io/YOLOMatic/assets/images/social/guides/models.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:url" content="https://shahabahreini.github.io/YOLOMatic/guides/models/" />
+<meta property="twitter:card" content="summary_large_image" />
+<meta property="twitter:title" content="Models - YOLOmatic" />
+<meta property="twitter:description" content="Complete reference for YOLOmatic model families, benchmarks, task support, and model selection recommendations." />
+<meta property="twitter:image" content="https://shahabahreini.github.io/YOLOMatic/assets/images/social/guides/models.png" />
+</head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#model-support-reference" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="YOLOmatic" class="md-header__button md-logo" aria-label="YOLOmatic" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            YOLOmatic
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Models
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="amber"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/shahabahreini/YOLOMatic" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    shahabahreini/YOLOMatic
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="YOLOmatic" class="md-nav__button md-logo" aria-label="YOLOmatic" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="logo">
+
+    </a>
+    YOLOmatic
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/shahabahreini/YOLOMatic" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    shahabahreini/YOLOMatic
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Install
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-training-run/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First Training Run
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Comparison
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RF-DETR
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RF-DETR">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#detection-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolo26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLO26
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLO26">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance-coco-val2017" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-performance-coco-val2017" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pose-performance-coco-keypoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pose Performance (COCO Keypoints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv12
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLOv12">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-features_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance-coco-val2017_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#improvements-vs-previous-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Improvements vs Previous Versions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolo11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLO11
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLO11">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-features_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance-coco-val2017_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-performance-coco-val2017_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pose-performance-coco-keypoints_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pose Performance (COCO Keypoints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv10
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv9
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv8
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLOv8">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pose-performance-coco-keypoints_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pose Performance (COCO Keypoints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sam-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SAM 3.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detectron2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detectron2
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-selection-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Selection Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Selection Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#use-rf-detr-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use RF-DETR When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolo26-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLO26 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolov12-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLOv12 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolo11-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLO11 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolov10-or-earlier-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLOv10 or Earlier When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-sam-31-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use SAM 3.1 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-detectron2-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use Detectron2 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Tasks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture-evolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture Evolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-comparison-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Comparison Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roboflow-upload-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roboflow Upload Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../yolo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YOLO
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../rf-detr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    RF-DETR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sam/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SAM 3.1
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarking/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarking
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Export & Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cloud-upload/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloud Upload
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../clearml/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    ClearML
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tensorboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    TensorBoard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings File
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/smart-split/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Smart Split
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/ndjson-conversion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NDJSON Conversion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Options
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Advanced Options
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../advanced/training-parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Training Parameters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../citation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Citation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-comparison" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Comparison
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmark-compatibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Benchmark Compatibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rf-detr" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RF-DETR
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="RF-DETR">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#detection-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolo26" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLO26
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLO26">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance-coco-val2017" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-performance-coco-val2017" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pose-performance-coco-keypoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pose Performance (COCO Keypoints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv12
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLOv12">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-features_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance-coco-val2017_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#improvements-vs-previous-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Improvements vs Previous Versions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolo11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLO11
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLO11">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-features_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance-coco-val2017_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-performance-coco-val2017_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Performance (COCO val2017)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pose-performance-coco-keypoints_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pose Performance (COCO Keypoints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv10
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv9
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolov8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOv8
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="YOLOv8">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#detection-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detection Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#segmentation-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Segmentation Performance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pose-performance-coco-keypoints_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pose Performance (COCO Keypoints)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yolox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YOLOX
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sam-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SAM 3.1
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#detectron2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detectron2
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-selection-recommendations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Selection Recommendations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Model Selection Recommendations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#use-rf-detr-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use RF-DETR When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolo26-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLO26 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolov12-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLOv12 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolo11-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLO11 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-yolov10-or-earlier-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use YOLOv10 or Earlier When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-sam-31-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use SAM 3.1 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-detectron2-when" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use Detectron2 When:
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#supported-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supported Tasks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture-evolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture Evolution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-comparison-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Comparison Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#roboflow-upload-notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roboflow Upload Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="model-support-reference">Model Support Reference<a class="headerlink" href="#model-support-reference" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>Complete reference for all model families supported by YOLOmatic — architectures, benchmarks, task support, and selection guidance.</p>
+</blockquote>
+<p><strong>YOLOmatic Version:</strong> 5.0.0
+<strong>Last Updated:</strong> May 28, 2026</p>
+<hr />
+<h2 id="table-of-contents">Table of Contents<a class="headerlink" href="#table-of-contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#quick-comparison">Quick Comparison</a></li>
+<li><a href="#benchmark-compatibility">Benchmark Compatibility</a></li>
+<li><a href="#rf-detr">RF-DETR</a></li>
+<li><a href="#yolo26">YOLO26</a></li>
+<li><a href="#yolov12">YOLOv12</a></li>
+<li><a href="#yolo11">YOLO11</a></li>
+<li><a href="#yolov10">YOLOv10</a></li>
+<li><a href="#yolov9">YOLOv9</a></li>
+<li><a href="#yolov8">YOLOv8</a></li>
+<li><a href="#yolox">YOLOX</a></li>
+<li><a href="#sam-31">SAM 3.1</a></li>
+<li><a href="#detectron2">Detectron2</a></li>
+<li><a href="#model-selection-recommendations">Model Selection Recommendations</a></li>
+<li><a href="#supported-tasks">Supported Tasks</a></li>
+<li><a href="#architecture-evolution">Architecture Evolution</a></li>
+<li><a href="#performance-comparison-summary">Performance Comparison Summary</a></li>
+<li><a href="#roboflow-upload-notes">Roboflow Upload Notes</a></li>
+<li><a href="#references">References</a></li>
+</ol>
+<hr />
+<h2 id="quick-comparison">Quick Comparison<a class="headerlink" href="#quick-comparison" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Best Variant mAP</th>
+<th>Smallest (Params)</th>
+<th>Edge Optimized</th>
+<th>Production Ready</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>RF-DETR</strong></td>
+<td>60.1 (2XLarge)</td>
+<td>30.5M (Nano)</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>YOLO26</strong></td>
+<td>57.5 (x)</td>
+<td>2.4M (n)</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>YOLOv12</strong></td>
+<td>55.2 (x)</td>
+<td>2.6M (n)</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><strong>YOLO11</strong></td>
+<td>54.7 (x)</td>
+<td>2.6M (n)</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>YOLOv10</strong></td>
+<td>54.4 (X)</td>
+<td>—</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>YOLOv9</strong></td>
+<td>55.6 (e)</td>
+<td>2.0M (t)</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>YOLOv8</strong></td>
+<td>53.9 (x)</td>
+<td>3.2M (n)</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>YOLOX</strong></td>
+<td>51.1 (X)</td>
+<td>9.0M (S)</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="benchmark-compatibility">Benchmark Compatibility<a class="headerlink" href="#benchmark-compatibility" title="Permanent link">&para;</a></h2>
+<p>The <strong>Benchmark &amp; Vector Analysis</strong> feature (<code>Evaluate &amp; Monitor -&gt; Benchmark Models</code> or <code>uv run yolomatic-benchmark</code>) supports Ultralytics YOLO checkpoints and exported model artifacts that can be loaded by <code>ultralytics.YOLO</code>, including <code>.pt</code>, ONNX, TensorRT <code>.engine</code>, TorchScript, OpenVINO, TFLite, and other standard Ultralytics export targets. Task type (detection vs. segmentation) is auto-detected at runtime.</p>
+<table>
+<thead>
+<tr>
+<th>Artifact Type</th>
+<th>Benchmark Support</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO detection checkpoint/export</td>
+<td>Supported - Bounding-box IoU metrics</td>
+</tr>
+<tr>
+<td>YOLO segmentation checkpoint/export</td>
+<td>Supported - Pixel-level mask IoU metrics</td>
+</tr>
+<tr>
+<td>ONNX / TensorRT / OpenVINO / other Ultralytics exports</td>
+<td>Supported when the local runtime dependencies can execute the export</td>
+</tr>
+<tr>
+<td>RF-DETR (<code>.pth</code>)</td>
+<td>Not yet supported — use YOLO weights</td>
+</tr>
+<tr>
+<td>SAM 3.1 (HuggingFace)</td>
+<td>Not yet supported — use dedicated SAM inference</td>
+</tr>
+<tr>
+<td>Detectron2 (<code>.pth</code>)</td>
+<td>Not yet supported</td>
+</tr>
+</tbody>
+</table>
+<p>Annotation format: COCO JSON (<code>_annotations.coco.json</code>). Roboflow export with COCO preset is directly compatible. YOLOmatic also includes a Labelbox NDJSON to COCO converter to assist with preparing custom validation sets.</p>
+<hr />
+<h2 id="rf-detr">RF-DETR<a class="headerlink" href="#rf-detr" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Supported
+<strong>Focus:</strong> Real-time transformer detection and segmentation
+<strong>Trainer:</strong> Native <code>rfdetr</code> (not Ultralytics)</p>
+<p>RF-DETR configs use the native RF-DETR trainer. Fresh training instantiates the selected model class without a local checkpoint so RF-DETR can automatically download and cache the official pretrained weights. Fine-tuning passes the selected <code>.pth</code> checkpoint as <code>pretrain_weights</code>; resume flows pass it as <code>resume</code>.</p>
+<h3 id="detection-variants">Detection Variants<a class="headerlink" href="#detection-variants" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Class</th>
+<th style="text-align: right;">mAP 50-95</th>
+<th style="text-align: right;">Latency T4 TensorRT (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">Resolution</th>
+<th>License</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RF-DETR-Nano</td>
+<td><code>RFDETRNano</code></td>
+<td style="text-align: right;">48.4</td>
+<td style="text-align: right;">2.3</td>
+<td style="text-align: right;">30.5</td>
+<td style="text-align: right;">384</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Small</td>
+<td><code>RFDETRSmall</code></td>
+<td style="text-align: right;">53.0</td>
+<td style="text-align: right;">3.5</td>
+<td style="text-align: right;">32.1</td>
+<td style="text-align: right;">512</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Medium</td>
+<td><code>RFDETRMedium</code></td>
+<td style="text-align: right;">54.7</td>
+<td style="text-align: right;">4.4</td>
+<td style="text-align: right;">33.7</td>
+<td style="text-align: right;">576</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Large</td>
+<td><code>RFDETRLarge</code></td>
+<td style="text-align: right;">56.5</td>
+<td style="text-align: right;">6.8</td>
+<td style="text-align: right;">33.9</td>
+<td style="text-align: right;">704</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-XLarge</td>
+<td><code>RFDETRXLarge</code></td>
+<td style="text-align: right;">58.6</td>
+<td style="text-align: right;">11.5</td>
+<td style="text-align: right;">126.4</td>
+<td style="text-align: right;">700</td>
+<td>PML-1.0</td>
+</tr>
+<tr>
+<td>RF-DETR-2XLarge</td>
+<td><code>RFDETR2XLarge</code></td>
+<td style="text-align: right;">60.1</td>
+<td style="text-align: right;">17.2</td>
+<td style="text-align: right;">126.9</td>
+<td style="text-align: right;">880</td>
+<td>PML-1.0</td>
+</tr>
+</tbody>
+</table>
+<h3 id="segmentation-variants">Segmentation Variants<a class="headerlink" href="#segmentation-variants" title="Permanent link">&para;</a></h3>
+<p>YOLOmatic also exposes RF-DETR segmentation classes from Nano through 2XLarge. These use task-specific default resolutions from the RF-DETR package and output <code>.pth</code> checkpoints discoverable by the prediction and Roboflow deployment flows.</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Class</th>
+<th style="text-align: right;">Resolution</th>
+<th>License</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RF-DETR-Seg-Nano</td>
+<td><code>RFDETRSegNano</code></td>
+<td style="text-align: right;">312</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Seg-Small</td>
+<td><code>RFDETRSegSmall</code></td>
+<td style="text-align: right;">384</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Seg-Medium</td>
+<td><code>RFDETRSegMedium</code></td>
+<td style="text-align: right;">432</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Seg-Large</td>
+<td><code>RFDETRSegLarge</code></td>
+<td style="text-align: right;">504</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Seg-XLarge</td>
+<td><code>RFDETRSegXLarge</code></td>
+<td style="text-align: right;">624</td>
+<td>Apache-2.0</td>
+</tr>
+<tr>
+<td>RF-DETR-Seg-2XLarge</td>
+<td><code>RFDETRSeg2XLarge</code></td>
+<td style="text-align: right;">768</td>
+<td>Apache-2.0</td>
+</tr>
+</tbody>
+</table>
+<p>RF-DETR also ships a preview keypoint/pose model, <code>RFDETRKeypointPreview</code> (<code>RF-DETR-Keypoint</code>, default resolution 640, Apache-2.0). Pose training requires COCO keypoint JSON; YOLO pose datasets are auto-converted to a cached COCO manifest.</p>
+<p>RF-DETR Plus (XLarge, 2XLarge) detection models require the <code>rfdetr[plus]</code> dependency extra and use PML-1.0 model licensing.</p>
+<hr />
+<h2 id="yolo26">YOLO26<a class="headerlink" href="#yolo26" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Latest (2026-01-14)
+<strong>Focus:</strong> Edge deployment and end-to-end NMS-free inference</p>
+<h3 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>End-to-End NMS-Free Inference</strong> — predictions generated directly without post-processing NMS</li>
+<li><strong>43% Faster CPU Inference</strong> — optimized for edge computing</li>
+<li><strong>DFL Removal</strong> — simplifies export and expands edge compatibility</li>
+<li><strong>MuSGD Optimizer</strong> — hybrid SGD + Muon optimizer inspired by LLM training breakthroughs</li>
+<li><strong>ProgLoss + STAL</strong> — improved loss functions for better accuracy, especially on small objects</li>
+<li><strong>Task Support</strong> — Detection, Segmentation, Classification, Pose, OBB</li>
+</ul>
+<h3 id="detection-performance-coco-val2017">Detection Performance (COCO val2017)<a class="headerlink" href="#detection-performance-coco-val2017" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP 50-95</th>
+<th style="text-align: right;">Speed T4 TensorRT (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO26n</td>
+<td style="text-align: right;">40.9</td>
+<td style="text-align: right;">1.7 ± 0.0</td>
+<td style="text-align: right;">2.4</td>
+<td style="text-align: right;">5.4</td>
+</tr>
+<tr>
+<td>YOLO26s</td>
+<td style="text-align: right;">48.6</td>
+<td style="text-align: right;">2.5 ± 0.0</td>
+<td style="text-align: right;">9.5</td>
+<td style="text-align: right;">20.7</td>
+</tr>
+<tr>
+<td>YOLO26m</td>
+<td style="text-align: right;">53.1</td>
+<td style="text-align: right;">4.7 ± 0.1</td>
+<td style="text-align: right;">20.4</td>
+<td style="text-align: right;">68.2</td>
+</tr>
+<tr>
+<td>YOLO26l</td>
+<td style="text-align: right;">55.0</td>
+<td style="text-align: right;">6.2 ± 0.2</td>
+<td style="text-align: right;">24.8</td>
+<td style="text-align: right;">86.4</td>
+</tr>
+<tr>
+<td>YOLO26x</td>
+<td style="text-align: right;">57.5</td>
+<td style="text-align: right;">11.8 ± 0.2</td>
+<td style="text-align: right;">55.7</td>
+<td style="text-align: right;">193.9</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>CPU ONNX speed benchmarks for YOLO26 have not been officially published. T4 TensorRT figures shown above.</p>
+</blockquote>
+<h3 id="segmentation-performance-coco-val2017">Segmentation Performance (COCO val2017)<a class="headerlink" href="#segmentation-performance-coco-val2017" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP box 50-95</th>
+<th style="text-align: right;">Speed CPU ONNX (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO26n-seg</td>
+<td style="text-align: right;">33.9</td>
+<td style="text-align: right;">53.3 ± 0.5</td>
+<td style="text-align: right;">2.7</td>
+<td style="text-align: right;">9.1</td>
+</tr>
+<tr>
+<td>YOLO26s-seg</td>
+<td style="text-align: right;">40.0</td>
+<td style="text-align: right;">118.4 ± 0.9</td>
+<td style="text-align: right;">10.4</td>
+<td style="text-align: right;">34.2</td>
+</tr>
+<tr>
+<td>YOLO26m-seg</td>
+<td style="text-align: right;">44.1</td>
+<td style="text-align: right;">328.2 ± 2.4</td>
+<td style="text-align: right;">23.6</td>
+<td style="text-align: right;">121.5</td>
+</tr>
+<tr>
+<td>YOLO26l-seg</td>
+<td style="text-align: right;">45.5</td>
+<td style="text-align: right;">387.0 ± 3.7</td>
+<td style="text-align: right;">28.0</td>
+<td style="text-align: right;">139.8</td>
+</tr>
+<tr>
+<td>YOLO26x-seg</td>
+<td style="text-align: right;">47.0</td>
+<td style="text-align: right;">787.0 ± 6.8</td>
+<td style="text-align: right;">62.8</td>
+<td style="text-align: right;">313.5</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Mask mAP benchmarks for YOLO26-seg have not been officially published separately.</p>
+</blockquote>
+<h3 id="pose-performance-coco-keypoints">Pose Performance (COCO Keypoints)<a class="headerlink" href="#pose-performance-coco-keypoints" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAPpose 50-95</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO26n-pose</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">2.7</td>
+<td style="text-align: right;">6.0</td>
+</tr>
+<tr>
+<td>YOLO26s-pose</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">9.7</td>
+<td style="text-align: right;">21.5</td>
+</tr>
+<tr>
+<td>YOLO26m-pose</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">20.6</td>
+<td style="text-align: right;">69.0</td>
+</tr>
+<tr>
+<td>YOLO26l-pose</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">25.0</td>
+<td style="text-align: right;">87.0</td>
+</tr>
+<tr>
+<td>YOLO26x-pose</td>
+<td style="text-align: right;">-</td>
+<td style="text-align: right;">56.0</td>
+<td style="text-align: right;">194.5</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Official mAP benchmarks for YOLO26-pose variants have not been published yet.</p>
+</blockquote>
+<hr />
+<h2 id="yolov12">YOLOv12<a class="headerlink" href="#yolov12" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Community Model (2025 Early)
+<strong>Focus:</strong> High accuracy through attention mechanisms</p>
+<p><strong>Note:</strong> Ultralytics recommends YOLO11 or YOLO26 for production workloads due to training instability and higher memory consumption.</p>
+<h3 id="key-features_1">Key Features<a class="headerlink" href="#key-features_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Area Attention Mechanism</strong> — efficient large receptive field processing</li>
+<li><strong>R-ELAN</strong> — Residual Efficient Layer Aggregation Networks for better feature aggregation</li>
+<li><strong>FlashAttention Support</strong> — optional memory-efficient attention implementation</li>
+<li><strong>Task Support</strong> — Detection, Segmentation, Classification, Pose, OBB</li>
+</ul>
+<h3 id="detection-performance-coco-val2017_1">Detection Performance (COCO val2017)<a class="headerlink" href="#detection-performance-coco-val2017_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP 50-95</th>
+<th style="text-align: right;">Speed TensorRT (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO12n</td>
+<td style="text-align: right;">40.6</td>
+<td style="text-align: right;">1.64</td>
+<td style="text-align: right;">2.6</td>
+<td style="text-align: right;">6.5</td>
+</tr>
+<tr>
+<td>YOLO12s</td>
+<td style="text-align: right;">48.0</td>
+<td style="text-align: right;">2.61</td>
+<td style="text-align: right;">9.3</td>
+<td style="text-align: right;">21.4</td>
+</tr>
+<tr>
+<td>YOLO12m</td>
+<td style="text-align: right;">52.5</td>
+<td style="text-align: right;">4.86</td>
+<td style="text-align: right;">20.2</td>
+<td style="text-align: right;">67.5</td>
+</tr>
+<tr>
+<td>YOLO12l</td>
+<td style="text-align: right;">53.7</td>
+<td style="text-align: right;">6.77</td>
+<td style="text-align: right;">26.4</td>
+<td style="text-align: right;">88.9</td>
+</tr>
+<tr>
+<td>YOLO12x</td>
+<td style="text-align: right;">55.2</td>
+<td style="text-align: right;">11.79</td>
+<td style="text-align: right;">59.1</td>
+<td style="text-align: right;">199.0</td>
+</tr>
+</tbody>
+</table>
+<h3 id="improvements-vs-previous-versions">Improvements vs Previous Versions<a class="headerlink" href="#improvements-vs-previous-versions" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>vs YOLOv10n:</strong> +2.1% mAP, -9% speed</li>
+<li><strong>vs YOLO11m:</strong> +1.0% mAP, -3% speed</li>
+<li><strong>vs RT-DETRv2s:</strong> +0.1% mAP, +42% speed</li>
+</ul>
+<hr />
+<h2 id="yolo11">YOLO11<a class="headerlink" href="#yolo11" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Stable (2024-09-10)
+<strong>Focus:</strong> Balanced accuracy and performance</p>
+<h3 id="key-features_2">Key Features<a class="headerlink" href="#key-features_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Enhanced Feature Extraction</strong> — improved backbone and neck architecture</li>
+<li><strong>Optimized Efficiency</strong> — refined architectural designs and training pipelines</li>
+<li><strong>Greater Accuracy with Fewer Parameters</strong> — 22% fewer params than YOLOv8m with higher mAP</li>
+<li><strong>Edge Deployment Ready</strong> — seamlessly deployable across various environments</li>
+<li><strong>Task Support</strong> — Detection, Segmentation, Classification, Pose, OBB</li>
+</ul>
+<h3 id="detection-performance-coco-val2017_2">Detection Performance (COCO val2017)<a class="headerlink" href="#detection-performance-coco-val2017_2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP 50-95</th>
+<th style="text-align: right;">Speed CPU (ms)</th>
+<th style="text-align: right;">Speed TensorRT (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO11n</td>
+<td style="text-align: right;">39.5</td>
+<td style="text-align: right;">56.1 ± 0.8</td>
+<td style="text-align: right;">1.5 ± 0.0</td>
+<td style="text-align: right;">2.6</td>
+<td style="text-align: right;">6.5</td>
+</tr>
+<tr>
+<td>YOLO11s</td>
+<td style="text-align: right;">47.0</td>
+<td style="text-align: right;">90.0 ± 1.2</td>
+<td style="text-align: right;">2.5 ± 0.0</td>
+<td style="text-align: right;">9.4</td>
+<td style="text-align: right;">21.5</td>
+</tr>
+<tr>
+<td>YOLO11m</td>
+<td style="text-align: right;">51.5</td>
+<td style="text-align: right;">183.2 ± 2.0</td>
+<td style="text-align: right;">4.7 ± 0.1</td>
+<td style="text-align: right;">20.1</td>
+<td style="text-align: right;">68.0</td>
+</tr>
+<tr>
+<td>YOLO11l</td>
+<td style="text-align: right;">53.4</td>
+<td style="text-align: right;">238.6 ± 1.4</td>
+<td style="text-align: right;">6.2 ± 0.1</td>
+<td style="text-align: right;">25.3</td>
+<td style="text-align: right;">86.9</td>
+</tr>
+<tr>
+<td>YOLO11x</td>
+<td style="text-align: right;">54.7</td>
+<td style="text-align: right;">462.8 ± 6.7</td>
+<td style="text-align: right;">11.3 ± 0.2</td>
+<td style="text-align: right;">56.9</td>
+<td style="text-align: right;">194.9</td>
+</tr>
+</tbody>
+</table>
+<h3 id="segmentation-performance-coco-val2017_1">Segmentation Performance (COCO val2017)<a class="headerlink" href="#segmentation-performance-coco-val2017_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP box 50-95</th>
+<th style="text-align: right;">mAP mask 50-95</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO11n-seg</td>
+<td style="text-align: right;">38.9</td>
+<td style="text-align: right;">32.0</td>
+<td style="text-align: right;">2.9</td>
+<td style="text-align: right;">10.4</td>
+</tr>
+<tr>
+<td>YOLO11s-seg</td>
+<td style="text-align: right;">46.6</td>
+<td style="text-align: right;">38.8</td>
+<td style="text-align: right;">10.1</td>
+<td style="text-align: right;">35.5</td>
+</tr>
+<tr>
+<td>YOLO11m-seg</td>
+<td style="text-align: right;">51.5</td>
+<td style="text-align: right;">41.5</td>
+<td style="text-align: right;">22.4</td>
+<td style="text-align: right;">123.3</td>
+</tr>
+<tr>
+<td>YOLO11l-seg</td>
+<td style="text-align: right;">53.4</td>
+<td style="text-align: right;">42.9</td>
+<td style="text-align: right;">27.6</td>
+<td style="text-align: right;">142.2</td>
+</tr>
+<tr>
+<td>YOLO11x-seg</td>
+<td style="text-align: right;">54.7</td>
+<td style="text-align: right;">43.8</td>
+<td style="text-align: right;">62.1</td>
+<td style="text-align: right;">319.9</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pose-performance-coco-keypoints_1">Pose Performance (COCO Keypoints)<a class="headerlink" href="#pose-performance-coco-keypoints_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAPpose 50-95</th>
+<th style="text-align: right;">Speed CPU ONNX (ms)</th>
+<th style="text-align: right;">Speed T4 TensorRT (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLO11n-pose</td>
+<td style="text-align: right;">50.0</td>
+<td style="text-align: right;">52.4 ± 0.5</td>
+<td style="text-align: right;">1.7 ± 0.0</td>
+<td style="text-align: right;">2.9</td>
+<td style="text-align: right;">7.6</td>
+</tr>
+<tr>
+<td>YOLO11s-pose</td>
+<td style="text-align: right;">58.9</td>
+<td style="text-align: right;">90.5 ± 0.6</td>
+<td style="text-align: right;">2.6 ± 0.0</td>
+<td style="text-align: right;">9.9</td>
+<td style="text-align: right;">23.2</td>
+</tr>
+<tr>
+<td>YOLO11m-pose</td>
+<td style="text-align: right;">64.9</td>
+<td style="text-align: right;">187.3 ± 0.8</td>
+<td style="text-align: right;">4.9 ± 0.1</td>
+<td style="text-align: right;">20.9</td>
+<td style="text-align: right;">71.7</td>
+</tr>
+<tr>
+<td>YOLO11l-pose</td>
+<td style="text-align: right;">66.1</td>
+<td style="text-align: right;">247.7 ± 1.1</td>
+<td style="text-align: right;">6.4 ± 0.1</td>
+<td style="text-align: right;">26.2</td>
+<td style="text-align: right;">90.7</td>
+</tr>
+<tr>
+<td>YOLO11x-pose</td>
+<td style="text-align: right;">69.5</td>
+<td style="text-align: right;">488.0 ± 13.9</td>
+<td style="text-align: right;">12.1 ± 0.2</td>
+<td style="text-align: right;">58.8</td>
+<td style="text-align: right;">203.3</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="yolov10">YOLOv10<a class="headerlink" href="#yolov10" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Stable
+<strong>Focus:</strong> End-to-end NMS-free inference pioneer</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP 50-95</th>
+<th style="text-align: right;">FLOPs (G)</th>
+<th style="text-align: right;">Latency (ms)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLOv10-N</td>
+<td style="text-align: right;">38.5</td>
+<td style="text-align: right;">6.7</td>
+<td style="text-align: right;">1.84</td>
+</tr>
+<tr>
+<td>YOLOv10-S</td>
+<td style="text-align: right;">46.3</td>
+<td style="text-align: right;">21.6</td>
+<td style="text-align: right;">2.49</td>
+</tr>
+<tr>
+<td>YOLOv10-M</td>
+<td style="text-align: right;">51.1</td>
+<td style="text-align: right;">59.1</td>
+<td style="text-align: right;">4.74</td>
+</tr>
+<tr>
+<td>YOLOv10-B</td>
+<td style="text-align: right;">52.5</td>
+<td style="text-align: right;">92.0</td>
+<td style="text-align: right;">5.74</td>
+</tr>
+<tr>
+<td>YOLOv10-L</td>
+<td style="text-align: right;">53.2</td>
+<td style="text-align: right;">120.3</td>
+<td style="text-align: right;">7.28</td>
+</tr>
+<tr>
+<td>YOLOv10-X</td>
+<td style="text-align: right;">54.4</td>
+<td style="text-align: right;">160.4</td>
+<td style="text-align: right;">10.70</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tasks:</strong> Detection only.</p>
+<hr />
+<h2 id="yolov9">YOLOv9<a class="headerlink" href="#yolov9" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Stable
+<strong>Focus:</strong> Extended feature optimization</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP 50-95</th>
+<th style="text-align: right;">mAP 50</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLOv9t</td>
+<td style="text-align: right;">38.3</td>
+<td style="text-align: right;">53.1</td>
+<td style="text-align: right;">2.0</td>
+<td style="text-align: right;">7.7</td>
+</tr>
+<tr>
+<td>YOLOv9s</td>
+<td style="text-align: right;">46.8</td>
+<td style="text-align: right;">63.4</td>
+<td style="text-align: right;">7.2</td>
+<td style="text-align: right;">26.7</td>
+</tr>
+<tr>
+<td>YOLOv9m</td>
+<td style="text-align: right;">51.4</td>
+<td style="text-align: right;">68.1</td>
+<td style="text-align: right;">20.1</td>
+<td style="text-align: right;">76.8</td>
+</tr>
+<tr>
+<td>YOLOv9c</td>
+<td style="text-align: right;">53.0</td>
+<td style="text-align: right;">70.2</td>
+<td style="text-align: right;">25.5</td>
+<td style="text-align: right;">102.8</td>
+</tr>
+<tr>
+<td>YOLOv9e</td>
+<td style="text-align: right;">55.6</td>
+<td style="text-align: right;">72.8</td>
+<td style="text-align: right;">58.1</td>
+<td style="text-align: right;">192.5</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tasks:</strong> Detection + Segmentation (t/s/m/c/e + seg variants).</p>
+<hr />
+<h2 id="yolov8">YOLOv8<a class="headerlink" href="#yolov8" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Stable
+<strong>Focus:</strong> Production-tested stability</p>
+<h3 id="detection-performance">Detection Performance<a class="headerlink" href="#detection-performance" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP 50-95</th>
+<th style="text-align: right;">Speed CPU ONNX (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLOv8n</td>
+<td style="text-align: right;">37.3</td>
+<td style="text-align: right;">80.4</td>
+<td style="text-align: right;">3.2</td>
+<td style="text-align: right;">8.7</td>
+</tr>
+<tr>
+<td>YOLOv8s</td>
+<td style="text-align: right;">44.9</td>
+<td style="text-align: right;">128.4</td>
+<td style="text-align: right;">11.2</td>
+<td style="text-align: right;">28.6</td>
+</tr>
+<tr>
+<td>YOLOv8m</td>
+<td style="text-align: right;">50.2</td>
+<td style="text-align: right;">234.7</td>
+<td style="text-align: right;">25.9</td>
+<td style="text-align: right;">78.9</td>
+</tr>
+<tr>
+<td>YOLOv8l</td>
+<td style="text-align: right;">52.9</td>
+<td style="text-align: right;">375.2</td>
+<td style="text-align: right;">43.7</td>
+<td style="text-align: right;">165.2</td>
+</tr>
+<tr>
+<td>YOLOv8x</td>
+<td style="text-align: right;">53.9</td>
+<td style="text-align: right;">479.1</td>
+<td style="text-align: right;">68.2</td>
+<td style="text-align: right;">257.8</td>
+</tr>
+</tbody>
+</table>
+<h3 id="segmentation-performance">Segmentation Performance<a class="headerlink" href="#segmentation-performance" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAP box 50-95</th>
+<th style="text-align: right;">mAP mask 50-95</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLOv8n-seg</td>
+<td style="text-align: right;">36.7</td>
+<td style="text-align: right;">30.5</td>
+<td style="text-align: right;">3.4</td>
+<td style="text-align: right;">12.6</td>
+</tr>
+<tr>
+<td>YOLOv8s-seg</td>
+<td style="text-align: right;">44.6</td>
+<td style="text-align: right;">36.8</td>
+<td style="text-align: right;">11.8</td>
+<td style="text-align: right;">42.6</td>
+</tr>
+<tr>
+<td>YOLOv8m-seg</td>
+<td style="text-align: right;">49.9</td>
+<td style="text-align: right;">40.8</td>
+<td style="text-align: right;">27.3</td>
+<td style="text-align: right;">110.2</td>
+</tr>
+<tr>
+<td>YOLOv8l-seg</td>
+<td style="text-align: right;">52.3</td>
+<td style="text-align: right;">42.6</td>
+<td style="text-align: right;">46.0</td>
+<td style="text-align: right;">220.5</td>
+</tr>
+<tr>
+<td>YOLOv8x-seg</td>
+<td style="text-align: right;">53.4</td>
+<td style="text-align: right;">43.4</td>
+<td style="text-align: right;">71.8</td>
+<td style="text-align: right;">344.1</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pose-performance-coco-keypoints_2">Pose Performance (COCO Keypoints)<a class="headerlink" href="#pose-performance-coco-keypoints_2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th style="text-align: right;">mAPpose 50-95</th>
+<th style="text-align: right;">Speed CPU ONNX (ms)</th>
+<th style="text-align: right;">Speed A100 TensorRT (ms)</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (B)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLOv8n-pose</td>
+<td style="text-align: right;">50.4</td>
+<td style="text-align: right;">131.8</td>
+<td style="text-align: right;">1.18</td>
+<td style="text-align: right;">3.3</td>
+<td style="text-align: right;">9.2</td>
+</tr>
+<tr>
+<td>YOLOv8s-pose</td>
+<td style="text-align: right;">60.0</td>
+<td style="text-align: right;">233.2</td>
+<td style="text-align: right;">1.42</td>
+<td style="text-align: right;">11.6</td>
+<td style="text-align: right;">30.2</td>
+</tr>
+<tr>
+<td>YOLOv8m-pose</td>
+<td style="text-align: right;">65.0</td>
+<td style="text-align: right;">456.3</td>
+<td style="text-align: right;">2.00</td>
+<td style="text-align: right;">26.4</td>
+<td style="text-align: right;">81.0</td>
+</tr>
+<tr>
+<td>YOLOv8l-pose</td>
+<td style="text-align: right;">67.6</td>
+<td style="text-align: right;">784.5</td>
+<td style="text-align: right;">2.59</td>
+<td style="text-align: right;">44.4</td>
+<td style="text-align: right;">168.6</td>
+</tr>
+<tr>
+<td>YOLOv8x-pose</td>
+<td style="text-align: right;">70.2</td>
+<td style="text-align: right;">1607.1</td>
+<td style="text-align: right;">3.73</td>
+<td style="text-align: right;">69.4</td>
+<td style="text-align: right;">263.2</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tasks:</strong> Detection, Segmentation, Classification, Pose, OBB.</p>
+<hr />
+<h2 id="yolox">YOLOX<a class="headerlink" href="#yolox" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Stable
+<strong>Focus:</strong> Decoupled head architecture</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>mAP 50-95</th>
+<th style="text-align: right;">Params (M)</th>
+<th style="text-align: right;">FLOPs (G)</th>
+<th style="text-align: right;">FPS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YOLOX-S</td>
+<td>40.5%</td>
+<td style="text-align: right;">9.0</td>
+<td style="text-align: right;">26.8</td>
+<td style="text-align: right;">102</td>
+</tr>
+<tr>
+<td>YOLOX-M</td>
+<td>46.9%</td>
+<td style="text-align: right;">25.3</td>
+<td style="text-align: right;">73.8</td>
+<td style="text-align: right;">81</td>
+</tr>
+<tr>
+<td>YOLOX-L</td>
+<td>49.7%</td>
+<td style="text-align: right;">54.2</td>
+<td style="text-align: right;">155.6</td>
+<td style="text-align: right;">69</td>
+</tr>
+<tr>
+<td>YOLOX-X</td>
+<td>51.1%</td>
+<td style="text-align: right;">99.1</td>
+<td style="text-align: right;">281.9</td>
+<td style="text-align: right;">58</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tasks:</strong> Detection only.</p>
+<hr />
+<h2 id="sam-31">SAM 3.1<a class="headerlink" href="#sam-31" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Supported
+<strong>Focus:</strong> Open-vocabulary segmentation (Segment Anything Model)
+<strong>Provider:</strong> Meta / HuggingFace (gated model)</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>HuggingFace ID</th>
+<th style="text-align: right;">Params (B)</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SAM 3.1</td>
+<td><code>facebook/sam3.1</code></td>
+<td style="text-align: right;">0.873</td>
+<td>Object Multiplex — 7× faster multi-object throughput</td>
+</tr>
+<tr>
+<td>SAM 3</td>
+<td><code>facebook/sam3</code></td>
+<td style="text-align: right;">0.848</td>
+<td>Base model — predecessor without Object Multiplex</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Capabilities:</strong>
+- Auto-segmentation (segment everything)
+- Text-prompted open-vocabulary segmentation
+- Box-prompted segmentation (from YOLO detections)
+- Fine-tuning on custom COCO-format datasets</p>
+<p><strong>Requirements:</strong> HuggingFace token (<code>HF_TOKEN</code>) for downloading gated weights.</p>
+<p><strong>Outputs:</strong> PNG overlays, COCO JSON annotations, YOLO segmentation <code>.txt</code> files.</p>
+<hr />
+<h2 id="detectron2">Detectron2<a class="headerlink" href="#detectron2" title="Permanent link">&para;</a></h2>
+<p><strong>Status:</strong> Supported
+<strong>Focus:</strong> COCO-format detection and instance segmentation
+<strong>Provider:</strong> Facebook Research</p>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Task</th>
+<th>Backbone</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Faster R-CNN R50-FPN 3x</td>
+<td>Detection</td>
+<td>ResNet-50 + FPN</td>
+</tr>
+<tr>
+<td>RetinaNet R50-FPN 3x</td>
+<td>Detection</td>
+<td>ResNet-50 + FPN</td>
+</tr>
+<tr>
+<td>Mask R-CNN R50-FPN 3x</td>
+<td>Segmentation</td>
+<td>ResNet-50 + FPN</td>
+</tr>
+</tbody>
+</table>
+<p>Detectron2 training uses COCO-format annotations and integrates with ClearML for experiment tracking.</p>
+<hr />
+<h2 id="model-selection-recommendations">Model Selection Recommendations<a class="headerlink" href="#model-selection-recommendations" title="Permanent link">&para;</a></h2>
+<h3 id="use-rf-detr-when">Use RF-DETR When:<a class="headerlink" href="#use-rf-detr-when" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Need highest possible mAP (60.1 with 2XLarge)</li>
+<li>Transformer-based real-time detection is desired</li>
+<li>Working with high-resolution inputs</li>
+<li>Server-side deployment with adequate compute</li>
+</ul>
+<h3 id="use-yolo26-when">Use YOLO26 When:<a class="headerlink" href="#use-yolo26-when" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Deploying on edge devices (CPU-only)</li>
+<li>Need maximum inference speed</li>
+<li>Memory is constrained</li>
+<li>Working with IoT, robotics, aerial imagery</li>
+</ul>
+<h3 id="use-yolov12-when">Use YOLOv12 When:<a class="headerlink" href="#use-yolov12-when" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Researching attention mechanisms</li>
+<li>Benchmarking new architectures</li>
+<li>GPU resources available for training stability</li>
+<li>Production deployments (not recommended)</li>
+</ul>
+<h3 id="use-yolo11-when">Use YOLO11 When:<a class="headerlink" href="#use-yolo11-when" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Need production-ready stability</li>
+<li>Balance between speed and accuracy is needed</li>
+<li>Training stability is critical</li>
+<li>Deploying across varied environments</li>
+</ul>
+<h3 id="use-yolov10-or-earlier-when">Use YOLOv10 or Earlier When:<a class="headerlink" href="#use-yolov10-or-earlier-when" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Legacy system compatibility required</li>
+<li>Specific pre-trained models unavailable in newer versions</li>
+<li>Consistent behavior with existing pipelines needed</li>
+</ul>
+<h3 id="use-sam-31-when">Use SAM 3.1 When:<a class="headerlink" href="#use-sam-31-when" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Need open-vocabulary segmentation (no predefined classes)</li>
+<li>Upgrading detection datasets to segmentation masks</li>
+<li>Exploratory annotation and pseudo-label generation</li>
+<li>Text-prompted concept segmentation</li>
+</ul>
+<h3 id="use-detectron2-when">Use Detectron2 When:<a class="headerlink" href="#use-detectron2-when" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Working with Faster R-CNN, RetinaNet, or Mask R-CNN architectures</li>
+<li>Need COCO-format training with established baselines</li>
+<li>Integration with the Detectron2 ecosystem</li>
+</ul>
+<hr />
+<h2 id="supported-tasks">Supported Tasks<a class="headerlink" href="#supported-tasks" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Task</th>
+<th>Description</th>
+<th>Supported Families</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Detection</strong></td>
+<td>Identify and localize objects in images</td>
+<td>RF-DETR, YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, Detectron2</td>
+</tr>
+<tr>
+<td><strong>Segmentation</strong></td>
+<td>Detect objects and delineate their boundaries</td>
+<td>RF-DETR, YOLO26, YOLOv12, YOLO11, YOLOv9, YOLOv8, SAM 3.1, Detectron2</td>
+</tr>
+<tr>
+<td><strong>Classification</strong></td>
+<td>Categorize images into predefined classes</td>
+<td>YOLO26, YOLO11, YOLOv8</td>
+</tr>
+<tr>
+<td><strong>Pose Estimation</strong></td>
+<td>Detect and track keypoints on human bodies</td>
+<td>YOLO26, YOLO11, YOLOv8</td>
+</tr>
+<tr>
+<td><strong>OBB</strong></td>
+<td>Detect rotated objects with higher precision</td>
+<td>YOLO26, YOLO11, YOLOv8</td>
+</tr>
+<tr>
+<td><strong>Open-Vocab Seg</strong></td>
+<td>Segment objects by text concept (no predefined classes)</td>
+<td>SAM 3.1</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="architecture-evolution">Architecture Evolution<a class="headerlink" href="#architecture-evolution" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>YOLOv8 (2023)
+
+YOLOv9 (Feature optimization)
+
+YOLOv10 (NMS-free inference)
+
+YOLO11 (Efficiency focus) ← Recommended for production
+
+YOLO12 (Attention-centric) ← Research/benchmarking
+
+YOLO26 (Edge optimization) ← Latest / Recommended for edge
+</code></pre></div>
+<p>Parallel families:
+- <strong>RF-DETR</strong> — transformer-based, highest mAP
+- <strong>SAM 3.1</strong> — open-vocabulary segmentation
+- <strong>Detectron2</strong> — Faster R-CNN / Mask R-CNN baselines</p>
+<hr />
+<h2 id="performance-comparison-summary">Performance Comparison Summary<a class="headerlink" href="#performance-comparison-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>RF-DETR</th>
+<th>YOLO26</th>
+<th>YOLO12</th>
+<th>YOLO11</th>
+<th>YOLOv10</th>
+<th>YOLOv9</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>mAP (best variant)</td>
+<td>60.1</td>
+<td>57.5</td>
+<td>55.2</td>
+<td>54.7</td>
+<td>54.4</td>
+<td>55.6</td>
+</tr>
+<tr>
+<td>CPU Speed (fastest)</td>
+<td>—</td>
+<td>Fastest</td>
+<td>Slower</td>
+<td>Fast</td>
+<td>Moderate</td>
+<td>Moderate</td>
+</tr>
+<tr>
+<td>Params (smallest)</td>
+<td>30.5M</td>
+<td>2.4M</td>
+<td>2.6M</td>
+<td>2.6M</td>
+<td>—</td>
+<td>2.0M</td>
+</tr>
+<tr>
+<td>Edge Optimized</td>
+<td>No</td>
+<td>Yes</td>
+<td>No</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Production Ready</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>No</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="roboflow-upload-notes">Roboflow Upload Notes<a class="headerlink" href="#roboflow-upload-notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li>YOLOmatic exposes a dedicated <code>yolomatic-upload</code> CLI for Roboflow uploads.</li>
+<li>Upload a <strong>full checkpoint</strong> such as <code>best.pt</code> or <code>last.pt</code>, not generated artifacts like <code>state_dict.pt</code>.</li>
+<li>RF-DETR <code>.pth</code> checkpoints deploy through RF-DETR's <code>deploy_to_roboflow(...)</code> flow and require a workspace, project ID, and project version.</li>
+<li>YOLO26 uploads require a <strong>size-specific</strong> Roboflow model type such as <code>yolo26n</code>, <code>yolo26s</code>, <code>yolo26m</code>, <code>yolo26l</code>, or <code>yolo26x</code>.</li>
+<li>Workspace defaults can be supplied with <code>.env</code> using <code>ROBOFLOW_API_KEY</code>, <code>ROBOFLOW_WORKSPACE</code>, and <code>ROBOFLOW_PROJECT_IDS</code>.</li>
+<li>YOLO-NAS is deprecated in this build because SuperGradients conflicts with RF-DETR training dependencies.</li>
+</ul>
+<hr />
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="https://docs.ultralytics.com/models/yolo26/">YOLO26 Documentation</a></li>
+<li><a href="https://docs.ultralytics.com/models/yolo12/">YOLO12 Documentation</a></li>
+<li><a href="https://docs.ultralytics.com/models/yolo11/">YOLO11 Documentation</a></li>
+<li><a href="https://docs.ultralytics.com/models/yolov10/">YOLOv10 Documentation</a></li>
+<li><a href="https://docs.ultralytics.com/models/yolov9/">YOLOv9 Documentation</a></li>
+<li><a href="https://docs.ultralytics.com/models/yolov8/">YOLOv8 Documentation</a></li>
+<li><a href="https://docs.ultralytics.com/models/">Ultralytics Model Hub</a></li>
+<li><a href="https://github.com/roboflow/rf-detr">RF-DETR GitHub</a></li>
+<li><a href="https://huggingface.co/facebook/sam3.1">SAM 3.1 on HuggingFace</a></li>
+<li><a href="https://github.com/facebookresearch/detectron2/blob/main/MODEL_ZOO.md">Detectron2 Model Zoo</a></li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 Shahab Bahreini Jangjoo
+    </div>
+  
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/shahabahreini/YOLOMatic" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.sections", "navigation.top", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../assets/javascripts/schema.js"></script>
+      
+    
+  </body>
+</html>
