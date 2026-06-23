@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import signal
 import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Sequence
@@ -814,7 +815,7 @@ def get_user_choice(
 
     current_selection = navigable_indices[current_nav_idx]
 
-    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), TUI_TERM.mouse_enabled():
         renderer = MenuRenderer(
             selectable_options,
             current_selection,
@@ -831,6 +832,7 @@ def get_user_choice(
             allow_refresh=allow_refresh,
         )
 
+        last_scroll_time = 0.0
         with Live(
             renderer, console=TUI_CONSOLE, refresh_per_second=4, screen=True
         ) as live:
@@ -843,9 +845,18 @@ def get_user_choice(
                     key_name = key.name
                     key_lower = key.lower()
 
-                    if key_name == "KEY_UP" or key_lower == "k":
+                    is_scroll_up = key_name is not None and "SCROLL_UP" in key_name
+                    is_scroll_down = key_name is not None and "SCROLL_DOWN" in key_name
+
+                    if is_scroll_up or is_scroll_down:
+                        now = time.time()
+                        if now - last_scroll_time < 0.03:
+                            continue
+                        last_scroll_time = now
+
+                    if key_name == "KEY_UP" or key_lower == "k" or is_scroll_up:
                         current_nav_idx = (current_nav_idx - 1) % len(navigable_indices)
-                    elif key_name == "KEY_DOWN" or key_lower == "j":
+                    elif key_name == "KEY_DOWN" or key_lower == "j" or is_scroll_down:
                         current_nav_idx = (current_nav_idx + 1) % len(navigable_indices)
                     elif key_name == "KEY_PGUP":
                         visible_items = max(3, min(len(selectable_options), _term_h - _SIDEBAR_HEIGHT_OFFSET))
@@ -1470,7 +1481,7 @@ def get_user_multi_select(
         validation_error = error
         return False
 
-    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), TUI_TERM.mouse_enabled():
         renderer = MultiSelectRenderer(
             parameters=parameters,
             selected=selected,
@@ -1485,6 +1496,7 @@ def get_user_multi_select(
             wizard_current_step=wizard_current_step,
         )
 
+        last_scroll_time = 0.0
         with Live(renderer, console=TUI_CONSOLE, refresh_per_second=4, screen=True) as live:
             try:
                 while True:
@@ -1497,12 +1509,21 @@ def get_user_multi_select(
                     key_lower = key.lower()
                     state_changed = False
 
+                    is_scroll_up = key_name is not None and "SCROLL_UP" in key_name
+                    is_scroll_down = key_name is not None and "SCROLL_DOWN" in key_name
+
+                    if is_scroll_up or is_scroll_down:
+                        now = time.time()
+                        if now - last_scroll_time < 0.03:
+                            continue
+                        last_scroll_time = now
+
                     if focus == "list":
-                        if key_name == "KEY_UP" or key_lower == "k":
+                        if key_name == "KEY_UP" or key_lower == "k" or is_scroll_up:
                             current_index = (current_index - 1) % len(parameters)
                             validation_error = None
                             state_changed = True
-                        elif key_name == "KEY_DOWN" or key_lower == "j":
+                        elif key_name == "KEY_DOWN" or key_lower == "j" or is_scroll_down:
                             current_index = (current_index + 1) % len(parameters)
                             validation_error = None
                             state_changed = True

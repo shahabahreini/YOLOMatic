@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -3149,20 +3150,35 @@ def settings_ai_page() -> None:
         openai_models=openai_models,
     )
 
-    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor():
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), TUI_TERM.mouse_enabled():
+        last_scroll_time = 0.0
         with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
             while True:
                 key = TUI_TERM.inkey(timeout=0.1)
+                if not key:
+                    continue
                 
+                key_name = key.name
+                key_lower = key.lower()
+
+                is_scroll_up = key_name is not None and "SCROLL_UP" in key_name
+                is_scroll_down = key_name is not None and "SCROLL_DOWN" in key_name
+
+                if is_scroll_up or is_scroll_down:
+                    now = time.time()
+                    if now - last_scroll_time < 0.03:
+                        continue
+                    last_scroll_time = now
+
                 # Active sidebar item key
                 active_item_key, _ = renderer.sidebar_items[renderer.current_idx]
 
                 if renderer.focus == "sidebar":
-                    if key.name == "KEY_UP" or key.lower() == "k":
+                    if key_name == "KEY_UP" or key_lower == "k" or is_scroll_up:
                         renderer.current_idx = (renderer.current_idx - 1) % len(renderer.sidebar_items)
                         renderer.test_result = None
                         renderer.fetch_result = None
-                    elif key.name == "KEY_DOWN" or key.lower() == "j":
+                    elif key_name == "KEY_DOWN" or key_lower == "j" or is_scroll_down:
                         renderer.current_idx = (renderer.current_idx + 1) % len(renderer.sidebar_items)
                         renderer.test_result = None
                         renderer.fetch_result = None
@@ -3291,10 +3307,10 @@ def settings_ai_page() -> None:
                         renderer.input_buffer += key
 
                 elif renderer.focus == "select_model":
-                    if key.name == "KEY_UP" or key.lower() == "k":
+                    if key_name == "KEY_UP" or key_lower == "k" or is_scroll_up:
                         if renderer.model_list:
                             renderer.model_scroll_index = (renderer.model_scroll_index - 1) % len(renderer.model_list)
-                    elif key.name == "KEY_DOWN" or key.lower() == "j":
+                    elif key_name == "KEY_DOWN" or key_lower == "j" or is_scroll_down:
                         if renderer.model_list:
                             renderer.model_scroll_index = (renderer.model_scroll_index + 1) % len(renderer.model_list)
                     elif is_enter_key(key):
