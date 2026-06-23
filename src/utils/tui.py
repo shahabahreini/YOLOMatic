@@ -274,6 +274,7 @@ class MenuRenderer:
         finish_option: str | None = None,
         wizard_steps: list[str] | None = None,
         wizard_current_step: int | None = None,
+        allow_refresh: bool = False,
     ):
         self.options = options
         self.current_selection = current_selection
@@ -287,6 +288,7 @@ class MenuRenderer:
         self.finish_option = finish_option
         self.wizard_steps = wizard_steps
         self.wizard_current_step = wizard_current_step
+        self.allow_refresh = allow_refresh
         # Layout cache — invalidated on any state change to avoid rebuilding every frame
         self._layout_dirty: bool = True
         self._cached_layout: Layout | None = None
@@ -537,7 +539,22 @@ class MenuRenderer:
 
     def _render_status_bar(self) -> Panel:
         """Render a small status bar with keyboard hints and app version."""
-        hints_text = render_hints("menu_finish" if self.finish_option else "menu")
+        hint_key = "menu_finish" if self.finish_option else "menu"
+        if getattr(self, "allow_refresh", False):
+            hints = list(STATUS_HINTS.get(hint_key, STATUS_HINTS["menu"]))
+            insert_idx = len(hints)
+            for idx, (k, a) in enumerate(hints):
+                if k == "Q":
+                    insert_idx = idx
+                    break
+            hints.insert(insert_idx, ("R", "Refresh"))
+            hints_text = Text.from_markup(
+                "  •  ".join(
+                    f"[bold yellow]{key}[/bold yellow] {action}" for key, action in hints
+                )
+            )
+        else:
+            hints_text = render_hints(hint_key)
 
         gpu_status = get_gpu_status()
         if gpu_status == "Detecting...":
@@ -747,6 +764,7 @@ def get_user_choice(
     initial_selection: int | str | None = None,
     wizard_steps: list[str] | None = None,
     wizard_current_step: int | None = None,
+    allow_refresh: bool = False,
 ) -> str:
     """
     Highly refined interactive menu with grouped options and breadcrumbs.
@@ -810,6 +828,7 @@ def get_user_choice(
             finish_option=finish_option,
             wizard_steps=wizard_steps,
             wizard_current_step=wizard_current_step,
+            allow_refresh=allow_refresh,
         )
 
         with Live(
@@ -844,6 +863,8 @@ def get_user_choice(
                         return finish_option
                     elif key_lower == "b" and "Back" in selectable_options:
                         return "Back"
+                    elif key_lower == "r" and allow_refresh:
+                        return "__refresh__"
                     elif key_lower == "q" or key_name == "KEY_ESCAPE":
                         if "Exit" in selectable_options:
                             return "Exit"

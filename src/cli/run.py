@@ -311,7 +311,8 @@ logging.getLogger("src.config.generator").setLevel(logging.WARNING)
 # Non-scalable fonts are not supported". These are harmless cache-build notices, so
 # force the logger to WARNING regardless of the active root level.
 logging.getLogger("matplotlib").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
+_CACHED_DATASETS = None
+_CACHED_DATASET_DESCRIPTIONS = None
 
 
 @contextmanager
@@ -393,6 +394,9 @@ def _safe_subcommand(
         except (EOFError, KeyboardInterrupt):
             # User hit Ctrl+D/Ctrl+C at the pause prompt — just return.
             console.print()
+        global _CACHED_DATASETS, _CACHED_DATASET_DESCRIPTIONS
+        _CACHED_DATASETS = None
+        _CACHED_DATASET_DESCRIPTIONS = None
 
 
 def _render_dependency_table(statuses):
@@ -830,6 +834,8 @@ def display_paths_info(dataset_info):
 
 
 def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: int | None = None):
+    global _CACHED_DATASETS, _CACHED_DATASET_DESCRIPTIONS
+
     datasets_folder = "datasets"
     if not os.path.exists(datasets_folder):
         os.makedirs(datasets_folder)
@@ -879,44 +885,58 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             )
         return d["name"], desc
 
-    with console.status("[bold cyan]Scanning and analyzing available datasets...", spinner="dots"):
-        datasets = list_dataset_directories(datasets_folder)
-        dataset_descriptions: dict[str, str] = {}
-        if datasets:
-            with ThreadPoolExecutor() as executor:
-                for name, desc in executor.map(_build_description, datasets):
-                    dataset_descriptions[name] = desc
+    while True:
+        if _CACHED_DATASETS is None:
+            with console.status("[bold cyan]Scanning and analyzing available datasets...", spinner="dots"):
+                datasets = list_dataset_directories(datasets_folder)
+                dataset_descriptions: dict[str, str] = {}
+                if datasets:
+                    with ThreadPoolExecutor() as executor:
+                        for name, desc in executor.map(_build_description, datasets):
+                            dataset_descriptions[name] = desc
+            _CACHED_DATASETS = datasets
+            _CACHED_DATASET_DESCRIPTIONS = dataset_descriptions
+        else:
+            datasets = _CACHED_DATASETS
+            dataset_descriptions = dict(_CACHED_DATASET_DESCRIPTIONS)
 
-    if not datasets:
-        console.print(
-            f"❌ No datasets found in '{datasets_folder}' folder.", style="bold red"
+        if not datasets:
+            console.print(
+                f"❌ No datasets found in '{datasets_folder}' folder.", style="bold red"
+            )
+            return None
+
+        table = Table(title="Available Datasets", title_style="bold green")
+        table.add_column("Dataset Name", justify="center", style="cyan")
+        table.add_column("Size", justify="center", style="cyan")
+
+        for dataset in datasets:
+            table.add_row(dataset["name"], dataset["size"])
+
+        console.print(table)
+
+        dataset_names = [Path(d["path"]) for d in datasets]
+        name_to_path = {path.name: str(path) for path in dataset_names}
+        dataset_descriptions["Back"] = "Return to the previous menu."
+
+        choice = get_user_choice(
+            list(name_to_path.keys()),  # Show basename in menu
+            allow_back=True,
+            title="Select Dataset",
+            text="Use ↑↓ keys to navigate, Enter to select, 'b' for back, 'r' to refresh:",
+            descriptions=dataset_descriptions,
+            wizard_steps=wizard_steps,
+            wizard_current_step=wizard_current_step,
+            allow_refresh=True,
         )
-        return None
 
-    table = Table(title="Available Datasets", title_style="bold green")
-    table.add_column("Dataset Name", justify="center", style="cyan")
-    table.add_column("Size", justify="center", style="cyan")
+        if choice == "__refresh__":
+            _CACHED_DATASETS = None
+            _CACHED_DATASET_DESCRIPTIONS = None
+            clear_screen()
+            continue
 
-    for dataset in datasets:
-        table.add_row(dataset["name"], dataset["size"])
-
-    console.print(table)
-
-    dataset_names = [Path(d["path"]) for d in datasets]
-    name_to_path = {path.name: str(path) for path in dataset_names}
-    dataset_descriptions["Back"] = "Return to the previous menu."
-
-    choice = get_user_choice(
-        list(name_to_path.keys()),  # Show basename in menu
-        allow_back=True,
-        title="Select Dataset",
-        text="Use ↑↓ keys to navigate, Enter to select, 'b' for back:",
-        descriptions=dataset_descriptions,
-        wizard_steps=wizard_steps,
-        wizard_current_step=wizard_current_step,
-    )
-
-    return name_to_path.get(choice) if choice != "Back" else choice
+        return name_to_path.get(choice) if choice != "Back" else choice
 
 
 def select_saved_config_file(
@@ -2670,7 +2690,14 @@ def settings_ai_page() -> None:
         is_enter_key,
         get_gpu_status,
     )
-    from src.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS
+    from src.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS, is_free_tier_gemini_model
+
+    def _order_models(models: list[str], prov: str) -> list[str]:
+        """For Gemini, list free-tier (Flash) models first so the default lands on
+        a model that actually works on a free key. Stable within each group."""
+        if prov == "Gemini":
+            return sorted(models, key=lambda m: not is_free_tier_gemini_model(m))
+        return list(models)
     from rich.live import Live
     from rich.layout import Layout
     from rich.text import Text
@@ -2886,10 +2913,19 @@ def settings_ai_page() -> None:
                         else:
                             row.append("  ")
                             row.append(f"{m}", style="dim" if not is_current_active else "yellow")
-                            
+
+                        # Flag free-tier eligibility so users avoid Pro models that
+                        # are rejected on a free key. Display-only — the stored
+                        # model id (m) is never altered.
+                        if self.provider == "Gemini":
+                            if is_free_tier_gemini_model(m):
+                                row.append(" (free tier)", style="green")
+                            else:
+                                row.append(" (no free tier)", style="red")
+
                         if is_current_active:
                             row.append(" [✓ active]", style="bold green")
-                            
+
                         model_rows.append(row)
                     
                     content_items.append(Panel(Group(*model_rows), title="Available Models", border_style="blue"))
@@ -3091,7 +3127,7 @@ def settings_ai_page() -> None:
     fetch_result = None
     is_testing = False
     is_fetching = False
-    model_list = list(gemini_models if provider == "Gemini" else openai_models)
+    model_list = _order_models(list(gemini_models if provider == "Gemini" else openai_models), provider)
     if selected_model and selected_model not in model_list:
         model_list.insert(0, selected_model)
     model_scroll_index = 0
@@ -3157,7 +3193,7 @@ def settings_ai_page() -> None:
                                 renderer.fetch_result = None
                                 def run_fetch_sidebar():
                                     try:
-                                        models = fetch_multimodal_models(renderer.provider, active_key)
+                                        models = _order_models(fetch_multimodal_models(renderer.provider, active_key), renderer.provider)
                                         if models:
                                             renderer.fetch_result = (True, f"Connected to {renderer.provider} successfully!\nFetched {len(models)} models.")
                                             renderer.model_list = models
@@ -3178,7 +3214,7 @@ def settings_ai_page() -> None:
                                 renderer.test_result = None
                                 def run_test():
                                     try:
-                                        models = fetch_multimodal_models(renderer.provider, active_key)
+                                        models = _order_models(fetch_multimodal_models(renderer.provider, active_key), renderer.provider)
                                         if models:
                                             renderer.test_result = (True, f"Connected to {renderer.provider} successfully!\nFetched {len(models)} models.")
                                             # Update the model list too while we are at it

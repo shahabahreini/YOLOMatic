@@ -47,6 +47,26 @@ FALLBACK_MODELS = {
     ],
 }
 
+# Gemini models that retain free-tier request quota. Pro models have *no* free
+# tier (the API rejects them with "limit: 0"), so we transparently fall back to
+# these when a free-tier-only key selects a Pro model.
+FREE_TIER_GEMINI_FALLBACKS = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+]
+
+
+def is_free_tier_gemini_model(name: str) -> bool:
+    """Heuristic: a Gemini model is free-tier eligible iff it is a Flash variant.
+
+    Flash and Flash-Lite models have free-tier request quota; Pro models do not
+    (the API returns "limit: 0" for them on a free key). Used both for runtime
+    fallback and to label/sort models in the settings picker.
+    """
+    return "flash" in str(name).lower()
+
+
 SUPPORTED_TRANSFORMS = [
     "HorizontalFlip", "VerticalFlip", "D4", "RandomRotate90", "Transpose", "Rotate",
     "Affine", "RandomScale", "RandomCrop", "Pad", "Perspective", "ElasticTransform",
@@ -61,6 +81,51 @@ SUPPORTED_TRANSFORMS = [
 
 # HTTP status codes worth retrying (rate limits and transient server errors).
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+class GeminiFreeTierUnavailable(ValueError):
+    """Raised when a Gemini model has no free-tier quota (the API returns
+    "limit: 0" for it). Carries the rejected model name so callers can retry
+    with a free-tier-eligible model."""
+
+    def __init__(self, model_name: str, message: str = "") -> None:
+        self.model_name = model_name
+        super().__init__(message or f"Model '{model_name}' has no free-tier quota.")
+
+
+def _serialize_body(body: Any) -> str:
+    """Render a response body as searchable text, regardless of shape."""
+    if isinstance(body, (dict, list)):
+        try:
+            return json.dumps(body)
+        except (TypeError, ValueError):
+            return str(body)
+    return str(body)
+
+
+def _is_free_tier_unavailable(body: Any) -> bool:
+    """True when a Gemini 429 means the model has no free tier (limit: 0), as
+    opposed to a transient per-minute rate limit (limit > 0)."""
+    text = _serialize_body(body)
+    if "free_tier" not in text:
+        return False
+    # The violation text reads e.g. "limit: 0"; structured details use "limit": 0.
+    return bool(re.search(r'limit["\s:]*\s*0\b', text))
+
+
+def _parse_retry_delay(body: Any) -> str | None:
+    """Extract a human-readable retry-after hint from a Gemini error body."""
+    text = _serialize_body(body)
+    match = (
+        re.search(r"retry in ([\d.]+)s", text)
+        or re.search(r'"retryDelay"\s*:\s*"([\d.]+)s"', text)
+    )
+    if not match:
+        return None
+    try:
+        return f"{round(float(match.group(1)))}s"
+    except (ValueError, TypeError):
+        return None
 
 
 def _extract_api_error(res: Any, default: str = "Unknown API error") -> str:
@@ -161,6 +226,10 @@ def make_http_request(
         status, body = _do_single_request(url, method, headers, data, timeout)
         last_status, last_body = status, body
         if status != 0 and status not in _RETRYABLE_STATUS:
+            return status, body
+        # A free-tier "limit: 0" rejection can never succeed on retry — fail fast
+        # instead of burning two more doomed calls plus backoff sleeps.
+        if status == 429 and _is_free_tier_unavailable(body):
             return status, body
         if attempt < max_retries:
             time.sleep(backoff * (attempt + 1))
@@ -346,9 +415,16 @@ def query_llm_multimodal(
         if system_instruction:
             payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
-        status, res = make_http_request(url, "POST", data=payload)
+        status, res = make_http_request(url, "POST", data=payload, timeout=90)
         if status != 200:
-            raise ValueError(f"Gemini API Error (status {status}): {_extract_api_error(res)}")
+            if status == 429 and _is_free_tier_unavailable(res):
+                raise GeminiFreeTierUnavailable(model_name)
+            message = f"Gemini API Error (status {status}): {_extract_api_error(res)}"
+            if status == 429:
+                retry_after = _parse_retry_delay(res)
+                hint = f" Retry in ~{retry_after}." if retry_after else ""
+                message = f"Gemini rate limit hit for '{model_name}'.{hint}"
+            raise ValueError(message)
         if not isinstance(res, dict):
             raise ValueError(f"Gemini API returned a non-JSON response: {str(res)[:300]}")
 
@@ -404,7 +480,7 @@ def query_llm_multimodal(
             "messages": messages
         }
         
-        status, res = make_http_request(url, "POST", headers=headers, data=payload)
+        status, res = make_http_request(url, "POST", headers=headers, data=payload, timeout=90)
         if status != 200:
             raise ValueError(f"OpenAI API Error (status {status}): {_extract_api_error(res)}")
         if not isinstance(res, dict):
@@ -418,6 +494,52 @@ def query_llm_multimodal(
         raise ValueError(f"OpenAI API returned an empty/unexpected response: {str(res)[:300]}")
 
     raise ValueError(f"Unsupported provider: {provider}")
+
+
+def query_llm_with_free_tier_fallback(
+    provider: str,
+    api_key: str,
+    model_name: str,
+    text_prompt: str,
+    samples_base64: list[dict[str, Any]],
+    system_instruction: str = "",
+) -> tuple[str, str]:
+    """Call the LLM, transparently retrying with a free-tier model if the chosen
+    Gemini model has no free-tier quota.
+
+    Returns (response_text, model_used). When `model_used` differs from
+    `model_name`, the caller can surface a notice that it auto-switched.
+    """
+    try:
+        return (
+            query_llm_multimodal(
+                provider, api_key, model_name, text_prompt, samples_base64, system_instruction
+            ),
+            model_name,
+        )
+    except GeminiFreeTierUnavailable:
+        if provider.lower() != "gemini":
+            raise
+
+    # The selected Gemini model has no free tier — try free-tier Flash models.
+    for fallback in FREE_TIER_GEMINI_FALLBACKS:
+        if fallback == model_name:
+            continue
+        try:
+            return (
+                query_llm_multimodal(
+                    provider, api_key, fallback, text_prompt, samples_base64, system_instruction
+                ),
+                fallback,
+            )
+        except GeminiFreeTierUnavailable:
+            continue
+
+    raise ValueError(
+        f"'{model_name}' has no Gemini free-tier quota, and no free-tier fallback "
+        f"model was usable. Switch to a free-tier model (e.g. gemini-2.5-flash) in "
+        f"Settings → AI Recommendations, or enable billing on your Google API key."
+    )
 
 
 def verify_ai_setup() -> tuple[bool, str, str, str]:
@@ -877,7 +999,7 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
     )
     
     try:
-        raw_response = query_llm_multimodal(
+        raw_response, model_used = query_llm_with_free_tier_fallback(
             provider=provider,
             api_key=api_key,
             model_name=model_name,
@@ -885,10 +1007,17 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
             samples_base64=samples_base64,
             system_instruction=system_instruction
         )
-        
+        if model_used != model_name:
+            console.print(warning_panel(
+                f"'{model_name}' has no Gemini free tier, so the request was "
+                f"automatically sent using [bold cyan]{model_used}[/bold cyan] instead.\n"
+                f"Tip: select a free-tier model in Settings → AI Recommendations to silence this.",
+                title="Switched to a free-tier model",
+            ))
+
         # Use our robust block extractor
         recommendation = extract_json_block(raw_response)
-        
+
         suggested_name = _slugify(
             recommendation.get("suggested_name", ""),
             fallback=_slugify(f"ai_{model_choice}", fallback="ai_config"),
@@ -1033,7 +1162,7 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
     )
     
     try:
-        raw_response = query_llm_multimodal(
+        raw_response, model_used = query_llm_with_free_tier_fallback(
             provider=provider,
             api_key=api_key,
             model_name=model_name,
@@ -1041,10 +1170,17 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
             samples_base64=samples_base64,
             system_instruction=system_instruction
         )
-        
+        if model_used != model_name:
+            console.print(warning_panel(
+                f"'{model_name}' has no Gemini free tier, so the request was "
+                f"automatically sent using [bold cyan]{model_used}[/bold cyan] instead.\n"
+                f"Tip: select a free-tier model in Settings → AI Recommendations to silence this.",
+                title="Switched to a free-tier model",
+            ))
+
         # Use our robust block extractor
         recommendation = extract_json_block(raw_response)
-        
+
         profile_name = _slugify(recommendation.get("profile_name", ""), fallback="ai_profile")
         description = recommendation.get("description", "Optimized by AI based on dataset analysis.")
         try:

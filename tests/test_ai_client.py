@@ -325,6 +325,90 @@ class QueryLlmMultimodalTests(unittest.TestCase):
             ac.query_llm_multimodal("Claude", "k", "m", "p", [])
 
 
+class FreeTierClassifierTests(unittest.TestCase):
+    def test_flash_models_are_free_tier(self) -> None:
+        for name in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"):
+            self.assertTrue(ac.is_free_tier_gemini_model(name), name)
+
+    def test_pro_models_are_not_free_tier(self) -> None:
+        for name in ("gemini-2.5-pro", "gemini-1.5-pro"):
+            self.assertFalse(ac.is_free_tier_gemini_model(name), name)
+
+
+class IsFreeTierUnavailableTests(unittest.TestCase):
+    def _quota_body(self, limit: int) -> dict:
+        return {
+            "error": {
+                "code": 429,
+                "message": (
+                    "You exceeded your current quota. Quota exceeded for metric: "
+                    f"generativelanguage.googleapis.com/generate_content_free_tier_requests, "
+                    f"limit: {limit}, model: gemini-2.5-pro"
+                ),
+            }
+        }
+
+    def test_zero_limit_free_tier_detected(self) -> None:
+        self.assertTrue(ac._is_free_tier_unavailable(self._quota_body(0)))
+
+    def test_nonzero_limit_is_transient(self) -> None:
+        self.assertFalse(ac._is_free_tier_unavailable(self._quota_body(60)))
+
+    def test_unrelated_error_is_false(self) -> None:
+        self.assertFalse(ac._is_free_tier_unavailable({"error": {"message": "bad key"}}))
+
+
+class MakeHttpRequestFreeTierTests(unittest.TestCase):
+    def test_free_tier_limit_zero_not_retried(self) -> None:
+        body = {"error": {"message": "free_tier_requests, limit: 0, model: gemini-2.5-pro"}}
+        with mock.patch.object(ac, "_do_single_request", return_value=(429, body)) as called, \
+             mock.patch.object(ac.time, "sleep") as slept:
+            status, _ = ac.make_http_request("http://x", "POST", max_retries=2)
+        self.assertEqual(status, 429)
+        self.assertEqual(called.call_count, 1)
+        self.assertEqual(slept.call_count, 0)
+
+
+class QueryLlmFreeTierFallbackTests(unittest.TestCase):
+    def test_gemini_falls_back_to_flash(self) -> None:
+        def fake(provider, api_key, model_name, *a, **kw):
+            if model_name == "gemini-2.5-pro":
+                raise ac.GeminiFreeTierUnavailable(model_name)
+            return f"ok:{model_name}"
+
+        with mock.patch.object(ac, "query_llm_multimodal", side_effect=fake):
+            text, used = ac.query_llm_with_free_tier_fallback(
+                "Gemini", "key", "gemini-2.5-pro", "prompt", [],
+            )
+        self.assertEqual(used, "gemini-2.5-flash")
+        self.assertEqual(text, "ok:gemini-2.5-flash")
+
+    def test_returns_requested_model_when_it_works(self) -> None:
+        with mock.patch.object(ac, "query_llm_multimodal", return_value="fine"):
+            text, used = ac.query_llm_with_free_tier_fallback(
+                "Gemini", "key", "gemini-2.5-flash", "prompt", [],
+            )
+        self.assertEqual((text, used), ("fine", "gemini-2.5-flash"))
+
+    def test_all_fallbacks_blocked_raises_clear_error(self) -> None:
+        def always_blocked(provider, api_key, model_name, *a, **kw):
+            raise ac.GeminiFreeTierUnavailable(model_name)
+
+        with mock.patch.object(ac, "query_llm_multimodal", side_effect=always_blocked):
+            with self.assertRaises(ValueError) as ctx:
+                ac.query_llm_with_free_tier_fallback("Gemini", "key", "gemini-2.5-pro", "p", [])
+        self.assertNotIsInstance(ctx.exception, ac.GeminiFreeTierUnavailable)
+        self.assertIn("gemini-2.5-flash", str(ctx.exception))
+
+    def test_openai_does_not_fall_back(self) -> None:
+        def fake(provider, api_key, model_name, *a, **kw):
+            raise ac.GeminiFreeTierUnavailable(model_name)
+
+        with mock.patch.object(ac, "query_llm_multimodal", side_effect=fake):
+            with self.assertRaises(ac.GeminiFreeTierUnavailable):
+                ac.query_llm_with_free_tier_fallback("OpenAI", "key", "gpt-4o", "p", [])
+
+
 class GetDatasetAiSummaryTests(unittest.TestCase):
     def _make_dataset(self, root: Path) -> None:
         (root / "train" / "images").mkdir(parents=True)

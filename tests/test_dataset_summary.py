@@ -106,6 +106,7 @@ class DatasetSummaryTest(unittest.TestCase):
 
         summary = summarize_dataset(root, sample_limit=3)
 
+        split = summary.splits["train"]
         # Full image count and labeled/unlabeled counts stay accurate even when labels are sampled.
         self.assertEqual(split.image_count, 5)
         self.assertEqual(split.labeled_image_count + split.unlabeled_image_count, 5)
