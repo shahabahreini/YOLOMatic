@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import base64
 import copy
+import getpass
+import hashlib
 import os
 from pathlib import Path
+import platform
 from typing import Any
+import uuid
 
 import yaml
 
@@ -72,6 +77,77 @@ def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+_ENC_PREFIX = "yoloenc:"
+
+
+def _get_machine_secret() -> str:
+    """Derive a key unique to this machine and user."""
+    try:
+        mac = str(uuid.getnode())
+    except Exception:
+        mac = "unknown-mac"
+    try:
+        node = platform.node()
+    except Exception:
+        node = "unknown-node"
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = "unknown-user"
+
+    mix = f"yolomatic-key-salt-{mac}-{node}-{user}"
+    return hashlib.sha256(mix.encode("utf-8")).hexdigest()
+
+
+def _encrypt_value(plain_text: str, secret_key: str) -> str:
+    """Encrypt a string using a machine-specific secret key."""
+    if not plain_text:
+        return ""
+    if plain_text.startswith(_ENC_PREFIX):
+        return plain_text  # Already encrypted
+    iv = os.urandom(16)
+    key_bytes = secret_key.encode("utf-8")
+    data_bytes = plain_text.encode("utf-8")
+    out = bytearray()
+    i = 0
+    while len(out) < len(data_bytes):
+        keystream = hashlib.sha256(key_bytes + iv + str(i).encode("utf-8")).digest()
+        chunk_len = min(len(keystream), len(data_bytes) - len(out))
+        for j in range(chunk_len):
+            out.append(data_bytes[len(out)] ^ keystream[j])
+        i += 1
+    combined = iv + out
+    return _ENC_PREFIX + base64.b64encode(combined).decode("utf-8")
+
+
+def _decrypt_value(cipher_text: str, secret_key: str) -> str:
+    """Decrypt a string using a machine-specific secret key."""
+    if not cipher_text:
+        return ""
+    if not cipher_text.startswith(_ENC_PREFIX):
+        return cipher_text  # Legacy plain text key
+    try:
+        encoded = cipher_text[len(_ENC_PREFIX) :]
+        combined = base64.b64decode(encoded.encode("utf-8"))
+        if len(combined) < 16:
+            return ""
+        iv = combined[:16]
+        encrypted_bytes = combined[16:]
+        key_bytes = secret_key.encode("utf-8")
+        out = bytearray()
+        i = 0
+        while len(out) < len(encrypted_bytes):
+            keystream = hashlib.sha256(key_bytes + iv + str(i).encode("utf-8")).digest()
+            chunk_len = min(len(keystream), len(encrypted_bytes) - len(out))
+            for j in range(chunk_len):
+                out.append(encrypted_bytes[len(out)] ^ keystream[j])
+            i += 1
+        return out.decode("utf-8")
+    except Exception:
+        # Fall back to empty string or the raw value if decryption fails
+        return ""
+
+
 def load_settings(path: Path | str = SETTINGS_PATH) -> dict[str, Any]:
     settings_path = Path(path)
     if not settings_path.exists():
@@ -80,6 +156,16 @@ def load_settings(path: Path | str = SETTINGS_PATH) -> dict[str, Any]:
         data = yaml.safe_load(file) or {}
     if not isinstance(data, dict):
         data = {}
+    
+    # Decrypt keys
+    secret_key = _get_machine_secret()
+    if "ai" in data and isinstance(data["ai"], dict):
+        ai_cfg = data["ai"]
+        if "gemini_api_key" in ai_cfg and isinstance(ai_cfg["gemini_api_key"], str):
+            ai_cfg["gemini_api_key"] = _decrypt_value(ai_cfg["gemini_api_key"], secret_key)
+        if "openai_api_key" in ai_cfg and isinstance(ai_cfg["openai_api_key"], str):
+            ai_cfg["openai_api_key"] = _decrypt_value(ai_cfg["openai_api_key"], secret_key)
+
     return validate_settings(data)
 
 
@@ -87,8 +173,19 @@ def save_settings(settings: dict[str, Any], path: Path | str = SETTINGS_PATH) ->
     settings_path = Path(path)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     validated = validate_settings(settings)
+    
+    # Encrypt keys before writing to YAML file
+    to_save = copy.deepcopy(validated)
+    secret_key = _get_machine_secret()
+    if "ai" in to_save and isinstance(to_save["ai"], dict):
+        ai_cfg = to_save["ai"]
+        if "gemini_api_key" in ai_cfg and isinstance(ai_cfg["gemini_api_key"], str):
+            ai_cfg["gemini_api_key"] = _encrypt_value(ai_cfg["gemini_api_key"], secret_key)
+        if "openai_api_key" in ai_cfg and isinstance(ai_cfg["openai_api_key"], str):
+            ai_cfg["openai_api_key"] = _encrypt_value(ai_cfg["openai_api_key"], secret_key)
+            
     with settings_path.open("w", encoding="utf-8") as file:
-        yaml.safe_dump(validated, file, sort_keys=False)
+        yaml.safe_dump(to_save, file, sort_keys=False)
 
 
 def reset_settings(path: Path | str = SETTINGS_PATH) -> dict[str, Any]:

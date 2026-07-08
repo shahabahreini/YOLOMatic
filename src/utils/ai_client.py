@@ -30,7 +30,7 @@ from src.utils.cli import (
     NAV_BACK,
     NAV_LIST,
 )
-from src.config.settings import load_settings
+from src.config.settings import load_settings, save_settings
 from src.datasets.core import summarize_dataset
 
 # Fallback models in case fetching fails
@@ -875,6 +875,20 @@ def sanitize_augmentation_transforms(transforms: list) -> list:
     return sanitized_list
 
 
+def _get_project_key(dataset_choice: str) -> str:
+    """Generate a key to identify the project/dataset relative to the project root."""
+    try:
+        from src.utils.project import project_root
+        root = project_root()
+        dataset_path = Path(dataset_choice).resolve()
+        try:
+            return str(dataset_path.relative_to(root))
+        except ValueError:
+            return str(dataset_path)
+    except Exception:
+        return str(Path(dataset_choice).resolve())
+
+
 def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict | None:
     """TUI flow that runs AI dataset analysis and suggests a custom training config YAML."""
     ok, provider, api_key, model_name = verify_ai_setup()
@@ -884,11 +898,17 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
     clear_screen()
     print_stylized_header("AI Dataset Analysis & Training Config recommendation")
     
+    settings = load_settings()
+    ai_cfg = settings.setdefault("ai", {})
+    project_descriptions = ai_cfg.setdefault("project_descriptions", {})
+    project_key = _get_project_key(dataset_choice)
+    saved_desc = project_descriptions.get(project_key, "Standard object detection project")
+
     # Prompt user for project description and preferences
     desc_param = ParameterDefinition(
         name="project_description",
         category="AI",
-        default="Standard object detection project",
+        default=saved_desc,
         value_type="str",
         description="Describe your dataset and what you are trying to detect",
         help_text="Provide context like: 'Aerial drone images of solar panels' or 'Thermal night vision camera detecting pedestrians'."
@@ -896,6 +916,10 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
     project_desc = get_parameter_value_input(desc_param)
     if project_desc in (None, NAV_BACK, NAV_LIST):
         return None
+
+    # Save the entered description for next time
+    project_descriptions[project_key] = project_desc
+    save_settings(settings)
         
     pref_param = ParameterDefinition(
         name="ai_prompt_preferences",
@@ -1076,11 +1100,17 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
     clear_screen()
     print_stylized_header("AI Dataset Analysis & Augmentation Suggestion")
     
+    settings = load_settings()
+    ai_cfg = settings.setdefault("ai", {})
+    project_descriptions = ai_cfg.setdefault("project_descriptions", {})
+    project_key = _get_project_key(dataset_choice)
+    saved_desc = project_descriptions.get(project_key, "Standard object detection project")
+
     # Prompt user for project description and preferences
     desc_param = ParameterDefinition(
         name="project_description",
         category="AI",
-        default="Standard object detection project",
+        default=saved_desc,
         value_type="str",
         description="Describe your dataset and what you are trying to detect",
         help_text="Provide context like: 'Aerial drone images of solar panels' or 'Thermal night vision camera detecting pedestrians'."
@@ -1088,6 +1118,10 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
     project_desc = get_parameter_value_input(desc_param)
     if project_desc in (None, NAV_BACK, NAV_LIST):
         return None
+
+    # Save the entered description for next time
+    project_descriptions[project_key] = project_desc
+    save_settings(settings)
         
     pref_param = ParameterDefinition(
         name="ai_prompt_preferences",

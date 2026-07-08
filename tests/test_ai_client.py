@@ -441,5 +441,65 @@ class GetDatasetAiSummaryTests(unittest.TestCase):
         self.assertEqual(samples, [])
 
 
+class ProjectDescriptionTests(unittest.TestCase):
+    def test_get_project_key_resolves_path(self) -> None:
+        from src.utils.project import project_root
+        root = project_root()
+        dataset_path = root / "datasets" / "test_ds"
+        key = ac._get_project_key(str(dataset_path))
+        # Relative path under project root
+        self.assertEqual(key, "datasets/test_ds")
+
+        # External path
+        key_ext = ac._get_project_key("/some/external/path")
+        self.assertTrue(Path(key_ext).is_absolute() or key_ext == "/some/external/path")
+
+    @mock.patch("src.utils.ai_client.get_user_choice")
+    @mock.patch("src.utils.ai_client.get_parameter_value_input")
+    @mock.patch("src.utils.ai_client.get_dataset_ai_summary")
+    @mock.patch("src.utils.ai_client.query_llm_with_free_tier_fallback")
+    def test_run_ai_recommendation_flow_saves_and_loads_description(
+        self, mock_llm, mock_summary, mock_input, mock_choice
+    ) -> None:
+        from src.config.settings import load_settings, save_settings
+        import shutil
+
+        # Clean/mock settings path
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_settings_path = Path(temp_dir) / "yolomatic_settings.yaml"
+            with mock.patch("src.config.settings.SETTINGS_PATH", temp_settings_path), \
+                 mock.patch("src.utils.ai_client.verify_ai_setup", return_value=(True, "Gemini", "mock-key", "gemini-2.5-flash")):
+                
+                # Mock choice returns "Apply AI Recommendation and Save Config"
+                mock_choice.return_value = "Apply AI Recommendation and Save Config"
+                
+                # Mock input returns description first, preferences second
+                mock_input.side_effect = ["Custom Project Description 123", "some preference"]
+                
+                # Mock details and LLM call
+                mock_summary.return_value = ({"total_images": 1, "splits": {}}, [])
+                mock_llm.return_value = ('{"suggested_name": "test", "rationale": "ok", "training": {}}', "gemini-2.5-flash")
+
+                # First run
+                res = ac.run_ai_recommendation_flow("YOLO11N", "datasets/test_ds")
+                
+                # Check settings saved the description
+                settings = load_settings()
+                project_key = ac._get_project_key("datasets/test_ds")
+                self.assertEqual(settings["ai"]["project_descriptions"][project_key], "Custom Project Description 123")
+
+                # Second run, mock input should be configured with saved default
+                # Clear mock input and define side_effects again
+                mock_input.reset_mock()
+                mock_input.side_effect = ["Custom Project Description 123", "some preference"]
+                
+                # Run again
+                ac.run_ai_recommendation_flow("YOLO11N", "datasets/test_ds")
+
+                # The first ParameterDefinition call should have our saved default description
+                first_param_call = mock_input.call_args_list[0][0][0]
+                self.assertEqual(first_param_call.default, "Custom Project Description 123")
+
+
 if __name__ == "__main__":
     unittest.main()

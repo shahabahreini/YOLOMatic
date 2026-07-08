@@ -60,6 +60,46 @@ class SettingsTests(unittest.TestCase):
         self.assertNotIn("api_key", roboflow)
         self.assertIn("upload", roboflow)
 
+    def test_api_key_encryption_and_decryption(self) -> None:
+        import unittest.mock
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "settings.yaml"
+            settings = load_settings(path)
+            
+            # Set plain text keys
+            settings["ai"]["gemini_api_key"] = "test-gemini-key-123"
+            settings["ai"]["openai_api_key"] = "test-openai-key-456"
+            
+            # Save settings
+            save_settings(settings, path)
+            
+            # Verify YAML actually contains encrypted keys starting with 'yoloenc:'
+            persisted = yaml.safe_load(path.read_text(encoding="utf-8"))
+            self.assertTrue(persisted["ai"]["gemini_api_key"].startswith("yoloenc:"))
+            self.assertTrue(persisted["ai"]["openai_api_key"].startswith("yoloenc:"))
+            self.assertNotEqual(persisted["ai"]["gemini_api_key"], "test-gemini-key-123")
+            self.assertNotEqual(persisted["ai"]["openai_api_key"], "test-openai-key-456")
+            
+            # Load settings and verify they decrypt back to plain text
+            loaded = load_settings(path)
+            self.assertEqual(loaded["ai"]["gemini_api_key"], "test-gemini-key-123")
+            self.assertEqual(loaded["ai"]["openai_api_key"], "test-openai-key-456")
+
+            # Verify legacy/plain-text keys are read correctly (backward compatibility)
+            path.write_text("ai:\n  gemini_api_key: plain-key-789\n  openai_api_key: plain-key-abc\n", encoding="utf-8")
+            loaded_legacy = load_settings(path)
+            self.assertEqual(loaded_legacy["ai"]["gemini_api_key"], "plain-key-789")
+            self.assertEqual(loaded_legacy["ai"]["openai_api_key"], "plain-key-abc")
+
+            # Verify copying settings to another machine (with different secret key) fails to decrypt
+            # Restore encrypted content
+            save_settings(settings, path)
+            with unittest.mock.patch("src.config.settings._get_machine_secret", return_value="different-secret-key"):
+                loaded_other_machine = load_settings(path)
+                # Should not decrypt to original plain text
+                self.assertNotEqual(loaded_other_machine["ai"]["gemini_api_key"], "test-gemini-key-123")
+                self.assertNotEqual(loaded_other_machine["ai"]["openai_api_key"], "test-openai-key-456")
+
     def test_ultralytics_settings_do_not_include_api_key(self) -> None:
         settings = load_settings(Path("/tmp/does-not-exist-yolomatic-settings.yaml"))
 
