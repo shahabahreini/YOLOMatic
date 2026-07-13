@@ -40,7 +40,7 @@ dependencies = [
   "openvino>=2024.0.0",
   "coremltools>=7.1.0; sys_platform != 'win32'",
   "ncnn>=1.0.3",
-  "tensorrt-cu12==11.0.0.114; sys_platform != 'darwin'",
+  "tensorrt-cu12==11.1.0.106; sys_platform != 'darwin'",
 ]
 description = "Automated object-detection training utilities and CLI — configure, train, predict, benchmark, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, and SAM 3.1 models with an interactive terminal interface."
 keywords = [
