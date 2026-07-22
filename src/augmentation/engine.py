@@ -27,7 +27,8 @@ from src.datasets.cache import clean_dataset_image_cache
 from src.utils.ml_dependencies import import_cv2
 
 
-def _get_cv2():
+def _get_cv2() -> Any:
+    """Return OpenCV through the serialized dependency loader."""
     return import_cv2()
 
 logger = logging.getLogger(__name__)
@@ -863,6 +864,11 @@ def run_augmentation(
             "Keypoints cannot be synthesized from boxes or polygons."
         )
 
+    # OpenCV must finish bootstrapping before Albumentations and the worker pool
+    # touch it.  On Windows, importing it first from parallel workers can leave
+    # ``cv2`` partially initialized (notably around its GStreamer bindings).
+    cv2 = _get_cv2()
+
     # Build pipeline
     if ann_format == "yolo_pose":
         pipeline = build_pose_pipeline(profile)
@@ -893,7 +899,6 @@ def run_augmentation(
         int,                               # discarded annotations
     ]:
         img_path, lbl_path = pair
-        cv2 = _get_cv2()
         img_bgr = cv2.imread(str(img_path))
         if img_bgr is None:
             return [], None, 0

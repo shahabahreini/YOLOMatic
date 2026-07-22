@@ -574,6 +574,7 @@ def resolve_training_device(
             breadcrumbs=["YOLOmatic", "Training", "GPU Check"],
             status_fields=status_fields,
             tip="`nvidia-smi` shows the maximum CUDA version the driver supports. If that's lower than the torch CUDA build, update the driver.",
+            back_option="Cancel Training",
         )
         if driver_selection == "Cancel Training":
             return TrainingDeviceResolution(cancelled=True, device=None)
@@ -619,6 +620,7 @@ def resolve_training_device(
             breadcrumbs=["YOLOmatic", "Training", "GPU Check"],
             status_fields=status_fields,
             tip=tip,
+            back_option="Cancel Training",
         )
     else:
         summary = (
@@ -651,6 +653,7 @@ def resolve_training_device(
             breadcrumbs=["YOLOmatic", "Training", "GPU Check"],
             status_fields=status_fields,
             tip=tip,
+            back_option="Cancel Training",
         )
 
     if selection == "Cancel Training":
@@ -709,6 +712,7 @@ def resolve_training_device(
             "Full pip output was just printed to the scrollback — scroll up after this "
             "menu to see it."
         ),
+        back_option="Cancel Training",
     )
     if fallback_selection == "Cancel Training":
         return TrainingDeviceResolution(cancelled=True, device=None)

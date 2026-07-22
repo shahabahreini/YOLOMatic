@@ -117,6 +117,19 @@ def resolve_finish_option(
     return matches[0] if len(matches) == 1 else None
 
 
+def resolve_back_option(options: Sequence[str], back_option: str | None = None) -> str | None:
+    """Resolve the safe action activated by Back/Escape for a menu.
+
+    Callers must explicitly name a non-literal cancellation action.  This keeps
+    shortcuts from guessing incorrectly on destructive confirmations.
+    """
+    if back_option is not None:
+        if back_option not in options:
+            raise ValueError(f"back_option {back_option!r} is not a menu option")
+        return back_option
+    return "Back" if "Back" in options else None
+
+
 def shorten_middle(value: str, max_chars: int = 44) -> str:
     """Compact long menu labels while preserving the beginning and file suffix."""
     if len(value) <= max_chars:
@@ -273,6 +286,7 @@ class MenuRenderer:
         tip: str | None = None,
         status_fields: dict[str, str] | None = None,
         finish_option: str | None = None,
+        back_option: str | None = None,
         wizard_steps: list[str] | None = None,
         wizard_current_step: int | None = None,
         allow_refresh: bool = False,
@@ -287,6 +301,7 @@ class MenuRenderer:
         self.tip = tip
         self.status_fields = status_fields or {}
         self.finish_option = finish_option
+        self.back_option = back_option
         self.wizard_steps = wizard_steps
         self.wizard_current_step = wizard_current_step
         self.allow_refresh = allow_refresh
@@ -541,8 +556,13 @@ class MenuRenderer:
     def _render_status_bar(self) -> Panel:
         """Render a small status bar with keyboard hints and app version."""
         hint_key = "menu_finish" if self.finish_option else "menu"
+        hints = list(STATUS_HINTS.get(hint_key, STATUS_HINTS["menu"]))
+        if self.back_option and self.back_option != "Back":
+            hints = [
+                (key, "Cancel" if key == "B" else action)
+                for key, action in hints
+            ]
         if getattr(self, "allow_refresh", False):
-            hints = list(STATUS_HINTS.get(hint_key, STATUS_HINTS["menu"]))
             insert_idx = len(hints)
             for idx, (k, a) in enumerate(hints):
                 if k == "Q":
@@ -555,7 +575,11 @@ class MenuRenderer:
                 )
             )
         else:
-            hints_text = render_hints(hint_key)
+            hints_text = Text.from_markup(
+                "  •  ".join(
+                    f"[bold yellow]{key}[/bold yellow] {action}" for key, action in hints
+                )
+            )
 
         gpu_status = get_gpu_status()
         if gpu_status == "Detecting...":
@@ -762,6 +786,7 @@ def get_user_choice(
     tip: str | None = None,
     status_fields: dict[str, str] | None = None,
     finish_options: set[str] | None = None,
+    back_option: str | None = None,
     initial_selection: int | str | None = None,
     wizard_steps: list[str] | None = None,
     wizard_current_step: int | None = None,
@@ -780,6 +805,7 @@ def get_user_choice(
     if allow_back and "Back" not in selectable_options:
         selectable_options.append("Back")
     finish_option = resolve_finish_option(selectable_options, finish_options)
+    resolved_back_option = resolve_back_option(selectable_options, back_option)
 
     navigable_indices = [
         i
@@ -827,6 +853,7 @@ def get_user_choice(
             tip=tip,
             status_fields=status_fields,
             finish_option=finish_option,
+            back_option=resolved_back_option,
             wizard_steps=wizard_steps,
             wizard_current_step=wizard_current_step,
             allow_refresh=allow_refresh,
@@ -872,16 +899,14 @@ def get_user_choice(
                         return selectable_options[navigable_indices[current_nav_idx]]
                     elif key_lower == "f" and finish_option is not None:
                         return finish_option
-                    elif key_lower == "b" and "Back" in selectable_options:
-                        return "Back"
+                    elif key_lower == "b" or key_name == "KEY_ESCAPE":
+                        return resolved_back_option or NAV_BACK
                     elif key_lower == "r" and allow_refresh:
                         return "__refresh__"
-                    elif key_lower == "q" or key_name == "KEY_ESCAPE":
+                    elif key_lower == "q":
                         if "Exit" in selectable_options:
                             return "Exit"
-                        if "Back" in selectable_options:
-                            return "Back"
-                        return NAV_BACK
+                        return resolved_back_option or NAV_BACK
                     else:
                         continue
 
@@ -890,8 +915,8 @@ def get_user_choice(
                     renderer._layout_dirty = True
                     live.update(renderer)
                     live.refresh()
-            except Exception:
-                pass
+            except (EOFError, KeyboardInterrupt):
+                return resolved_back_option or NAV_BACK
 
     return NAV_BACK
 
@@ -1568,7 +1593,7 @@ def get_user_multi_select(
                             state_changed = True
                         elif key_lower == "f":
                             return selected, values
-                        elif key_lower == "q" or key_name == "KEY_ESCAPE":
+                        elif key_lower == "b" or key_lower == "q" or key_name == "KEY_ESCAPE":
                             return None
 
                     elif focus == "input":
@@ -1642,8 +1667,8 @@ def get_user_multi_select(
                         renderer._layout_dirty = True
                         live.update(renderer)
                         live.refresh()
-            except Exception:
-                pass
+            except (EOFError, KeyboardInterrupt):
+                return None
 
     return None
 

@@ -124,7 +124,23 @@ pythonpath = ["."]
 
 [tool.setuptools]
 package-dir = {"src" = "src"}
-packages = ["src", "src.benchmark", "src.cli", "src.config", "src.datasets", "src.models", "src.trainers", "src.utils"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.12",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"

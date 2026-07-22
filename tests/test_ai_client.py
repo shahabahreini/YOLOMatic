@@ -461,8 +461,7 @@ class ProjectDescriptionTests(unittest.TestCase):
     def test_run_ai_recommendation_flow_saves_and_loads_description(
         self, mock_llm, mock_summary, mock_input, mock_choice
     ) -> None:
-        from src.config.settings import load_settings, save_settings
-        import shutil
+        from src.config.settings import load_settings
 
         # Clean/mock settings path
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -481,7 +480,7 @@ class ProjectDescriptionTests(unittest.TestCase):
                 mock_llm.return_value = ('{"suggested_name": "test", "rationale": "ok", "training": {}}', "gemini-2.5-flash")
 
                 # First run
-                res = ac.run_ai_recommendation_flow("YOLO11N", "datasets/test_ds")
+                ac.run_ai_recommendation_flow("YOLO11N", "datasets/test_ds")
                 
                 # Check settings saved the description
                 settings = load_settings()

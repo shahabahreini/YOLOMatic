@@ -16,6 +16,13 @@ uv run yolomatic
 
 Select **Augment Dataset** from the menu. The wizard guides you through profile selection, source dataset, and output configuration.
 
+## Keyboard Navigation
+
+Use **↑/↓** to move, **Enter** to select, and **F** only when the screen shows
+an explicit forward action. **B** and **Esc** always choose that screen's safe
+back or cancel action. In free-text fields, use `:b` to go back and `:l` to
+return to the parameter list so ordinary text remains typeable.
+
 ---
 
 ## Augmentation Profiles
@@ -144,5 +151,14 @@ COCO output is required when the augmented dataset will be used for Detectron2 t
 - Keep augmented datasets in a separate folder (e.g., `datasets/my_dataset_aug/`) rather than overwriting the originals.
 - Use weather transforms only when your deployment environment includes outdoor/variable lighting conditions.
 - Geometric transforms (flip, rotate) should reflect the real-world orientation variance of your objects — don't flip if orientation is semantically meaningful.
+
+## Troubleshooting
+
+### Windows: `cv2` reports `gapi_wip_gst_GStreamerPipeline`
+
+YOLOmatic initializes OpenCV before Albumentations and parallel augmentation
+workers to avoid OpenCV's partial-import race on Windows. If the error remains,
+refresh the project environment with `uv sync --reinstall-package opencv-python`
+and ensure only one OpenCV wheel variant is installed in that environment.
 
 Related pages: [Datasets](datasets.md), [Training parameters](../advanced/training-parameters.md), [First training run](../getting-started/first-training-run.md).

@@ -110,7 +110,9 @@ def _collect_event_directories(run_dir: str | Path) -> list[Path]:
 
 
 def _read_image_array(image_path: Path) -> Any | None:
-    cv2 = import_module_or_raise("cv2")
+    from src.utils.ml_dependencies import import_cv2
+
+    cv2 = import_cv2()
     image = cv2.imread(str(image_path))
     if image is None:
         return None
@@ -389,4 +391,3 @@ def emit_tensorboard_report(console: Any, report: TensorBoardValidationReport) -
             "[bold yellow]Optional TensorBoard metrics not found:[/bold yellow] "
             + ", ".join(report.missing_optional)
         )
-

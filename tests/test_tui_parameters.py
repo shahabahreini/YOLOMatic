@@ -9,6 +9,7 @@ from src.utils.tui import (
     format_path,
     render_hints,
     parse_parameter_value,
+    resolve_back_option,
     resolve_finish_option,
     shorten_middle,
 )
@@ -120,6 +121,15 @@ class TUIParameterValidationTest(unittest.TestCase):
         )
         self.assertEqual(resolve_finish_option(["Start Benchmark", "Cancel"]), "Start Benchmark")
         self.assertIsNone(resolve_finish_option(["Train", "Predict", "Benchmark"]))
+
+    def test_back_shortcut_requires_an_explicit_safe_action(self) -> None:
+        self.assertEqual(resolve_back_option(["Start", "Back"]), "Back")
+        self.assertEqual(
+            resolve_back_option(["Start", "Cancel Training"], "Cancel Training"),
+            "Cancel Training",
+        )
+        with self.assertRaises(ValueError):
+            resolve_back_option(["Start", "Cancel"], "Back")
 
     def test_menu_renderer_includes_breadcrumbs_status_description_and_tip(self) -> None:
         from rich.console import Console

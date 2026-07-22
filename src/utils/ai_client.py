@@ -1073,7 +1073,8 @@ def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict |
         choice = get_user_choice(
             ["Apply AI Recommendation and Save Config", "Discard and Return"],
             title="Confirm AI Configuration",
-            text="Do you want to write these hyperparameters to a new YAML config file?"
+            text="Do you want to write these hyperparameters to a new YAML config file?",
+            back_option="Discard and Return",
         )
         
         if choice == "Apply AI Recommendation and Save Config":
@@ -1264,7 +1265,8 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         choice = get_user_choice(
             ["Save Augmentation Profile", "Discard and Return"],
             title="Confirm Augmentation Profile",
-            text="Do you want to save this augmentation profile to configs/augmentation_profiles/?"
+            text="Do you want to save this augmentation profile to configs/augmentation_profiles/?",
+            back_option="Discard and Return",
         )
         
         if choice == "Save Augmentation Profile":

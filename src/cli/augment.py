@@ -393,6 +393,7 @@ def _edit_profile_transforms(profile: AugmentationProfile) -> AugmentationProfil
             "Discard & Back": "Discard these edits and return without saving.",
         },
         breadcrumbs=["YOLOmatic", "Augment Dataset", "Profiles", updated_profile.name],
+        back_option="Discard & Back",
     )
     if choice == "Review Again":
         return _edit_profile_transforms(updated_profile)
@@ -610,6 +611,7 @@ def _delete_profile_flow() -> None:
             "No, Keep":    "[green]Cancel — keep the profile.[/green]",
         },
         breadcrumbs=["YOLOmatic", "Augment Dataset", "Profiles", "Delete"],
+        back_option="No, Keep",
     )
     if confirm == "Yes, Delete":
         delete_profile(source_name, PROFILES_DIR)

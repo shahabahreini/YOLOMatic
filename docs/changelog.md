@@ -22,6 +22,7 @@ All notable changes to YOLOmatic are documented here. The format follows [Keep a
 - Made the standalone export wizard load checkpoint details before export and hide options that do not apply to the selected model task or target format.
 
 ### Fixed
+- Serialized Windows OpenCV initialization before Albumentations augmentation workers and standardized safe TUI back/cancel shortcuts.
 - Ensured live TUI updates refresh the UI immediately to prevent stale rendering.
 
 ## [v5.0.0] - 2026-05-27

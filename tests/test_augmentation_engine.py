@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
@@ -173,6 +174,38 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
                 (out_root / "data.yaml").read_text(encoding="utf-8")
             )
             self.assertNotIn("test", data_yaml)
+
+    def test_primes_cv2_once_before_parallel_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: detect\nnames: [item]\ntrain: train/images\n",
+                encoding="utf-8",
+            )
+            for index in range(2):
+                self._write_image(root / "train" / "images" / f"{index}.jpg")
+                self._write_label(root / "train" / "labels" / f"{index}.txt")
+
+            fake_cv2 = MagicMock()
+            fake_cv2.imread.return_value = np.full((12, 12, 3), 120, dtype=np.uint8)
+            fake_cv2.imencode.return_value = (True, np.array([1], dtype=np.uint8))
+
+            with (
+                patch("src.augmentation.engine._get_cv2", return_value=fake_cv2) as get_cv2,
+                patch("src.augmentation.engine.build_bbox_pipeline", return_value=object()),
+                patch("src.augmentation.engine._augment_bbox", return_value=[]),
+            ):
+                run_augmentation(
+                    root,
+                    "augmented",
+                    self._noop_profile(multiplier=1, include_originals=True),
+                    SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0),
+                    output_format="YOLO Detection",
+                    max_workers=2,
+                )
+
+            self.assertEqual(get_cv2.call_count, 1)
 
     def test_run_augmentation_pools_all_source_splits_then_redistributes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

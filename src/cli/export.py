@@ -367,7 +367,8 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
         ["Yes, run benchmark", "No, skip"],
         title="Benchmark Comparison",
         text="Would you like to run a quick performance comparison between the original and exported model?",
-        breadcrumbs=["YOLOmatic", "Export", "Benchmark"]
+        breadcrumbs=["YOLOmatic", "Export", "Benchmark"],
+        back_option="No, skip",
     )
     if choice != "Yes, run benchmark":
         return
@@ -669,6 +670,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             text="Select the target architecture format. (See expected boosting metrics below):",
             descriptions=descriptions,
             breadcrumbs=["YOLOmatic", "Export", "Format Selection"],
+            back_option="Cancel",
         )
         if format_label == "Cancel" or format_label == NAV_BACK:
             return

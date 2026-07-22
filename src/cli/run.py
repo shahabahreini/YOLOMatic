@@ -3330,6 +3330,7 @@ def settings_reset_page() -> None:
         ["Reset to Defaults", "Cancel"],
         title="Reset Settings",
         text="Restore configs/yolomatic_settings.yaml to built-in defaults?",
+        back_option="Cancel",
     )
     if choice == "Reset to Defaults":
         reset_settings()

@@ -4,6 +4,7 @@ import importlib
 import os
 import platform
 import sys
+import threading
 from pathlib import Path
 from typing import TypeVar
 
@@ -27,6 +28,7 @@ _NVIDIA_PACKAGE_NAMES = (
 # Tracks DLL search paths already registered via os.add_dll_directory on Windows
 # so we don't leak handles or re-register on every call.
 _REGISTERED_DLL_DIRS: set[str] = set()
+_CV2_IMPORT_LOCK = threading.RLock()
 
 
 class MLDependencyError(RuntimeError):
@@ -243,23 +245,30 @@ def import_sam_transformers() -> object:
 
 
 def import_cv2() -> _T:
-    """Safely import cv2, handling known opencv-python circular import issues (e.g. gapi_wip_gst_GStreamerPipeline)."""
+    """Import OpenCV once at a time, recovering a known partial-import state.
+
+    OpenCV's Python bootstrap can expose a partially initialized ``cv2`` module
+    on Windows.  Retrying while another thread is importing or purging that
+    module makes the failure substantially more likely, so both operations are
+    deliberately serialized.
+    """
     prepare_ml_runtime()
-    try:
-        return importlib.import_module("cv2")
-    except AttributeError as error:
-        if "gapi_wip_gst_GStreamerPipeline" in str(error) or "cv2" in str(error):
-            # Purge cv2 and all its submodules (cv2.gapi, cv2.mat_wrapper, etc.) from sys.modules
-            for mod_name in list(sys.modules.keys()):
+    with _CV2_IMPORT_LOCK:
+        try:
+            return importlib.import_module("cv2")
+        except AttributeError as error:
+            if "gapi_wip_gst_GStreamerPipeline" not in str(error) and "cv2" not in str(error):
+                _raise_dependency_error("cv2", error)
+
+            for mod_name in tuple(sys.modules):
                 if mod_name == "cv2" or mod_name.startswith("cv2."):
                     sys.modules.pop(mod_name, None)
             try:
                 return importlib.import_module("cv2")
             except Exception as retry_error:
                 _raise_dependency_error("cv2", retry_error)
-        _raise_dependency_error("cv2", error)
-    except Exception as error:
-        _raise_dependency_error("cv2", error)
+        except Exception as error:
+            _raise_dependency_error("cv2", error)
 
 
 def check_hf_auth() -> str | None:
@@ -308,4 +317,3 @@ def _patch_tensorrt_compatibility() -> None:
 
 # Run patch immediately when dependency library is loaded
 _patch_tensorrt_compatibility()
-

@@ -614,6 +614,7 @@ def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
         },
         breadcrumbs=["YOLOmatic", "Benchmark", "Confirm"],
         finish_options={"Start Benchmark"},
+        back_option="Cancel",
     )
     return choice == "Start Benchmark"
 

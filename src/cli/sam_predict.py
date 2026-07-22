@@ -603,6 +603,7 @@ def _confirm(model_id: str, mode: str, mode_config: object, source: Path, output
             "Cancel": "[dim]Return to main menu.[/dim]",
         },
         breadcrumbs=["YOLOmatic", "SAM Segment", "Confirm"],
+        back_option="Cancel",
     )
     return choice == "Start SAM Inference"
 

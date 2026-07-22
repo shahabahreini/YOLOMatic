@@ -23,6 +23,15 @@ fine-tuning, predicting, benchmarking, augmenting, converting, monitoring, and
 uploading computer-vision models. It covers YOLO26/12/11/10/9/8, YOLOX,
 RF-DETR, SAM 3.1, and Detectron2 from one terminal workflow.
 
+## Table of Contents
+
+- [Why YOLOmatic](#why-yolomatic)
+- [30-Second Quickstart](#30-second-quickstart)
+- [Feature Matrix](#feature-matrix)
+- [FAQ](#faq)
+- [Documentation](#links)
+- [Versioning](#versioning)
+
 ## Why YOLOmatic
 
 - **Interactive wizard UX:** configure models, datasets, fine-tuning, prediction,
@@ -60,6 +69,19 @@ uv run yolomatic-convert
 uv run yolomatic-upload
 uv run yolomatic-tensorboard
 ```
+
+## Versioning
+
+Use the built-in semantic version command before creating a release tag:
+
+```sh
+uv run bump patch  # or: minor / major
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Release tags must point to a commit already on `main`; GitHub Actions verifies
+the tag and package version before publishing the wheel and source archive.
 
 ## Feature Matrix
 

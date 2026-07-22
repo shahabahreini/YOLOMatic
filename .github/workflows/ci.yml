@@ -7,6 +7,30 @@ on:
   pull_request:
 
 jobs:
+  ruff:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Sync environment
+        run: uv sync --group dev --python 3.12
+
+      - name: Run Ruff
+        run: uv run ruff check src tests
+
   test:
     runs-on: ubuntu-latest
 

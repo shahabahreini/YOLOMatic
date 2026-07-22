@@ -254,6 +254,7 @@ def initialize_clearml_task(project_name, task_name, tags, clearml_settings=None
                 "ClearML is optional — YOLOmatic runs fine without it. Only block "
                 "training here if you specifically need the ClearML dashboard for this run."
             ),
+            back_option="Cancel Training",
         )
         if selection == "Cancel Training":
             return False

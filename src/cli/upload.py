@@ -925,6 +925,7 @@ def main() -> None:
                         "Cancel": "Abort the upload and return to main menu.",
                     },
                     breadcrumbs=["YOLOmatic", "Roboflow Upload", "Confirmation"],
+                    back_option="Cancel",
                 )
                 if confirmation in (NAV_BACK, "Back"):
                     context["model_name"] = None if not args.model_name else context["model_name"]
