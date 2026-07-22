@@ -59,9 +59,9 @@ def _opencv_conflict_error(installed: list[str]) -> MLDependencyError:
     return MLDependencyError(
         "Conflicting OpenCV wheels are installed in this environment: "
         f"{packages}. They all provide the same 'cv2' module.\n"
-        "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python-headless\n"
+        "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python\n"
         "If the conflict remains, run: uv pip uninstall opencv-python "
-        "opencv-contrib-python opencv-contrib-python-headless\n"
+        "opencv-python-headless opencv-contrib-python opencv-contrib-python-headless\n"
         "Then run: uv sync"
     )
 

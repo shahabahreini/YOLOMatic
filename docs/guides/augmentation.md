@@ -158,17 +158,17 @@ COCO output is required when the augmented dataset will be used for Detectron2 t
 
 YOLOmatic initializes OpenCV before Albumentations and parallel augmentation
 workers to avoid OpenCV's partial-import race on Windows. It uses only
-`opencv-python-headless`; the desktop and headless OpenCV wheels cannot coexist
+`opencv-python`; the desktop and headless OpenCV wheels cannot coexist
 because both provide `cv2`. If the error remains, close YOLOmatic and run:
 
 ```powershell
-uv sync --reinstall-package opencv-python-headless
+uv sync --reinstall-package opencv-python
 ```
 
 If YOLOmatic reports a remaining conflict, remove the other variants and sync:
 
 ```powershell
-uv pip uninstall opencv-python opencv-contrib-python opencv-contrib-python-headless
+uv pip uninstall opencv-python-headless opencv-contrib-python opencv-contrib-python-headless
 uv sync
 ```
 
