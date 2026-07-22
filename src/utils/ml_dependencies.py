@@ -249,8 +249,10 @@ def import_cv2() -> _T:
         return importlib.import_module("cv2")
     except AttributeError as error:
         if "gapi_wip_gst_GStreamerPipeline" in str(error) or "cv2" in str(error):
-            # Retry importing cv2 once if initial subpackage binding encountered circular import state
-            sys.modules.pop("cv2", None)
+            # Purge cv2 and all its submodules (cv2.gapi, cv2.mat_wrapper, etc.) from sys.modules
+            for mod_name in list(sys.modules.keys()):
+                if mod_name == "cv2" or mod_name.startswith("cv2."):
+                    sys.modules.pop(mod_name, None)
             try:
                 return importlib.import_module("cv2")
             except Exception as retry_error:

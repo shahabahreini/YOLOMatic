@@ -26,7 +26,9 @@ import yaml
 from src.datasets.cache import clean_dataset_image_cache
 from src.utils.ml_dependencies import import_cv2
 
-cv2 = import_cv2()
+
+def _get_cv2():
+    return import_cv2()
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +322,7 @@ def bbox_to_polygon(bbox: list[float]) -> list[float]:
 
 def polygon_to_mask(polygon: list[float], W: int, H: int) -> np.ndarray:
     """Normalized polygon [x1,y1,...] → binary uint8 mask of shape (H, W)."""
+    cv2 = _get_cv2()
     pts = np.array(polygon, dtype=np.float32).reshape(-1, 2)
     pts[:, 0] = np.clip(pts[:, 0] * W, 0, W - 1)
     pts[:, 1] = np.clip(pts[:, 1] * H, 0, H - 1)
@@ -338,6 +341,7 @@ def mask_to_polygon(
     Binary mask → normalized polygon [x1/W, y1/H, ...].
     Returns None if mask is empty or below min_area threshold.
     """
+    cv2 = _get_cv2()
     H, W = mask.shape
     contours, _ = cv2.findContours(
         mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -889,6 +893,7 @@ def run_augmentation(
         int,                               # discarded annotations
     ]:
         img_path, lbl_path = pair
+        cv2 = _get_cv2()
         img_bgr = cv2.imread(str(img_path))
         if img_bgr is None:
             return [], None, 0
