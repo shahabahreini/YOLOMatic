@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from importlib import metadata
 import os
 import platform
 import sys
@@ -29,10 +30,40 @@ _NVIDIA_PACKAGE_NAMES = (
 # so we don't leak handles or re-register on every call.
 _REGISTERED_DLL_DIRS: set[str] = set()
 _CV2_IMPORT_LOCK = threading.RLock()
+_OPENCV_DISTRIBUTIONS = frozenset(
+    {
+        "opencv-python",
+        "opencv-contrib-python",
+        "opencv-python-headless",
+        "opencv-contrib-python-headless",
+    }
+)
 
 
 class MLDependencyError(RuntimeError):
     pass
+
+
+def _installed_opencv_distributions() -> list[str]:
+    """Return installed OpenCV wheel distributions that share the ``cv2`` namespace."""
+    installed: list[str] = []
+    for distribution in metadata.distributions():
+        name = distribution.metadata.get("Name", "").lower()
+        if name in _OPENCV_DISTRIBUTIONS:
+            installed.append(name)
+    return sorted(set(installed))
+
+
+def _opencv_conflict_error(installed: list[str]) -> MLDependencyError:
+    packages = ", ".join(installed)
+    return MLDependencyError(
+        "Conflicting OpenCV wheels are installed in this environment: "
+        f"{packages}. They all provide the same 'cv2' module.\n"
+        "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python-headless\n"
+        "If the conflict remains, run: uv pip uninstall opencv-python "
+        "opencv-contrib-python opencv-contrib-python-headless\n"
+        "Then run: uv sync"
+    )
 
 
 def _candidate_site_packages() -> list[Path]:
@@ -254,6 +285,9 @@ def import_cv2() -> _T:
     """
     prepare_ml_runtime()
     with _CV2_IMPORT_LOCK:
+        installed = _installed_opencv_distributions()
+        if len(installed) > 1:
+            raise _opencv_conflict_error(installed)
         try:
             return importlib.import_module("cv2")
         except AttributeError as error:

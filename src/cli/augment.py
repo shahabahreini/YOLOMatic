@@ -999,9 +999,15 @@ def _run_with_progress(
     thread.join()
 
     if error_holder:
+        error_text = str(error_holder[0])
+        next_step = (
+            "Close YOLOmatic and run `uv sync`."
+            if "Conflicting OpenCV wheels" in error_text
+            else "Check that albumentations is installed and the dataset path is valid."
+        )
         console.print(Panel(
-            f"[bold red]Augmentation failed:[/bold red] {error_holder[0]}\n\n"
-            "[dim]Check that albumentations is installed and the dataset path is valid.[/dim]",
+            f"[bold red]Augmentation failed:[/bold red] {error_text}\n\n"
+            f"[dim]{next_step}[/dim]",
             border_style="red", padding=(1, 2),
         ))
         return

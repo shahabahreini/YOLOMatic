@@ -9,6 +9,22 @@ from src.utils import ml_dependencies
 
 
 class ImportCv2Tests(unittest.TestCase):
+    def test_rejects_multiple_opencv_wheel_variants_before_importing_cv2(self) -> None:
+        desktop = type("Distribution", (), {"metadata": {"Name": "opencv-python"}})()
+        headless = type(
+            "Distribution", (), {"metadata": {"Name": "opencv-python-headless"}}
+        )()
+
+        with (
+            patch.object(ml_dependencies, "prepare_ml_runtime"),
+            patch.object(ml_dependencies.metadata, "distributions", return_value=[desktop, headless]),
+            patch.object(ml_dependencies.importlib, "import_module") as import_module,
+        ):
+            with self.assertRaisesRegex(ml_dependencies.MLDependencyError, "Conflicting OpenCV wheels"):
+                ml_dependencies.import_cv2()
+
+        import_module.assert_not_called()
+
     def test_retries_known_partial_cv2_import_after_purging_submodules(self) -> None:
         stale_cv2 = ModuleType("cv2")
         stale_gapi = ModuleType("cv2.gapi")
@@ -21,6 +37,7 @@ class ImportCv2Tests(unittest.TestCase):
         try:
             with (
                 patch.object(ml_dependencies, "prepare_ml_runtime"),
+                patch.object(ml_dependencies.metadata, "distributions", return_value=[]),
                 patch.object(
                     ml_dependencies.importlib,
                     "import_module",
