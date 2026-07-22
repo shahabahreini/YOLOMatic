@@ -242,6 +242,24 @@ def import_sam_transformers() -> object:
         ) from error
 
 
+def import_cv2() -> _T:
+    """Safely import cv2, handling known opencv-python circular import issues (e.g. gapi_wip_gst_GStreamerPipeline)."""
+    prepare_ml_runtime()
+    try:
+        return importlib.import_module("cv2")
+    except AttributeError as error:
+        if "gapi_wip_gst_GStreamerPipeline" in str(error) or "cv2" in str(error):
+            # Retry importing cv2 once if initial subpackage binding encountered circular import state
+            sys.modules.pop("cv2", None)
+            try:
+                return importlib.import_module("cv2")
+            except Exception as retry_error:
+                _raise_dependency_error("cv2", retry_error)
+        _raise_dependency_error("cv2", error)
+    except Exception as error:
+        _raise_dependency_error("cv2", error)
+
+
 def check_hf_auth() -> str | None:
     """Return the active HuggingFace token, or None if not authenticated.
 

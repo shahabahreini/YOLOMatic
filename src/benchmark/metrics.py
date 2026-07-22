@@ -13,7 +13,8 @@ import numpy as np
 
 def polygon_to_mask(polygon: list[float], width: int, height: int) -> np.ndarray:
     """Rasterise a COCO flat polygon [x1,y1,x2,y2,...] to a binary mask."""
-    import cv2  # only import when called; cv2 is always available via ultralytics
+    from src.utils.ml_dependencies import import_cv2
+    cv2 = import_cv2()
 
     pts = np.array(polygon, dtype=np.float32).reshape(-1, 2).astype(np.int32)
     mask = np.zeros((height, width), dtype=np.uint8)

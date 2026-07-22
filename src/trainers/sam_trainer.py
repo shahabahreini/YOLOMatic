@@ -107,7 +107,8 @@ class _SAMDataset(torch.utils.data.Dataset):
     @staticmethod
     def _poly_to_mask(poly: list[float], w: int, h: int) -> np.ndarray:
         try:
-            import cv2
+            from src.utils.ml_dependencies import import_cv2
+            cv2 = import_cv2()
             pts = np.array(poly, dtype=np.float32).reshape(-1, 2).astype(np.int32)
             mask = np.zeros((h, w), dtype=np.uint8)
             cv2.fillPoly(mask, [pts], 1)

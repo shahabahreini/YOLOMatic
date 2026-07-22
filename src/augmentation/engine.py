@@ -20,11 +20,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-import cv2
 import numpy as np
 import yaml
 
 from src.datasets.cache import clean_dataset_image_cache
+from src.utils.ml_dependencies import import_cv2
+
+cv2 = import_cv2()
 
 logger = logging.getLogger(__name__)
 

@@ -306,7 +306,8 @@ def _masks_to_yolo_txt(masks: list[np.ndarray], img_w: int, img_h: int) -> list[
     lines: list[str] = []
     for mask in masks:
         try:
-            import cv2
+            from src.utils.ml_dependencies import import_cv2
+            cv2 = import_cv2()
             contours, _ = cv2.findContours(
                 mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )

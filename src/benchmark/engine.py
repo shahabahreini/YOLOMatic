@@ -389,7 +389,8 @@ def _extract_preds(result, task: str, img_w: int, img_h: int) -> list[PredObject
             m = masks_data[i]
             # Resize mask to original image size if needed
             if m.shape != (img_h, img_w):
-                import cv2
+                from src.utils.ml_dependencies import import_cv2
+                cv2 = import_cv2()
                 m = cv2.resize(m.astype(np.uint8), (img_w, img_h), interpolation=cv2.INTER_NEAREST)
             mask = m.astype(bool)
         preds.append(PredObject(
