@@ -275,6 +275,7 @@ def discover_split_dirs(
         candidate_root = Path(str(raw_root))
         path_root = candidate_root if candidate_root.is_absolute() else (root / candidate_root).resolve()
 
+    declared_canonicals: set[str] = set()
     declared_any = False
     for canonical, aliases in SPLIT_ALIASES.items():
         for alias in aliases:
@@ -287,7 +288,8 @@ def discover_split_dirs(
                     if warnings is not None:
                         warnings.append(f"data.yaml references missing {alias} path: {value}")
                     continue
-                _accept(canonical, path)
+                if _accept(canonical, path):
+                    declared_canonicals.add(canonical)
 
     alias_to_canonical = {
         alias: canonical for canonical, aliases in SPLIT_ALIASES.items() for alias in aliases
@@ -319,7 +321,10 @@ def discover_split_dirs(
                 disk_candidates.append(sub)
                 canonical_by_candidate[sub] = canonical
     for candidate in disk_candidates:
-        if _accept(canonical_by_candidate[candidate], candidate) and declared_any and warnings is not None:
+        canonical = canonical_by_candidate[candidate]
+        if canonical in declared_canonicals:
+            continue
+        if _accept(canonical, candidate) and declared_any and warnings is not None:
             warnings.append(
                 f"Found split folder on disk not referenced in data.yaml: {candidate}; its images will be included."
             )

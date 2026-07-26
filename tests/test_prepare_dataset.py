@@ -933,6 +933,20 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertEqual(len(written_images), 1)
         self.assertNotIn("_0002", written_images[0].name)
 
+    def test_discover_split_dirs_does_not_double_count_when_data_yaml_is_present(self) -> None:
+        root = self.tmp / "authoritative_source"
+        root.mkdir()
+        (root / "train" / "images").mkdir(parents=True)
+        (root / "images" / "train").mkdir(parents=True)
+        (root / "data.yaml").write_text("train: train/images\nnc: 1\nnames: [item]\ntask: detect\n", encoding="utf-8")
+        
+        warnings: list[str] = []
+        from src.datasets.core import discover_split_dirs
+        split_dirs = discover_split_dirs(root, {"train": "train/images"}, warnings=warnings)
+
+        self.assertEqual(split_dirs["train"], [(root / "train" / "images").resolve()])
+        self.assertEqual(warnings, [])
+
 
 if __name__ == "__main__":
     unittest.main()
