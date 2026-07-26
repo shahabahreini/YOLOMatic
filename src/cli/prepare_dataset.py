@@ -431,22 +431,46 @@ def _run_with_progress(config: PrepareDatasetConfig) -> PrepareDatasetStats | No
         finally:
             done.set()
 
+    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    spinner_idx = 0
+
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
     try:
-        with Live(refresh_per_second=4) as live:
+        with Live(refresh_per_second=8) as live:
             while not done.is_set():
                 total = progress_state["total"]
                 current = progress_state["done"]
-                pct = f"{current / total * 100:.0f}%" if total else "..."
+                message = progress_state["message"]
+
+                if total > 0:
+                    pct_val = min(100.0, (current / total) * 100)
+                    pct = f"{pct_val:.0f}%"
+                    bar_width = 30
+                    filled = min(bar_width, int(bar_width * (current / total)))
+                    bar_str = "█" * filled + "░" * (bar_width - filled)
+                    body = (
+                        f"[bold white]{message}[/bold white]\n\n"
+                        f"[cyan]{bar_str}[/cyan]  [bold cyan]{current:,}/{total:,}[/bold cyan] ([dim]{pct}[/dim])"
+                    )
+                    title = f"[cyan]Preparing Dataset [{pct}][/cyan]"
+                else:
+                    frame = spinner_frames[spinner_idx % len(spinner_frames)]
+                    spinner_idx += 1
+                    body = (
+                        f"[bold cyan]{frame}[/bold cyan] [bold white]{message}[/bold white]\n\n"
+                        f"[dim]Discovering files and loading dataset annotations...[/dim]"
+                    )
+                    title = "[cyan]Preparing Dataset [...][/cyan]"
+
                 live.update(
                     Panel(
-                        f"{progress_state['message']}\n\n[cyan]{current}/{total}[/cyan]",
-                        title=f"[cyan]Preparing Dataset [{pct}][/cyan]",
+                        body,
+                        title=title,
                         border_style="cyan",
                     )
                 )
-                time.sleep(0.25)
+                time.sleep(0.125)
     except KeyboardInterrupt:
         console.print(Panel(
             "[bold yellow]Interrupted.[/bold yellow] Waiting for in-flight work to finish so output stays consistent...",

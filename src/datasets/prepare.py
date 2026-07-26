@@ -273,7 +273,9 @@ def _read_yolo_annotations(
 
 
 def _read_yolo_records(
-    source: Path, warnings: list[str]
+    source: Path,
+    warnings: list[str],
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     yaml_path = source / "data.yaml"
     if not yaml_path.exists():
@@ -292,35 +294,45 @@ def _read_yolo_records(
     consumed_labels: set[Path] = set()
     orphan_label_dirs: set[Path] = set()
 
-    def _consume_dir(image_dir: Path) -> None:
-        nonlocal bbox_hits, seg_hits, pose_hits
-        image_dir = image_dir.resolve()
-        if image_dir in seen_image_dirs:
-            return
-        seen_image_dirs.add(image_dir)
+    if progress_callback:
+        progress_callback(0, 0, "Discovering image directories...")
+
+    image_dirs_to_scan: list[Path] = []
+    split_dirs = discover_split_dirs(source, data, warnings=warnings)
+    for image_dirs in split_dirs.values():
+        for image_dir in image_dirs:
+            image_dir_resolved = image_dir.resolve()
+            if image_dir_resolved not in seen_image_dirs:
+                seen_image_dirs.add(image_dir_resolved)
+                image_dirs_to_scan.append(image_dir_resolved)
+
+    if not image_dirs_to_scan and (source / "images").exists():
+        image_dirs_to_scan.append((source / "images").resolve())
+
+    scanned_items: list[tuple[Path, Path, Path]] = []
+    for image_dir in image_dirs_to_scan:
         label_dir = _resolve_label_dir(image_dir) or image_dir.parent / "labels"
         if label_dir != image_dir:
             orphan_label_dirs.add(label_dir)
         for image_path in _iter_images(image_dir):
-            width, height = _image_size(image_path)
-            file_name = _dedupe_filename(image_path.name, used_names)
-            consumed_labels.add(_label_path_for(image_path, image_dir, label_dir))
-            anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, warnings, kpt_shape)
-            bbox_hits += b
-            seg_hits += s
-            pose_hits += p
-            records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
+            scanned_items.append((image_path, image_dir, label_dir))
 
-    # Union of data.yaml split keys and conventional split folders found on disk
-    # (train/valid/test layouts not referenced in the yaml are pooled too).
-    split_dirs = discover_split_dirs(source, data, warnings=warnings)
-    for image_dirs in split_dirs.values():
-        for image_dir in image_dirs:
-            _consume_dir(image_dir)
+    total_images = len(scanned_items)
+    if progress_callback:
+        progress_callback(0, total_images, f"Scanning dataset records (0/{total_images} images)...")
 
-    # Flat-structure fallback: if no split folders were found, scan images/ and labels/ at root
-    if not records and (source / "images").exists():
-        _consume_dir(source / "images")
+    progress_step = max(1, total_images // 100) if total_images else 1
+    for idx, (image_path, image_dir, label_dir) in enumerate(scanned_items, start=1):
+        width, height = _image_size(image_path)
+        file_name = _dedupe_filename(image_path.name, used_names)
+        consumed_labels.add(_label_path_for(image_path, image_dir, label_dir))
+        anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, warnings, kpt_shape)
+        bbox_hits += b
+        seg_hits += s
+        pose_hits += p
+        records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
+        if progress_callback and (idx == total_images or idx % progress_step == 0):
+            progress_callback(idx, total_images, f"Scanning dataset records ({idx}/{total_images} images)...")
 
     # Labels that no scanned image claimed point at missing/renamed images.
     for label_dir in sorted(orphan_label_dirs):
@@ -370,8 +382,12 @@ def _find_coco_image(source: Path, ann_path: Path, file_name: str) -> Path | Non
 
 
 def _read_coco_records(
-    source: Path, warnings: list[str]
+    source: Path,
+    warnings: list[str],
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
+    if progress_callback:
+        progress_callback(0, 0, "Discovering COCO annotation files...")
     annotation_files = find_coco_annotation_files(source)
     classes: list[str] = []
     records: list[ImageRecord] = []
@@ -397,7 +413,15 @@ def _read_coco_records(
         for ann in data.get("annotations", []):
             anns_by_image[ann.get("image_id")].append(ann)
 
-        for image in data.get("images", []):
+        images = data.get("images", [])
+        total_images = len(images)
+        if progress_callback:
+            progress_callback(0, total_images, f"Parsing COCO records (0/{total_images} images)...")
+        progress_step = max(1, total_images // 100) if total_images else 1
+
+        for img_idx, image in enumerate(images, start=1):
+            if progress_callback and (img_idx == total_images or img_idx % progress_step == 0):
+                progress_callback(img_idx, total_images, f"Parsing COCO records ({img_idx}/{total_images} images)...")
             file_name_raw = str(image.get("file_name") or "")
             if not file_name_raw:
                 warnings.append(f"Skipped COCO image without file_name in {ann_path}")
@@ -650,10 +674,13 @@ def _read_ndjson_records(
     *,
     max_workers: int,
     use_multiprocessing: bool,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     from PIL import Image
 
     rows = [json.loads(line) for line in source.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    if progress_callback:
+        progress_callback(0, len(rows), f"Processing NDJSON records (0/{len(rows)})...")
     if any(row.get("type") == "image" for row in rows):
         return _read_ultralytics_ndjson_records(
             rows,
@@ -689,7 +716,11 @@ def _read_ndjson_records(
             target = temp_dir / _dedupe_filename(filename, used_names)
             futures[executor.submit(_download_ndjson_image, str(url), target)] = (idx, row, target)
 
-        for future in as_completed(futures):
+        total_futures = len(futures)
+        progress_step = max(1, total_futures // 100) if total_futures else 1
+        for completed_count, future in enumerate(as_completed(futures), start=1):
+            if progress_callback and (completed_count == total_futures or completed_count % progress_step == 0):
+                progress_callback(completed_count, total_futures, f"Processing NDJSON records ({completed_count}/{total_futures})...")
             idx, row, image_path = futures[future]
             ok, reason = future.result()
             if not ok:
@@ -732,7 +763,9 @@ def _read_ndjson_records(
 
 
 def _load_records(
-    config: PrepareDatasetConfig, warnings: list[str]
+    config: PrepareDatasetConfig,
+    warnings: list[str],
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[ImageRecord], list[str], str, str, dict[str, Any] | None]:
     source = Path(config.source_path).resolve()
     if not source.exists():
@@ -743,6 +776,7 @@ def _load_records(
             warnings,
             max_workers=config.max_workers,
             use_multiprocessing=config.use_multiprocessing,
+            progress_callback=progress_callback,
         )
         return records, classes, task, "ndjson", pose_meta
     source_format = detect_dataset_format(source)
@@ -756,9 +790,9 @@ def _load_records(
             suggested_fix="Use a YOLO data.yaml, COCO annotations JSON, or Labelbox .ndjson export.",
         )
     if source_format in {"yolo", "mixed"}:
-        records, classes, task, pose_meta = _read_yolo_records(source, warnings)
+        records, classes, task, pose_meta = _read_yolo_records(source, warnings, progress_callback=progress_callback)
         return records, classes, task, source_format, pose_meta
-    records, classes, task, pose_meta = _read_coco_records(source, warnings)
+    records, classes, task, pose_meta = _read_coco_records(source, warnings, progress_callback=progress_callback)
     return records, classes, task, source_format, pose_meta
 
 
@@ -1224,8 +1258,13 @@ def prepare_dataset(
         raise ValueError(f"Unsupported split strategy: {config.split_strategy}")
     config.split_config.normalized()
 
+    if progress_callback:
+        progress_callback(0, 0, "Discovering dataset structure...")
+
     warnings: list[str] = []
-    records, classes, task, source_format, pose_meta = _load_records(config, warnings)
+    records, classes, task, source_format, pose_meta = _load_records(
+        config, warnings, progress_callback=progress_callback
+    )
     if config.output_format in {"YOLO Pose", "COCO Pose"} and not pose_meta:
         raise DatasetValidationError(
             f"{config.output_format} output requires a source dataset with keypoint annotations "

@@ -842,6 +842,39 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertEqual(stats.total_images, 4)
         self.assertEqual(stats.split_diagnostics["strategy"], "smart_balanced")
 
+    def test_prepare_dataset_reports_initialization_progress(self) -> None:
+        root = self.tmp / "progress_source"
+        root.mkdir()
+        (root / "data.yaml").write_text("train: images\nnc: 1\nnames: [cat]\ntask: detect\n", encoding="utf-8")
+        for idx in range(6):
+            img_path = root / "images" / f"img_{idx}.jpg"
+            img_path.parent.mkdir(parents=True, exist_ok=True)
+            img_path.write_bytes(b"dummy")
+            label_path = root / "labels" / f"img_{idx}.txt"
+            label_path.parent.mkdir(parents=True, exist_ok=True)
+            label_path.write_text("0 0.5 0.5 0.25 0.25\n", encoding="utf-8")
+
+        messages: list[str] = []
+
+        def callback(current: int, total: int, msg: str) -> None:
+            messages.append(msg)
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=root,
+                output_root=self.tmp / "datasets",
+                output_slug="progress_out",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(0.5, 0.25, 0.25),
+                seed=42,
+            ),
+            progress_callback=callback,
+        )
+
+        self.assertEqual(stats.total_images, 6)
+        self.assertTrue(any("Discovering" in m for m in messages))
+        self.assertTrue(any("Scanning dataset records" in m for m in messages))
+
 
 if __name__ == "__main__":
     unittest.main()
