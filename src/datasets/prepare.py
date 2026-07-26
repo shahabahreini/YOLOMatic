@@ -325,12 +325,17 @@ def _read_yolo_records(
     if not image_dirs_to_scan and (source / "images").exists():
         image_dirs_to_scan.append((source / "images").resolve())
 
+    seen_image_paths: set[Path] = set()
     scanned_items: list[tuple[Path, Path, Path]] = []
     for image_dir in image_dirs_to_scan:
         label_dir = _resolve_label_dir(image_dir) or image_dir.parent / "labels"
         if label_dir != image_dir:
             orphan_label_dirs.add(label_dir)
         for image_path in _iter_images(image_dir):
+            resolved_img = image_path.resolve()
+            if resolved_img in seen_image_paths:
+                continue
+            seen_image_paths.add(resolved_img)
             scanned_items.append((image_path, image_dir, label_dir))
 
     total_images = len(scanned_items)
@@ -343,12 +348,21 @@ def _read_yolo_records(
         executor_cls = ProcessPoolExecutor if use_multiprocessing else ThreadPoolExecutor
         try:
             with executor_cls(max_workers=max_workers) as executor:
-                futures = {
-                    executor.submit(_process_single_yolo_item, img_p, img_d, lbl_d, kpt_shape): img_p
-                    for img_p, img_d, lbl_d in scanned_items
+                future_to_idx = {
+                    executor.submit(_process_single_yolo_item, img_p, img_d, lbl_d, kpt_shape): idx
+                    for idx, (img_p, img_d, lbl_d) in enumerate(scanned_items)
                 }
-                for idx, future in enumerate(as_completed(futures), start=1):
-                    img_path, label_path, w, h, anns, b, s, p, item_warns = future.result()
+                completed_results: dict[int, tuple[Path, Path, int, int, list[Annotation], int, int, int, list[str]]] = {}
+                completed_count = 0
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    completed_results[idx] = future.result()
+                    completed_count += 1
+                    if progress_callback and (completed_count == total_images or completed_count % progress_step == 0):
+                        progress_callback(completed_count, total_images, f"Scanning dataset records ({completed_count}/{total_images} images)...")
+
+                for idx in range(len(scanned_items)):
+                    img_path, label_path, w, h, anns, b, s, p, item_warns = completed_results[idx]
                     warnings.extend(item_warns)
                     consumed_labels.add(label_path)
                     file_name = _dedupe_filename(img_path.name, used_names)
@@ -356,8 +370,6 @@ def _read_yolo_records(
                     seg_hits += s
                     pose_hits += p
                     records.append(ImageRecord(img_path, file_name, w, h, anns))
-                    if progress_callback and (idx == total_images or idx % progress_step == 0):
-                        progress_callback(idx, total_images, f"Scanning dataset records ({idx}/{total_images} images)...")
         except Exception:
             records.clear()
             consumed_labels.clear()

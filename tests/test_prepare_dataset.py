@@ -905,6 +905,34 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertEqual(manifest["use_multiprocessing"], True)
         self.assertEqual(manifest["max_workers"], 4)
 
+    def test_prepare_dataset_no_duplicate_scans_across_nested_dirs(self) -> None:
+        root = self.tmp / "nested_source"
+        root.mkdir()
+        (root / "data.yaml").write_text("train: images\nval: images/sub\nnc: 1\nnames: [item]\ntask: detect\n", encoding="utf-8")
+        img_path = root / "images" / "sub" / "tile_001.png"
+        img_path.parent.mkdir(parents=True, exist_ok=True)
+        img_path.write_bytes(b"dummy")
+        lbl_path = root / "labels" / "sub" / "tile_001.txt"
+        lbl_path.parent.mkdir(parents=True, exist_ok=True)
+        lbl_path.write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=root,
+                output_root=self.tmp / "datasets",
+                output_slug="nested_out",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(0.5, 0.5, 0.0),
+                seed=42,
+            )
+        )
+
+        out_path = Path(stats.output_path)
+        written_images = list(out_path.rglob("*.png"))
+        self.assertEqual(stats.total_images, 1)
+        self.assertEqual(len(written_images), 1)
+        self.assertNotIn("_0002", written_images[0].name)
+
 
 if __name__ == "__main__":
     unittest.main()
