@@ -813,6 +813,35 @@ class SplitDiscoveryTest(unittest.TestCase):
 
         self.assertTrue(any("no matching image" in w for w in stats.warnings))
 
+    def test_prepare_dataset_handles_non_utf8_label_bytes(self) -> None:
+        root = self.tmp / "non_utf8_source"
+        root.mkdir()
+        (root / "data.yaml").write_bytes(
+            b"path: .\ntrain: images\nnc: 2\nnames: [cat, dog]\ntask: detect # comment \x97\n"
+        )
+        for idx in range(4):
+            self._write_image(root / "images" / f"img_{idx}.jpg", value=100 + idx)
+            label = root / "labels" / f"img_{idx}.txt"
+            label.parent.mkdir(parents=True, exist_ok=True)
+            cls = idx % 2
+            # Byte 0x97 simulates Windows-1252 / CP1252 character in label comments/lines
+            label.write_bytes(f"{cls} 0.5 0.5 0.25 0.25 # note \x97\n".encode("latin-1"))
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=root,
+                output_root=self.tmp / "datasets",
+                output_slug="non_utf8_out",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(0.5, 0.25, 0.25),
+                split_strategy="smart_balanced",
+                seed=42,
+            )
+        )
+
+        self.assertEqual(stats.total_images, 4)
+        self.assertEqual(stats.split_diagnostics["strategy"], "smart_balanced")
+
 
 if __name__ == "__main__":
     unittest.main()

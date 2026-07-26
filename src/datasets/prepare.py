@@ -242,7 +242,13 @@ def _read_yolo_annotations(
     if not label_path.exists():
         return annotations, bbox_hits, seg_hits, pose_hits
     expected_kpt_len = kpt_shape[0] * kpt_shape[1] if kpt_shape else 0
-    for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):
+    try:
+        lines = label_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception as err:
+        warnings.append(f"Could not read label file {label_path}: {err}")
+        return annotations, bbox_hits, seg_hits, pose_hits
+
+    for line_no, line in enumerate(lines, start=1):
         parts = line.strip().split()
         if not parts:
             continue
@@ -647,7 +653,7 @@ def _read_ndjson_records(
 ) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     from PIL import Image
 
-    rows = [json.loads(line) for line in source.read_text("utf-8").splitlines() if line.strip()]
+    rows = [json.loads(line) for line in source.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
     if any(row.get("type") == "image" for row in rows):
         return _read_ultralytics_ndjson_records(
             rows,

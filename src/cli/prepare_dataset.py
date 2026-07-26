@@ -96,8 +96,8 @@ def _ndjson_label(path: Path, root: Path = Path(".")) -> str:
 def _quick_source_description(path: Path) -> str:
     if path.is_file() and path.suffix.lower() == ".ndjson":
         try:
-            line_count = sum(1 for line in path.read_text("utf-8").splitlines() if line.strip())
-        except OSError:
+            line_count = sum(1 for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
+        except (OSError, UnicodeError):
             line_count = 0
         return (
             f"[bold cyan]{path.name}[/bold cyan]\n\n"

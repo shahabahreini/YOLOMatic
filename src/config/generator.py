@@ -144,7 +144,7 @@ class BaseConfigGenerator:
 
         if data_yaml_path:
             try:
-                with open(data_yaml_path, "r") as f:
+                with open(data_yaml_path, "r", encoding="utf-8", errors="replace") as f:
                     self.data_yaml = yaml.safe_load(f)
                     logger.info(f"Loaded YAML content: {self.data_yaml}")
 
@@ -329,7 +329,7 @@ class BaseConfigGenerator:
                     break
                 file_had_label = False
                 try:
-                    with open(label_file, "r", encoding="utf-8") as handle:
+                    with open(label_file, "r", encoding="utf-8", errors="replace") as handle:
                         for line_index, line in enumerate(handle):
                             if line_index >= MAX_LINES_PER_FILE:
                                 break

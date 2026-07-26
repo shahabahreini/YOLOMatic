@@ -75,7 +75,7 @@ class DatasetAnalyzer:
     def read_text_file(self, file_path: str) -> Optional[str]:
         """Read text file content."""
         try:
-            with open(file_path, "r") as f:
+            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 return f.read()
         except Exception as e:
             logger.error(f"Error reading text file {file_path}: {e}")

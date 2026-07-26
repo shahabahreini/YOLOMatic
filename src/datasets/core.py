@@ -93,13 +93,13 @@ class DatasetValidationError(ValueError):
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
         loaded = yaml.safe_load(handle) or {}
     return loaded if isinstance(loaded, dict) else {}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
         loaded = json.load(handle)
     return loaded if isinstance(loaded, dict) else {}
 
@@ -565,8 +565,8 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
             
             if idx < sample_limit:
                 try:
-                    lines = [line.strip() for line in label_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-                except OSError:
+                    lines = [line.strip() for line in label_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+                except (OSError, UnicodeError):
                     split.missing_file_count += 1
                     split.unlabeled_image_count += 1
                     continue
@@ -820,7 +820,12 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
             if not label_path.exists():
                 continue
             pose_len = 4 + num_kpts * ndim if num_kpts else -1
-            for line_no, line in enumerate(label_path.read_text(encoding="utf-8").splitlines(), start=1):
+            try:
+                lines = label_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except Exception as err:
+                manifest["warnings"].append(f"Could not read label file {label_path}: {err}")
+                continue
+            for line_no, line in enumerate(lines, start=1):
                 parts = line.strip().split()
                 is_pose_row = num_kpts and len(parts) - 1 == pose_len
                 if not is_pose_row and len(parts) not in {5} and not (len(parts) >= 7 and (len(parts) - 1) % 2 == 0):
