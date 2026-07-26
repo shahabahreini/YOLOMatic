@@ -272,9 +272,25 @@ def _read_yolo_annotations(
     return annotations, bbox_hits, seg_hits, pose_hits
 
 
+def _process_single_yolo_item(
+    image_path: Path,
+    image_dir: Path,
+    label_dir: Path,
+    kpt_shape: tuple[int, int] | None,
+) -> tuple[Path, Path, int, int, list[Annotation], int, int, int, list[str]]:
+    item_warnings: list[str] = []
+    width, height = _image_size(image_path)
+    label_path = _label_path_for(image_path, image_dir, label_dir)
+    anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, item_warnings, kpt_shape)
+    return image_path, label_path, int(width), int(height), anns, b, s, p, item_warnings
+
+
 def _read_yolo_records(
     source: Path,
     warnings: list[str],
+    *,
+    max_workers: int = 10,
+    use_multiprocessing: bool = False,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     yaml_path = source / "data.yaml"
@@ -322,17 +338,54 @@ def _read_yolo_records(
         progress_callback(0, total_images, f"Scanning dataset records (0/{total_images} images)...")
 
     progress_step = max(1, total_images // 100) if total_images else 1
-    for idx, (image_path, image_dir, label_dir) in enumerate(scanned_items, start=1):
-        width, height = _image_size(image_path)
-        file_name = _dedupe_filename(image_path.name, used_names)
-        consumed_labels.add(_label_path_for(image_path, image_dir, label_dir))
-        anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, warnings, kpt_shape)
-        bbox_hits += b
-        seg_hits += s
-        pose_hits += p
-        records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
-        if progress_callback and (idx == total_images or idx % progress_step == 0):
-            progress_callback(idx, total_images, f"Scanning dataset records ({idx}/{total_images} images)...")
+
+    if max_workers > 1 and total_images > 1:
+        executor_cls = ProcessPoolExecutor if use_multiprocessing else ThreadPoolExecutor
+        try:
+            with executor_cls(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(_process_single_yolo_item, img_p, img_d, lbl_d, kpt_shape): img_p
+                    for img_p, img_d, lbl_d in scanned_items
+                }
+                for idx, future in enumerate(as_completed(futures), start=1):
+                    img_path, label_path, w, h, anns, b, s, p, item_warns = future.result()
+                    warnings.extend(item_warns)
+                    consumed_labels.add(label_path)
+                    file_name = _dedupe_filename(img_path.name, used_names)
+                    bbox_hits += b
+                    seg_hits += s
+                    pose_hits += p
+                    records.append(ImageRecord(img_path, file_name, w, h, anns))
+                    if progress_callback and (idx == total_images or idx % progress_step == 0):
+                        progress_callback(idx, total_images, f"Scanning dataset records ({idx}/{total_images} images)...")
+        except Exception:
+            records.clear()
+            consumed_labels.clear()
+            used_names.clear()
+            bbox_hits = seg_hits = pose_hits = 0
+            for idx, (image_path, image_dir, label_dir) in enumerate(scanned_items, start=1):
+                width, height = _image_size(image_path)
+                file_name = _dedupe_filename(image_path.name, used_names)
+                consumed_labels.add(_label_path_for(image_path, image_dir, label_dir))
+                anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, warnings, kpt_shape)
+                bbox_hits += b
+                seg_hits += s
+                pose_hits += p
+                records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
+                if progress_callback and (idx == total_images or idx % progress_step == 0):
+                    progress_callback(idx, total_images, f"Scanning dataset records ({idx}/{total_images} images)...")
+    else:
+        for idx, (image_path, image_dir, label_dir) in enumerate(scanned_items, start=1):
+            width, height = _image_size(image_path)
+            file_name = _dedupe_filename(image_path.name, used_names)
+            consumed_labels.add(_label_path_for(image_path, image_dir, label_dir))
+            anns, b, s, p = _read_yolo_annotations(image_path, image_dir, label_dir, warnings, kpt_shape)
+            bbox_hits += b
+            seg_hits += s
+            pose_hits += p
+            records.append(ImageRecord(image_path, file_name, int(width), int(height), anns))
+            if progress_callback and (idx == total_images or idx % progress_step == 0):
+                progress_callback(idx, total_images, f"Scanning dataset records ({idx}/{total_images} images)...")
 
     # Labels that no scanned image claimed point at missing/renamed images.
     for label_dir in sorted(orphan_label_dirs):
@@ -384,6 +437,9 @@ def _find_coco_image(source: Path, ann_path: Path, file_name: str) -> Path | Non
 def _read_coco_records(
     source: Path,
     warnings: list[str],
+    *,
+    max_workers: int = 10,
+    use_multiprocessing: bool = False,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> tuple[list[ImageRecord], list[str], str, dict[str, Any] | None]:
     if progress_callback:

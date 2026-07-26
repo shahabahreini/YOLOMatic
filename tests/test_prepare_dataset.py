@@ -875,6 +875,36 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertTrue(any("Discovering" in m for m in messages))
         self.assertTrue(any("Scanning dataset records" in m for m in messages))
 
+    def test_prepare_dataset_multiprocessing_yolo(self) -> None:
+        root = self.tmp / "mp_source"
+        root.mkdir()
+        (root / "data.yaml").write_text("train: images\nnc: 2\nnames: [cat, dog]\ntask: detect\n", encoding="utf-8")
+        for idx in range(8):
+            img_path = root / "images" / f"img_{idx}.jpg"
+            img_path.parent.mkdir(parents=True, exist_ok=True)
+            img_path.write_bytes(b"dummy")
+            label_path = root / "labels" / f"img_{idx}.txt"
+            label_path.parent.mkdir(parents=True, exist_ok=True)
+            label_path.write_text(f"{idx % 2} 0.5 0.5 0.25 0.25\n", encoding="utf-8")
+
+        stats = prepare_dataset(
+            PrepareDatasetConfig(
+                source_path=root,
+                output_root=self.tmp / "datasets",
+                output_slug="mp_out",
+                output_format="YOLO Detection",
+                split_config=PrepareSplitConfig(0.5, 0.25, 0.25),
+                max_workers=4,
+                use_multiprocessing=True,
+                seed=42,
+            )
+        )
+
+        self.assertEqual(stats.total_images, 8)
+        manifest = json.loads((Path(stats.output_path) / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["use_multiprocessing"], True)
+        self.assertEqual(manifest["max_workers"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()
