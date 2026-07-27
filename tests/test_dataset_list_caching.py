@@ -108,6 +108,29 @@ class DatasetListCachingTest(unittest.TestCase):
         self.assertIsNone(run._CACHED_DATASETS)
         self.assertIsNone(run._CACHED_DATASET_DESCRIPTIONS)
 
+    def test_dataset_signature_performance(self):
+        import tempfile
+        import time
+        from pathlib import Path
+        from src.datasets.core import _dataset_signature
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "large_ds"
+            images_dir = root / "images" / "train"
+            images_dir.mkdir(parents=True)
+            (root / "data.yaml").write_text("train: images/train\nnc: 1\nnames: [obj]\n")
+            # Create 1000 dummy image files
+            for i in range(1000):
+                (images_dir / f"img_{i}.jpg").touch()
+
+            start_time = time.perf_counter()
+            sig = _dataset_signature(root)
+            elapsed = time.perf_counter() - start_time
+
+            self.assertTrue(bool(sig))
+            # Signature calculation must complete in under 50ms even for 1000 files
+            self.assertLess(elapsed, 0.05, f"Signature took {elapsed:.4f}s, expected < 0.05s")
+
 
 if __name__ == "__main__":
     unittest.main()

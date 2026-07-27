@@ -844,7 +844,7 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
 
     def _build_description(d: dict[str, Any]) -> tuple[str, str]:
         try:
-            summary = summarize_dataset(d["path"])
+            summary = d.get("summary") or summarize_dataset(d["path"])
             classes = ", ".join(summary.classes[:8]) or "No classes found"
             if len(summary.classes) > 8:
                 classes += ", ..."

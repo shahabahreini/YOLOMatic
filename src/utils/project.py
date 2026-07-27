@@ -194,7 +194,13 @@ def list_dataset_directories(
     def _process(folder: Path) -> dict[str, Any]:
         entry: dict[str, Any] = {"name": folder.name, "path": folder.resolve()}
         if include_size:
-            entry["size"] = format_size(calculate_folder_size(folder))
+            try:
+                from src.datasets.core import summarize_dataset
+                summary = summarize_dataset(folder)
+                entry["summary"] = summary
+                entry["size"] = format_size(summary.total_size_bytes)
+            except Exception:
+                entry["size"] = format_size(calculate_folder_size(folder))
         return entry
 
     with ThreadPoolExecutor() as executor:

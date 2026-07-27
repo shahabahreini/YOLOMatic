@@ -455,11 +455,18 @@ def _dataset_signature(root: Path) -> str:
                         if entry.is_dir():
                             hasher.update(f"dir:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8"))
                             if entry.name.lower() in {"images", "labels"}:
-                                # Directory mtimes miss edits and changes in
-                                # subdirs (images/train/...), so fold in a
-                                # bounded stat aggregate of the contents.
-                                count, mtime, size = _stat_aggregate(Path(entry.path))
-                                hasher.update(f"agg:{entry.path}:{count}:{mtime}:{size}".encode("utf-8"))
+                                # Check top-level split directories (train/val/test) mtimes and sizes quickly
+                                try:
+                                    with os.scandir(entry.path) as sub_it:
+                                        for sub_entry in sub_it:
+                                            if not sub_entry.name.startswith("."):
+                                                try:
+                                                    sub_stat = sub_entry.stat()
+                                                    hasher.update(f"subdir:{sub_entry.path}:{sub_stat.st_mtime_ns}:{sub_stat.st_size}".encode("utf-8"))
+                                                except OSError:
+                                                    pass
+                                except OSError:
+                                    pass
                             else:
                                 queue.append((Path(entry.path), depth + 1))
                         elif entry.is_file():
