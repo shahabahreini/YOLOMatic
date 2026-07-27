@@ -113,6 +113,28 @@ class DatasetSummaryTest(unittest.TestCase):
         self.assertEqual(split.annotation_count, 5)
         self.assertTrue(any("sampled" in w for w in summary.warnings))
 
+    def test_summary_and_size_without_os_fwalk(self) -> None:
+        import os
+        from src.datasets.core import _stat_aggregate
+        from src.utils.project import calculate_folder_size
+
+        root = self.tmp / "no_fwalk"
+        root.mkdir()
+        self._write_image(root / "img.jpg")
+        self._write_label(root / "img.txt")
+
+        # Simulate Windows environment where os.fwalk does not exist
+        with patch.object(os, "fwalk", create=True):
+            del os.fwalk
+            summary = summarize_dataset(root)
+            self.assertGreater(summary.total_size_bytes, 0)
+            file_count, _, total_size = _stat_aggregate(root)
+            self.assertEqual(file_count, 2)
+            self.assertGreater(total_size, 0)
+            folder_size = calculate_folder_size(root)
+            self.assertGreater(folder_size, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

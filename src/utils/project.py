@@ -149,12 +149,20 @@ def calculate_folder_size(folder_path: str | Path) -> int:
     except Exception:
         total = 0
         try:
-            for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(folder_path)):
-                for fname in filenames:
-                    try:
-                        total += os.stat(fname, dir_fd=dirfd).st_size
-                    except OSError:
-                        pass
+            if hasattr(os, "fwalk"):
+                for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(folder_path)):
+                    for fname in filenames:
+                        try:
+                            total += os.stat(fname, dir_fd=dirfd).st_size
+                        except OSError:
+                            pass
+            else:
+                for _dirpath, _dirnames, filenames in os.walk(str(folder_path)):
+                    for fname in filenames:
+                        try:
+                            total += (Path(_dirpath) / fname).stat().st_size
+                        except OSError:
+                            pass
         except OSError:
             pass
         return total

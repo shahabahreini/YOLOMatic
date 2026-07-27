@@ -396,22 +396,40 @@ def _stat_aggregate(path: Path, *, max_depth: int = 2) -> tuple[int, int, int]:
     total_size = 0
     base_depth = len(Path(path).parts)
     try:
-        for dirpath, dirnames, filenames, dirfd in os.fwalk(str(path)):
-            if len(Path(dirpath).parts) - base_depth >= max_depth:
-                dirnames[:] = []
-            sibling_names = {name.lower() for name in filenames}
-            for fname in filenames:
-                try:
-                    file_path = Path(dirpath) / fname
-                    if is_dataset_runtime_cache(file_path, sibling_names):
+        if hasattr(os, "fwalk"):
+            for dirpath, dirnames, filenames, dirfd in os.fwalk(str(path)):
+                if len(Path(dirpath).parts) - base_depth >= max_depth:
+                    dirnames[:] = []
+                sibling_names = {name.lower() for name in filenames}
+                for fname in filenames:
+                    try:
+                        file_path = Path(dirpath) / fname
+                        if is_dataset_runtime_cache(file_path, sibling_names):
+                            continue
+                        stat = os.stat(fname, dir_fd=dirfd)
+                    except OSError:
                         continue
-                    stat = os.stat(fname, dir_fd=dirfd)
-                except OSError:
-                    continue
-                file_count += 1
-                total_size += stat.st_size
-                if stat.st_mtime_ns > latest_mtime:
-                    latest_mtime = stat.st_mtime_ns
+                    file_count += 1
+                    total_size += stat.st_size
+                    if stat.st_mtime_ns > latest_mtime:
+                        latest_mtime = stat.st_mtime_ns
+        else:
+            for dirpath, dirnames, filenames in os.walk(str(path)):
+                if len(Path(dirpath).parts) - base_depth >= max_depth:
+                    dirnames[:] = []
+                sibling_names = {name.lower() for name in filenames}
+                for fname in filenames:
+                    try:
+                        file_path = Path(dirpath) / fname
+                        if is_dataset_runtime_cache(file_path, sibling_names):
+                            continue
+                        stat = file_path.stat()
+                    except OSError:
+                        continue
+                    file_count += 1
+                    total_size += stat.st_size
+                    if stat.st_mtime_ns > latest_mtime:
+                        latest_mtime = stat.st_mtime_ns
     except OSError:
         pass
     return file_count, latest_mtime, total_size
@@ -489,19 +507,34 @@ def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> 
     summary = DatasetSummary(path=str(root), name=root.name, format=detect_dataset_format(root))
     try:
         total = 0
-        for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(root)):
-            sibling_names = {name.lower() for name in filenames}
-            for fname in filenames:
-                try:
-                    stat = os.stat(fname, dir_fd=dirfd)
-                    file_path = Path(_dirpath) / fname
-                    if is_dataset_runtime_cache(file_path, sibling_names):
-                        summary.runtime_cache_file_count += 1
-                        summary.runtime_cache_size_bytes += stat.st_size
-                        continue
-                    total += stat.st_size
-                except OSError:
-                    pass
+        if hasattr(os, "fwalk"):
+            for _dirpath, _dirnames, filenames, dirfd in os.fwalk(str(root)):
+                sibling_names = {name.lower() for name in filenames}
+                for fname in filenames:
+                    try:
+                        stat = os.stat(fname, dir_fd=dirfd)
+                        file_path = Path(_dirpath) / fname
+                        if is_dataset_runtime_cache(file_path, sibling_names):
+                            summary.runtime_cache_file_count += 1
+                            summary.runtime_cache_size_bytes += stat.st_size
+                            continue
+                        total += stat.st_size
+                    except OSError:
+                        pass
+        else:
+            for _dirpath, _dirnames, filenames in os.walk(str(root)):
+                sibling_names = {name.lower() for name in filenames}
+                for fname in filenames:
+                    try:
+                        file_path = Path(_dirpath) / fname
+                        stat = file_path.stat()
+                        if is_dataset_runtime_cache(file_path, sibling_names):
+                            summary.runtime_cache_file_count += 1
+                            summary.runtime_cache_size_bytes += stat.st_size
+                            continue
+                        total += stat.st_size
+                    except OSError:
+                        pass
         summary.total_size_bytes = total
     except OSError:
         summary.warnings.append("Some files could not be inspected.")
