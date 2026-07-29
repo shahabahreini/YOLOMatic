@@ -674,6 +674,9 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
     declared_task = str(data.get("task", "")).lower()
     task_map = {
         "pose": "pose",
+        "semantic": "semantic",
+        "semantic_segmentation": "semantic",
+        "semseg": "semantic",
         "segment": "segmentation",
         "segmentation": "segmentation",
         "detect": "detection",

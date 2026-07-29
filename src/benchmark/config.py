@@ -8,6 +8,10 @@ from pathlib import Path
 class BenchmarkConfig:
     weights: list[Path]
     validation_dir: Path
+    dataset_dir: Path | None = None
+    split_selection: str = "valid"
+    split_dirs: dict[str, Path] = field(default_factory=dict)
+    expected_task: str | None = None
     annotations_file: Path | None = None
     output_dir: Path = field(default_factory=lambda: Path("output/benchmark_reports"))
     conf_threshold: float = 0.25

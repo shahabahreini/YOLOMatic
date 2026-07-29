@@ -141,8 +141,9 @@ converted explicitly to YOLO Pose or COCO Pose while preserving keypoints.
 
 Yes. `uv run yolomatic-benchmark` compares Ultralytics YOLO checkpoints and
 exports such as `.pt`, ONNX, TensorRT `.engine`, TorchScript, and OpenVINO,
-then generates an interactive HTML report with mAP, F1, per-image rankings,
-confidence inspection, thumbnails, and UMAP vectors.
+then verifies model/dataset task compatibility and evaluates train, valid, test,
+or all groups. Detection and instance segmentation report mAP/F1, pose reports
+box metrics, and semantic segmentation reports mIoU, pixel accuracy, and Dice.
 
 ### Can I export models for deployment?
 

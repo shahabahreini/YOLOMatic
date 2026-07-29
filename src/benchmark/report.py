@@ -762,6 +762,52 @@ _GALLERY_JS = """
 </script>
 """
 
+
+def _split_summary_html(result: Any, names: dict[Path, str]) -> str:
+    """Render aggregate-by-split scores when an ``all`` run was requested."""
+    rows: list[str] = []
+    for model in result.models:
+        for split, values in model.split_metrics.items():
+            rows.append(
+                "<tr>"
+                f"<td>{escape(_display_name(model, names))}</td><td>{escape(split)}</td>"
+                f"<td>{_fmt(values['map50_95'])}</td><td>{_fmt(values['f1'])}</td>"
+                "</tr>"
+            )
+    if not rows:
+        return ""
+    return """
+    <section class="section chart-section">
+      <div class="section-header"><h2 class="section-title">Results by Dataset Group</h2></div>
+      <table class="split-table"><thead><tr><th>Model</th><th>Group</th><th>Primary score</th><th>F1</th></tr></thead>
+      <tbody>""" + "".join(rows) + "</tbody></table></section>"
+
+
+def _semantic_summary_html(result: Any, names: dict[Path, str]) -> str:
+    """Render semantic metrics without relabelling them as detection mAP."""
+    rows: list[str] = []
+    for model in result.models:
+        metrics = model.semantic or {}
+        per_class = metrics.get("per_class", {})
+        class_rows = "".join(
+            f"<li>Class {class_id}: IoU {_pct(values['iou'])}, Dice {_pct(values['dice'])}</li>"
+            for class_id, values in per_class.items()
+        )
+        rows.append(
+            "<div class='stat-item'><div class='stat-label'>"
+            f"{escape(_display_name(model, names))}</div>"
+            f"<div class='stat-value'>{_pct(float(metrics.get('miou', 0.0)))}</div>"
+            "<div class='stat-model'>mIoU · "
+            f"Pixel accuracy {_pct(float(metrics.get('pixel_accuracy', 0.0)))} · "
+            f"Dice {_pct(float(metrics.get('dice', 0.0)))}</div><ul>{class_rows}</ul></div>"
+        )
+    return (
+        "<section class='summary-section'><div class='section-header'><h2 class='section-title'>"
+        "Semantic Segmentation Results</h2><p class='section-subtitle'>"
+        "Dense-pixel metrics; these are not object-detection mAP scores.</p></div>"
+        "<div class='summary-grid'>" + "".join(rows) + "</div></section>"
+    )
+
 _GALLERY_HTML = """
 <section id="gallery-panel" class="gallery-panel" style="display:none; max-width: 1000px; margin: 0 auto 32px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 32px; box-shadow: var(--shadow);">
   <div class="gallery-header">
@@ -812,6 +858,8 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
     names = _display_names(result.models)
     best = max(result.models, key=lambda m: m.map50)
     best_name = _display_name(best, names)
+    task_label = "semantic segmentation" if best.task == "semantic" else best.task
+    split_label = ", ".join(result.config.split_dirs) if result.config.split_dirs else "valid"
 
     def _thumb_fn(r: Any) -> str:
         return make_thumbnail_b64(
@@ -822,8 +870,9 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
             task=best.task,
         )
 
-    thumbnail_fn = _thumb_fn if result.config.generate_thumbnails else None
-    vector_data = build_vector_data(best, thumbnail_fn=thumbnail_fn)
+    is_semantic = best.task == "semantic"
+    thumbnail_fn = _thumb_fn if result.config.generate_thumbnails and not is_semantic else None
+    vector_data = build_vector_data(best, thumbnail_fn=thumbnail_fn) if not is_semantic else {}
 
     # Charts that support switchable grouping
     switchable_keys = {"ranked", "prf", "size", "size_f1", "counts"}
@@ -854,10 +903,13 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         for k in switchable_keys
     }
 
-    sections = [_summary_cards_html(result, names)]
+    sections = [
+        _semantic_summary_html(result, names) if is_semantic else _summary_cards_html(result, names),
+        _split_summary_html(result, names),
+    ]
     
     all_keys = ["leaderboard", "ranked", "prf", "size", "size_f1", "counts", "distribution", "ranking", "scatter"]
-    for key in all_keys:
+    for key in ([] if is_semantic else all_keys):
         div_id_base = "scatter-plot" if key == "scatter" else f"plot-{key}"
         is_table = key in ("leaderboard", "ranking")
         
@@ -944,6 +996,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '.stat-model-name { color: var(--ink); font-weight: 700; }\n'
 
         '.section { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 32px; box-shadow: var(--shadow); overflow: visible; }\n'
+        '.split-table { width: 100%; border-collapse: collapse; font-size: 13px; } .split-table th, .split-table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border); } .split-table th { color: var(--muted); text-transform: uppercase; font-size: 11px; }\n'
         '.chart-section { padding: 24px; min-height: 200px; overflow: visible; }\n'
         '.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 32px; }\n'
         '.kpi-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; background: var(--card-bg); box-shadow: var(--shadow); }\n'
@@ -978,6 +1031,8 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         f'      <div class="top-meta-item"><strong>Date:</strong> {escape(timestamp_str)}</div>\n'
         f'      <div class="top-meta-item"><strong>Validation:</strong> {escape(_shorten(val_dir_str, 40))}</div>\n'
         f'      <div class="top-meta-item"><strong>Models:</strong> {len(result.models)}</div>\n'
+        f'      <div class="top-meta-item"><strong>Task:</strong> {escape(task_label)}</div>\n'
+        f'      <div class="top-meta-item"><strong>Groups:</strong> {escape(split_label)}</div>\n'
         f'      <div class="top-meta-item"><strong>Best:</strong> {escape(best_name)}</div>\n'
         f'      <div class="top-meta-item"><strong>Thresholds:</strong> {conf} / {iou}</div>\n'
         '    </div>\n'
@@ -989,7 +1044,7 @@ def write_benchmark_report(result: Any, output_dir: Path) -> Path:
         '</header>\n'
         '<main class="container">\n'
         + "\n".join(sections) + "\n"
-        + _GALLERY_HTML + "\n"
+        + ("" if is_semantic else _GALLERY_HTML) + "\n"
         '</main>\n'
         '<div class="footer">Generated by <strong>YOLOMatic</strong> &middot; Benchmark System</div>\n'
         '<script>\n'

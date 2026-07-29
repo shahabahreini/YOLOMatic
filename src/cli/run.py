@@ -62,7 +62,19 @@ from src.utils.project import (
 
 # Model family descriptions — defined at module level to avoid rebuilding on every wizard entry
 _MODEL_DESCRIPTIONS: dict[str, str] = {
-    "yolo26-pose": (
+    "yolo26-sem": (
+            "[bold cyan]YOLO26 Semantic[/bold cyan]  [green]● Per-pixel segmentation — 2025[/green]\n\n"
+            "Dense [bold]per-pixel[/bold] class prediction — no boxes, no instances. "
+            "Pick this over [bold]-seg[/bold] when you want one mask for the whole "
+            "class (canopy cover, land cover) rather than separately counted objects.\n\n"
+            "Trains on ordinary YOLO polygon labels: they are rasterized into masks "
+            "on the fly, so an existing [bold]-seg[/bold] dataset works unchanged. "
+            "Loss is BCE/CE + Dice; the metric is [bold]mIoU[/bold], not mAP.\n\n"
+            "Note the head predicts at stride 8 and upsamples 8x, so fine boundaries "
+            "benefit from a larger [bold]imgsz[/bold] more than from a larger model. "
+            "Weights: [dim]yolo26<n/s/m/l/x>-sem.pt[/dim] (Cityscapes-pretrained)."
+        ),
+        "yolo26-pose": (
             "[bold cyan]YOLO26 Pose[/bold cyan]  [green]● Keypoint detection — 2025[/green]\n\n"
             "Latest-generation pose estimation. Trains on YOLO keypoint datasets "
             "(data.yaml with [bold]kpt_shape[/bold] + per-object keypoints). "
@@ -2307,6 +2319,7 @@ def get_model_menu():
         "sam3.1",
         "detectron2-seg",
         "rfdetr-seg",
+        "yolo26-sem",
         "yolo26-seg",
         "yolov12-seg",
         "yolov11-seg",

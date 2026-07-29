@@ -17,6 +17,7 @@ from .metrics import (
     _box_iou_for_pred_gt,
     _safe_div,
     aggregate_metrics,
+    semantic_metrics,
     greedy_match,
     polygon_to_mask,
     size_bucket,
@@ -70,6 +71,9 @@ class ImageResult:
     raw_preds: list[PredObject] = field(default_factory=list, repr=False)
     raw_gts: list[GTObject] = field(default_factory=list, repr=False)
     mean_iou: float = 0.0
+    split: str = "valid"
+    semantic_prediction: np.ndarray | None = field(default=None, repr=False)
+    semantic_ground_truth: np.ndarray | None = field(default=None, repr=False)
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +96,8 @@ class ModelMetrics:
     per_image: list[ImageResult]
     inference_time_ms: float = 0.0
     fps: float = 0.0
+    semantic: dict[str, object] | None = None
+    split_metrics: dict[str, dict[str, float]] = field(default_factory=dict)
 
 @dataclass
 class BenchmarkResult:
@@ -402,6 +408,38 @@ def _extract_preds(result, task: str, img_w: int, img_h: int) -> list[PredObject
     return preds
 
 
+def _semantic_ground_truth(gts: list[GTObject], img_w: int, img_h: int) -> np.ndarray:
+    """Combine polygon instances into a dense mask; 0 is background."""
+    target = np.zeros((img_h, img_w), dtype=np.int32)
+    for gt in gts:
+        if gt.mask is not None:
+            target[gt.mask] = gt.cls + 1
+    return target
+
+
+def _extract_semantic_mask(result, img_w: int, img_h: int) -> np.ndarray:
+    """Extract class-index pixels from semantic Ultralytics-style result data."""
+    raw = getattr(result, "semantic", None)
+    if raw is None:
+        raw = getattr(result, "semantic_masks", None)
+    if raw is None:
+        raise ValueError(
+            "The selected semantic model did not return dense semantic masks. "
+            "Upgrade Ultralytics to the version used to export this model."
+        )
+    data = getattr(raw, "data", raw)
+    array = data.cpu().numpy() if hasattr(data, "cpu") else np.asarray(data)
+    if array.ndim == 3:
+        array = np.argmax(array, axis=0)
+    if array.ndim != 2:
+        raise ValueError(f"Expected a 2D semantic mask, received shape {array.shape}.")
+    if array.shape != (img_h, img_w):
+        from src.utils.ml_dependencies import import_cv2
+
+        array = import_cv2().resize(array.astype(np.int32), (img_w, img_h), interpolation=0)
+    return array.astype(np.int32)
+
+
 # ---------------------------------------------------------------------------
 # Per-image evaluation
 # ---------------------------------------------------------------------------
@@ -489,6 +527,8 @@ def _evaluate_model_worker(
     iou_threshold: float,
     device: str,
     batch_size: int,
+    split_name: str = "valid",
+    expected_task: str | None = None,
 ) -> "tuple[ModelMetrics | None, list[str]]":
     """Evaluate one model over all validation images.
 
@@ -521,11 +561,11 @@ def _evaluate_model_worker(
         log(f"  [ERROR] Failed to load {weights}: {exc}")
         return None, logs
 
-    task = "detection"
+    task = expected_task or "detection"
     probe = [p for p in all_images if p.exists()]
     if probe:
         log("  Detecting task type...")
-        task = _detect_task(model, probe[0], conf_threshold, device)
+        task = expected_task or _detect_task(model, probe[0], conf_threshold, device)
     log(f"  Task: {task}")
 
     import time
@@ -587,11 +627,58 @@ def _evaluate_model_worker(
                 log(f"  [WARN] Pred extraction failed for {img_path.name}: {exc}")
                 preds = []
 
-            per_image.append(
-                _evaluate_image(img_id or 0, img_path, preds, gts, task, iou_threshold)
-            )
+            if task == "semantic":
+                try:
+                    prediction = _extract_semantic_mask(result, iw, ih) if result is not None else None
+                    ground_truth = _semantic_ground_truth(gts, iw, ih)
+                    if prediction is None:
+                        raise ValueError("No semantic prediction was returned.")
+                    image_result = ImageResult(
+                        image_id=img_id or 0,
+                        image_path=img_path,
+                        task=task,
+                        gt_count=int(np.count_nonzero(ground_truth)),
+                        pred_count=int(np.count_nonzero(prediction)),
+                        tp=0,
+                        fp=0,
+                        fn=0,
+                        matched_ious=[],
+                        precision=0.0,
+                        recall=0.0,
+                        f1=0.0,
+                        semantic_prediction=prediction,
+                        semantic_ground_truth=ground_truth,
+                    )
+                except Exception as exc:
+                    log(f"  [WARN] Semantic extraction failed for {img_path.name}: {exc}")
+                    image_result = _evaluate_image(img_id or 0, img_path, [], gts, task, iou_threshold)
+            else:
+                image_result = _evaluate_image(img_id or 0, img_path, preds, gts, task, iou_threshold)
+            per_image.append(image_result)
+            per_image[-1].split = split_name
 
     agg = aggregate_metrics(per_image, task)
+    semantic: dict[str, object] | None = None
+    if task == "semantic":
+        masks = [result for result in per_image if result.semantic_prediction is not None and result.semantic_ground_truth is not None]
+        if not masks:
+            log("  [ERROR] No semantic masks could be extracted from this model.")
+            return None, logs
+        max_class = max(
+            int(max(result.semantic_prediction.max(), result.semantic_ground_truth.max()))
+            for result in masks
+        )
+        semantic = semantic_metrics(
+            [result.semantic_prediction for result in masks if result.semantic_prediction is not None],
+            [result.semantic_ground_truth for result in masks if result.semantic_ground_truth is not None],
+            list(range(max_class + 1)),
+        )
+        agg["precision"] = float(semantic["pixel_accuracy"])
+        agg["recall"] = float(semantic["dice"])
+        agg["f1"] = float(semantic["dice"])
+        agg["map50"] = float(semantic["miou"])
+        agg["map75"] = float(semantic["miou"])
+        agg["map50_95"] = float(semantic["miou"])
     fps = total_images_inferred / total_inference_time if total_inference_time > 0 else 0.0
     inference_time_ms = (total_inference_time / total_images_inferred * 1000) if total_images_inferred > 0 else 0.0
     log(
@@ -614,6 +701,7 @@ def _evaluate_model_worker(
         per_image=per_image,
         inference_time_ms=inference_time_ms,
         fps=fps,
+        semantic=semantic,
     ), logs
 
 
@@ -629,6 +717,36 @@ def _resolve_workers(max_workers: int, n_models: int, is_gpu: bool, cpu_count: i
     return max(1, min(n_models, cpu_count // 2))
 
 
+def _merge_split_metrics(models: list[ModelMetrics]) -> ModelMetrics:
+    """Merge same-model split results into an aggregate result for ``all`` runs."""
+    merged = models[0]
+    merged.per_image = [image for model in models for image in model.per_image]
+    aggregate = aggregate_metrics(merged.per_image, merged.task)
+    merged.precision = aggregate["precision"]
+    merged.recall = aggregate["recall"]
+    merged.f1 = aggregate["f1"]
+    merged.map50 = aggregate["map50"]
+    merged.map75 = aggregate["map75"]
+    merged.map50_95 = aggregate["map50_95"]
+    merged.small = aggregate["small"]
+    merged.medium = aggregate["medium"]
+    merged.large = aggregate["large"]
+    merged.inference_time_ms = float(np.mean([model.inference_time_ms for model in models]))
+    merged.fps = float(np.mean([model.fps for model in models]))
+    merged.split_metrics = {
+        model.per_image[0].split: {
+            "precision": model.precision,
+            "recall": model.recall,
+            "f1": model.f1,
+            "map50": model.map50,
+            "map50_95": model.map50_95,
+        }
+        for model in models
+        if model.per_image
+    }
+    return merged
+
+
 def run_benchmark(
     config: BenchmarkConfig,
     logger_fn: Callable[[str], None] = print,
@@ -637,15 +755,59 @@ def run_benchmark(
     from concurrent.futures import ProcessPoolExecutor, as_completed
     import multiprocessing
 
-    all_images = sorted(
-        p for p in config.validation_dir.rglob("*") if p.suffix.lower() in _IMAGE_EXTS
-    )
+    split_dirs = config.split_dirs or {"valid": config.validation_dir}
+    if not split_dirs:
+        raise BenchmarkRunError("No dataset splits were selected for benchmarking.")
+    for split_name, split_dir in split_dirs.items():
+        if split_name not in {"train", "valid", "test"}:
+            raise BenchmarkRunError(f"Unsupported benchmark split: {split_name!r}.")
+        if not split_dir.exists():
+            raise BenchmarkRunError(f"Selected {split_name} split does not exist: {split_dir}")
 
-    ann_format = detect_annotation_format(config.validation_dir)
+    # Multiple source directories are evaluated independently, then aggregated.
+    # This avoids filename and COCO image-id collisions between splits.
+    if len(split_dirs) > 1:
+        all_models: list[ModelMetrics] = []
+        for weights in config.weights:
+            per_split: list[ModelMetrics] = []
+            for split_name, split_dir in split_dirs.items():
+                split_config = BenchmarkConfig(
+                    weights=[weights],
+                    validation_dir=split_dir,
+                    annotations_file=config.annotations_file,
+                    output_dir=config.output_dir,
+                    conf_threshold=config.conf_threshold,
+                    iou_threshold=config.iou_threshold,
+                    device=config.device,
+                    generate_thumbnails=config.generate_thumbnails,
+                    max_thumbnail_size=config.max_thumbnail_size,
+                    open_in_browser=config.open_in_browser,
+                    batch_size=config.batch_size,
+                    max_workers=1,
+                    expected_task=config.expected_task,
+                )
+                split_result = run_benchmark(split_config, logger_fn=logger_fn)
+                model = split_result.models[0]
+                for image in model.per_image:
+                    image.split = split_name
+                per_split.append(model)
+            all_models.append(_merge_split_metrics(per_split))
+        return BenchmarkResult(models=all_models, config=config)
+
+    split_name, validation_dir = next(iter(split_dirs.items()))
+    all_images = sorted(p for p in validation_dir.rglob("*") if p.suffix.lower() in _IMAGE_EXTS)
+    if not all_images and config.split_dirs:
+        raise BenchmarkRunError(f"The selected {split_name} split contains no supported images.")
+
+    ann_format = detect_annotation_format(validation_dir)
     if config.annotations_file is not None:
         ann_format = "coco"
 
-    if ann_format == "yolo" and _pose_label_values(config.validation_dir):
+    if ann_format == "none":
+        raise BenchmarkRunError(
+            f"No YOLO labels or COCO annotations were found for the {split_name} split: {validation_dir}"
+        )
+    if ann_format == "yolo" and _pose_label_values(validation_dir):
         logger_fn(
             "Pose dataset detected: evaluation uses bounding-box IoU only; "
             "keypoint OKS is not computed."
@@ -665,11 +827,13 @@ def run_benchmark(
         all_images=all_images,
         ann_format=ann_format,
         annotations_file=config.annotations_file,
-        validation_dir=config.validation_dir,
+        validation_dir=validation_dir,
         conf_threshold=config.conf_threshold,
         iou_threshold=config.iou_threshold,
         device=raw_device,
         batch_size=config.batch_size,
+        split_name=split_name,
+        expected_task=config.expected_task,
     )
 
     model_results: list[ModelMetrics] = []

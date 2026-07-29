@@ -1783,6 +1783,32 @@ DETECTRON2_TRAINING_PARAMETERS: list[ParameterDefinition] = [
 # Task-specific parameter name groups used for filtering.
 _YOLO_SEG_ONLY = {"overlap_mask", "mask_ratio"}
 _YOLO_POSE_ONLY = {"pose", "kobj"}
+# Parameters Ultralytics never reads on the semantic-segmentation path. The
+# SemanticSegment head emits dense logits and SemanticSegmentationLoss is a fixed
+# BCE/CE + Dice + 0.4*aux combination, so the detection/pose/instance-mask loss
+# gains and the detection postprocess knobs are dead config there. ``cls_pw`` is
+# excluded because binary (nc=1) semantic explicitly does not support class
+# weighting, and ``single_cls`` raises NotImplementedError for semantic datasets.
+_YOLO_SEMANTIC_UNUSED = {
+    "box",
+    "cls",
+    "cls_pw",
+    "dfl",
+    "rle",
+    "angle",
+    "overlap_mask",
+    "mask_ratio",
+    "erasing",
+    "auto_augment",
+    "dropout",
+    "conf",
+    "iou",
+    "max_det",
+    "agnostic_nms",
+    "retina_masks",
+    "single_cls",
+    "augment",
+}
 _RFDETR_KEYPOINT_ONLY = {
     "num_keypoints_per_class",
     "keypoint_flip_pairs",
@@ -1797,6 +1823,8 @@ def _normalize_task(task: str | None) -> str:
     value = (task or "").strip().lower()
     if value in {"detect", "detection", "bbox", "box"}:
         return "detection"
+    if value in {"semantic", "semantic_segmentation", "sem", "semseg"}:
+        return "semantic"
     if value in {"segment", "segmentation", "seg", "instance_segmentation"}:
         return "segmentation"
     if value in {"pose", "keypoint", "keypoints"}:
@@ -1808,6 +1836,8 @@ def _filter_yolo_parameters(task: str) -> list[ParameterDefinition]:
     task = _normalize_task(task)
     result: list[ParameterDefinition] = []
     for param in YOLO_TRAINING_PARAMETERS:
+        if task == "semantic" and param.name in _YOLO_SEMANTIC_UNUSED:
+            continue
         if task != "segmentation" and param.name in _YOLO_SEG_ONLY:
             continue
         if task != "pose" and param.name in _YOLO_POSE_ONLY:

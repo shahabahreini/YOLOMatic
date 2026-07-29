@@ -469,6 +469,88 @@ def _select_validation_dir() -> Path | str:
     return path
 
 
+def _select_dataset_splits(task: str) -> dict[str, Path] | str:
+    """Choose a dataset root and compatible group(s) for a verified model task."""
+    from src.benchmark.planning import BenchmarkCompatibilityError, resolve_dataset_splits
+
+    root = project_root()
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in _collect_val_candidates(root):
+        dataset_root = candidate.parent if candidate.name.lower() in {"train", "valid", "val", "test"} else candidate
+        if dataset_root not in seen:
+            seen.add(dataset_root)
+            candidates.append(dataset_root)
+
+    compatible: list[Path] = []
+    descriptions: dict[str, str] = {}
+    for candidate in candidates:
+        try:
+            splits = resolve_dataset_splits(candidate, task, "all")
+        except BenchmarkCompatibilityError:
+            continue
+        compatible.append(candidate)
+        groups = ", ".join(split.name for split in splits)
+        descriptions[str(candidate)] = f"[green]✓ {task}[/green]\nAvailable groups: {groups}"
+
+    labels = [str(path) for path in compatible] + ["Enter custom dataset root..."]
+    descriptions["Enter custom dataset root..."] = (
+        "Provide a dataset root containing data.yaml and train, valid, or test splits."
+    )
+    choice = get_user_choice(
+        labels,
+        allow_back=True,
+        title="Select Compatible Benchmark Dataset",
+        text=f"Only datasets compatible with the verified {task} model are shown.",
+        descriptions=descriptions,
+        breadcrumbs=["YOLOmatic", "Benchmark", "Dataset"],
+    )
+    if choice in (NAV_BACK, "Back"):
+        return NAV_BACK
+    if choice == "Enter custom dataset root...":
+        raw = get_parameter_value_input(
+            ParameterDefinition(
+                name="dataset_dir",
+                category="benchmark",
+                default=str(root / "datasets"),
+                value_type="str",
+                description="Dataset root containing data.yaml",
+            ),
+            current_value=str(root / "datasets"),
+        )
+        if raw is None or raw == NAV_BACK:
+            return NAV_BACK
+        dataset_dir = Path(str(raw))
+        if not dataset_dir.exists():
+            dataset_dir = root / str(raw)
+    else:
+        dataset_dir = Path(choice)
+
+    try:
+        available = resolve_dataset_splits(dataset_dir, task, "all")
+    except BenchmarkCompatibilityError as exc:
+        console.print(Panel(str(exc), border_style="red", padding=(1, 2)))
+        input("\nPress Enter to return...")
+        return NAV_BACK
+    choices = [split.name for split in available]
+    if len(available) > 1:
+        choices.append("all")
+    group = get_user_choice(
+        choices,
+        allow_back=True,
+        title="Select Benchmark Group",
+        text="Choose which labeled dataset group to evaluate.",
+        descriptions={
+            split.name: f"{split.image_count} images, {split.annotation_count} annotations"
+            for split in available
+        } | {"all": "Evaluate every compatible group and show aggregate plus per-group results."},
+        breadcrumbs=["YOLOmatic", "Benchmark", "Dataset Group"],
+    )
+    if group in (NAV_BACK, "Back"):
+        return NAV_BACK
+    return {split.name: split.directory for split in resolve_dataset_splits(dataset_dir, task, group)}
+
+
 # ---------------------------------------------------------------------------
 # Options configuration
 # ---------------------------------------------------------------------------
@@ -578,7 +660,9 @@ def _configure_options(val_dir: Path) -> dict | str:
 # ---------------------------------------------------------------------------
 
 
-def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
+def _confirm(
+    weights: list[Path], val_dir: Path, options: dict, split_dirs: dict[str, Path]
+) -> bool:
     root = project_root()
     ann_val = (
         str(options["annotations_file"])
@@ -588,6 +672,7 @@ def _confirm(weights: list[Path], val_dir: Path, options: dict) -> bool:
     rows = {
         "Weights": ", ".join(format_weight_label(root, w) for w in weights),
         "Validation Dir": str(val_dir),
+        "Dataset Group(s)": ", ".join(split_dirs),
         "Annotations": ann_val,
         "Confidence Threshold": str(options["conf_threshold"]),
         "Output Directory": str(options["output_dir"]),
@@ -807,7 +892,7 @@ def _render_benchmark_live_screen(
 
 
 def _run_with_live_log(
-    weights: list[Path], val_dir: Path, options: dict
+    weights: list[Path], val_dir: Path, options: dict, split_dirs: dict[str, Path]
 ) -> Path | None:
     from rich.live import Live
 
@@ -825,6 +910,10 @@ def _run_with_live_log(
             config = BenchmarkConfig(
                 weights=weights,
                 validation_dir=val_dir,
+                dataset_dir=val_dir.parent,
+                split_selection="all" if len(split_dirs) > 1 else next(iter(split_dirs)),
+                split_dirs=split_dirs,
+                expected_task=options.get("task"),
                 annotations_file=options["annotations_file"],
                 output_dir=options["output_dir"],
                 conf_threshold=options["conf_threshold"],
@@ -924,18 +1013,29 @@ def main() -> None:
     if weights == NAV_BACK or not isinstance(weights, list):
         return
 
-    val_dir = _select_validation_dir()
-    if val_dir == NAV_BACK:
+    from src.benchmark.planning import BenchmarkCompatibilityError, resolve_selected_model_task
+
+    try:
+        task = resolve_selected_model_task(weights)
+    except BenchmarkCompatibilityError as exc:
+        console.print(Panel(str(exc), border_style="red", padding=(1, 2)))
+        input("\nPress Enter to return to the main menu...")
         return
+
+    split_dirs = _select_dataset_splits(task)
+    if split_dirs == NAV_BACK or not isinstance(split_dirs, dict):
+        return
+    val_dir = next(iter(split_dirs.values()))
 
     options = _configure_options(val_dir)
     if options == NAV_BACK:
         return
+    options["task"] = task
 
-    if not _confirm(weights, val_dir, options):
+    if not _confirm(weights, val_dir, options, split_dirs):
         return
 
-    report_path = _run_with_live_log(weights, val_dir, options)
+    report_path = _run_with_live_log(weights, val_dir, options, split_dirs)
     if report_path is None:
         return
 

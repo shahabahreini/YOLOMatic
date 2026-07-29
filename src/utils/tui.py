@@ -423,6 +423,7 @@ class MenuRenderer:
             "detectron2": "detectron2",
             "rfdetr-seg": "rfdetr-seg",
             "rfdetr": "rfdetr",
+            "yolo26-sem": "yolo26-sem",
             "yolo26-seg": "yolo26-seg",
             "yolo26": "yolo26",
             "yolov12-seg": "yolov12-seg",

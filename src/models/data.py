@@ -323,6 +323,49 @@ model_data_dict = {
             "FLOPs (B)": 193.9,
         },
     ],
+    "yolo26-sem": [
+        # Semantic (per-pixel) segmentation, pretrained on Cityscapes (nc=19).
+        # Distinct from "-seg" instance segmentation: the SemanticSegment head
+        # emits dense class logits at stride 8 and is trained with
+        # BCE/CE + Dice + 0.4*aux, so mAP is not the metric — official mIoU
+        # figures are not published, hence "-". params/FLOPs are measured
+        # locally at imgsz 640, nc=1 and drive the batch-size heuristics.
+        {
+            "Model": "YOLO26n-sem",
+            "Input Size": 640,
+            "mIoU": "-",
+            "params (M)": 1.6,
+            "FLOPs (B)": 4.4,
+        },
+        {
+            "Model": "YOLO26s-sem",
+            "Input Size": 640,
+            "mIoU": "-",
+            "params (M)": 6.5,
+            "FLOPs (B)": 17.3,
+        },
+        {
+            "Model": "YOLO26m-sem",
+            "Input Size": 640,
+            "mIoU": "-",
+            "params (M)": 14.3,
+            "FLOPs (B)": 59.4,
+        },
+        {
+            "Model": "YOLO26l-sem",
+            "Input Size": 640,
+            "mIoU": "-",
+            "params (M)": 17.9,
+            "FLOPs (B)": 75.1,
+        },
+        {
+            "Model": "YOLO26x-sem",
+            "Input Size": 640,
+            "mIoU": "-",
+            "params (M)": 40.1,
+            "FLOPs (B)": 168.2,
+        },
+    ],
     "yolo26-seg": [
         {
             "Model": "YOLO26n-seg",

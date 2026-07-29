@@ -79,6 +79,8 @@ def infer_ultralytics_task_from_name(value: str | Path) -> str:
         return "segmentation"
     if "-pose" in name or "/pose/" in path_str:
         return "pose"
+    if "-sem" in name or "/semantic/" in path_str or "/semseg/" in path_str:
+        return "semantic"
     if any(tag in name for tag in ("-cls", "-obb")):
         return "unsupported"
     return "detection"

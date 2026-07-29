@@ -96,7 +96,11 @@ MODEL_VARIANT_RANKS = {
     "e": 4,
 }
 
-TASK_SUFFIXES = ("-seg", "-cls", "-pose", "-obb")
+# "-sem" must be listed before "-seg" is irrelevant here (no shared prefix), but
+# it must be present at all: without it "yolo26x-sem" falls through to the
+# rsplit("-") branch below, yielding "sem" whose last char "m" ranks the model
+# as medium instead of x-large.
+TASK_SUFFIXES = ("-seg", "-sem", "-cls", "-pose", "-obb")
 
 # Explicit batch sizes for non-CUDA devices (MPS, CPU) where Ultralytics
 # AutoBatch is a no-op and falls back to a hard-coded 16. Indexed by
@@ -547,26 +551,30 @@ class BaseConfigGenerator:
         family name doesn't silently fall through to a missing key.
         """
         is_seg = normalized.endswith("-seg")
+        is_sem = normalized.endswith("-sem")
         is_pose = normalized.endswith("-pose")
-        # Ordered list of (prefix, base_key, seg_key, pose_key). The first prefix
-        # to match wins, so longer/more specific prefixes come first. ``pose_key``
-        # is None for families without official pose weights (they fall back to
-        # the raw name so a missing key surfaces instead of mis-mapping).
+        # Ordered list of (prefix, base_key, seg_key, pose_key, sem_key). The first
+        # prefix to match wins, so longer/more specific prefixes come first.
+        # ``pose_key``/``sem_key`` are None for families without official weights
+        # (they fall back to the raw name so a missing key surfaces instead of
+        # mis-mapping). Only YOLO26 ships semantic-segmentation weights.
         prefixes = (
-            ("yolo26", "yolo26", "yolo26-seg", "yolo26-pose"),
-            ("yolov12", "yolov12", "yolov12-seg", None),
-            ("yolo12", "yolov12", "yolov12-seg", None),
-            ("yolov11", "yolov11", "yolov11-seg", "yolov11-pose"),
-            ("yolo11", "yolov11", "yolov11-seg", "yolov11-pose"),
-            ("yolov10", "yolov10", "yolov10", None),
-            ("yolov9", "yolov9", "yolov9-seg", None),
-            ("yolov8", "yolov8", "yolov8-seg", "yolov8-pose"),
-            ("yolox", "yolox", "yolox", None),
+            ("yolo26", "yolo26", "yolo26-seg", "yolo26-pose", "yolo26-sem"),
+            ("yolov12", "yolov12", "yolov12-seg", None, None),
+            ("yolo12", "yolov12", "yolov12-seg", None, None),
+            ("yolov11", "yolov11", "yolov11-seg", "yolov11-pose", None),
+            ("yolo11", "yolov11", "yolov11-seg", "yolov11-pose", None),
+            ("yolov10", "yolov10", "yolov10", None, None),
+            ("yolov9", "yolov9", "yolov9-seg", None, None),
+            ("yolov8", "yolov8", "yolov8-seg", "yolov8-pose", None),
+            ("yolox", "yolox", "yolox", None, None),
         )
-        for prefix, base_key, seg_key, pose_key in prefixes:
+        for prefix, base_key, seg_key, pose_key, sem_key in prefixes:
             if normalized.startswith(prefix):
                 if is_pose:
                     return pose_key or normalized
+                if is_sem:
+                    return sem_key or normalized
                 if is_seg:
                     return seg_key
                 return base_key
@@ -1143,11 +1151,20 @@ class YOLOConfigGenerator(BaseConfigGenerator):
         model_lower = str(model_choice).lower()
         if model_lower.endswith("-pose"):
             fallback_task = "pose"
+        elif model_lower.endswith("-sem"):
+            fallback_task = "semantic"
         elif model_lower.endswith("-seg"):
             fallback_task = "segmentation"
         else:
             fallback_task = "detection"
-        task = self.dataset_info.get("task_type") or fallback_task
+        if fallback_task == "semantic":
+            # A "-sem" head can only train as semantic. Dataset sniffing reports
+            # "segmentation" for polygon labels (which is what Ultralytics'
+            # PolygonSemanticDataset consumes), so letting the sniffed value win
+            # here would silently mislabel the run as instance segmentation.
+            task = "semantic"
+        else:
+            task = self.dataset_info.get("task_type") or fallback_task
         dataset_config = self._prepared_dataset_config("yolo", task)
         integration_settings = load_settings()
         config = {

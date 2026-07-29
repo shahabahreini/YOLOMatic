@@ -1,0 +1,128 @@
+schema_version: 1
+name: vegetation_fused_rgnir
+description: Fused R,G,NIR (fake-RGB) aerial vegetation segmentation — geovision
+  vegetation_fused dataset (0.1 m GSD nadir ortho, 640px tiles, global radiometric
+  stretch R/G p2-98, NIR p2-99.8). The third channel is NIR, NOT blue, so every
+  transform that converts colorspace or mixes channels (CLAHE via LAB, HSV, RGB
+  shift, grayscale, atmospheric/shadow models tuned for visible spectrum) is
+  disabled — geometry, uniform radiometry, sensor noise, and occlusion only.
+multiplier: 3
+seed: 42
+include_originals: true
+created_at: '2026-07-23T10:00:00'
+modified_at: '2026-07-23T10:00:00'
+transforms:
+# --- enabled: geometry (nadir ortho is rotation-invariant) ---
+- name: D4
+  enabled: true
+  p: 1.0
+- name: Rotate
+  enabled: true
+  p: 0.5
+  limit_low: -15
+  limit_high: 15
+  border_mode: 4
+# --- enabled: uniform radiometry & sensor effects (channel-safe) ---
+- name: RandomBrightnessContrast
+  enabled: true
+  p: 0.6
+  brightness_limit_low: -0.15
+  brightness_limit_high: 0.15
+  contrast_limit_low: -0.15
+  contrast_limit_high: 0.15
+- name: GaussNoise
+  enabled: true
+  p: 0.3
+  std_range_low: 0.012
+  std_range_high: 0.028
+- name: GaussianBlur
+  enabled: true
+  p: 0.2
+  blur_limit_low: 3
+  blur_limit_high: 7
+- name: CoarseDropout
+  enabled: true
+  p: 0.2
+  num_holes_low: 1
+  num_holes_high: 8
+  hole_height_low: 8
+  hole_height_high: 32
+  hole_width_low: 8
+  hole_width_high: 32
+- name: ImageCompression
+  enabled: true
+  p: 0.2
+  quality_low: 70
+  quality_high: 95
+# --- disabled: colorspace/channel-mixing (corrupt NIR semantics) ---
+- name: CLAHE            # converts via LAB -> mixes NIR into luminance
+  enabled: false
+  p: 0.4
+- name: HueSaturationValue
+  enabled: false
+  p: 0.5
+- name: RGBShift
+  enabled: false
+  p: 0.2
+- name: ToGray
+  enabled: false
+  p: 0.1
+- name: Solarize
+  enabled: false
+  p: 0.1
+- name: Posterize
+  enabled: false
+  p: 0.1
+- name: Equalize
+  enabled: false
+  p: 0.2
+# --- disabled: visible-spectrum atmospheric models (NIR responds differently) ---
+- name: RandomShadow
+  enabled: false
+  p: 0.3
+- name: RandomSunFlare
+  enabled: false
+  p: 0.1
+- name: RandomFog
+  enabled: false
+  p: 0.1
+- name: ISONoise         # models Bayer-sensor chroma noise, meaningless on fused bands
+  enabled: false
+  p: 0.2
+# --- disabled: geometric distortions absent from orthorectified nadir imagery ---
+- name: ElasticTransform # warps thin encroachment polygons
+  enabled: false
+  p: 0.3
+- name: Perspective
+  enabled: false
+  p: 0.3
+- name: GridDistortion
+  enabled: false
+  p: 0.2
+- name: OpticalDistortion
+  enabled: false
+  p: 0.2
+- name: MotionBlur
+  enabled: false
+  p: 0.2
+- name: Sharpen
+  enabled: false
+  p: 0.2
+- name: MedianBlur
+  enabled: false
+  p: 0.2
+- name: Downscale        # GSD is fixed at 0.1 m; scale variation handled in training
+  enabled: false
+  p: 0.1
+- name: HorizontalFlip   # covered by D4
+  enabled: false
+  p: 0.5
+- name: VerticalFlip     # covered by D4
+  enabled: false
+  p: 0.5
+- name: Affine
+  enabled: false
+  p: 0.3
+- name: ShiftScaleRotate
+  enabled: false
+  p: 0.3

@@ -4,7 +4,8 @@ description: Benchmark YOLOmatic checkpoints with mAP, F1, per-image rankings, U
 
 # Benchmarking
 
-YOLOmatic benchmarks trained checkpoints against COCO-format validation annotations and generates an interactive HTML report with multiple analysis views.
+YOLOmatic verifies a trained Ultralytics checkpoint's task, evaluates a compatible
+YOLO dataset split, and generates an interactive HTML report with multiple analysis views.
 
 ```sh
 uv run yolomatic-benchmark
@@ -17,9 +18,9 @@ uv run yolomatic-benchmark
 Before running the benchmark wizard you need:
 
 1. **A trained, downloaded, or exported Ultralytics model artifact** — `best.pt`, `last.pt`, ONNX, TensorRT `.engine`, TorchScript, OpenVINO, or another Ultralytics YOLO export stored under the project root, `runs/`, or `weights/`
-2. **A COCO-format validation set** — a folder containing:
-   - `images/` with the validation images
-   - `_annotations.coco.json` with COCO-format bounding box or mask annotations
+2. **A compatible YOLO dataset** — a dataset root with `data.yaml`, labeled
+   `train`, `val`/`valid`, or `test` image splits. COCO annotations remain
+   supported for legacy single-split benchmark calls.
 
 COCO JSON validation sets can be exported from Roboflow using the COCO export preset, or generated from Labelbox NDJSON using `yolomatic-convert`.
 
@@ -42,9 +43,18 @@ The wizard scans benchmark-compatible Ultralytics model artifacts in the project
 
 Exported artifacts are benchmarked with a single-image batch by default because many ONNX, TensorRT, OpenVINO, and mobile exports are fixed to batch size 1. Native `.pt` checkpoints keep the benchmark batch-size setting.
 
-### 3. Locate the validation set
+### 3. Select a compatible dataset group
 
-Select the validation folder containing `_annotations.coco.json`. The task type (detection or segmentation) is auto-detected from the checkpoint.
+The wizard loads the selected Ultralytics artifact and verifies its task before
+showing datasets. It supports bounding-box detection, instance segmentation,
+pose, and semantic segmentation. Only matching datasets are selectable.
+
+Choose `train`, `valid`, `test`, or `all`. `all` evaluates every non-empty
+compatible split once and reports both aggregate and per-group results.
+
+Pose reports bounding-box metrics, not keypoint OKS/AP. Semantic models use
+dense masks rasterized from YOLO polygons and report per-class IoU, mIoU, pixel
+accuracy, and Dice/F1; their results are not comparable to detection mAP.
 
 ### 4. Configure report options
 
@@ -56,7 +66,10 @@ Choose whether to include:
 
 ### 5. Wait for evaluation
 
-The benchmark engine runs inference on every validation image, collects predictions, computes IoU matches, and calculates per-class and aggregate metrics.
+The benchmark engine validates images, labels, classes, split availability, and
+task compatibility before inference. It then evaluates every selected image and
+logs recoverable image-level failures in the report. Invalid datasets or model
+task mismatches stop early with a path-specific repair message.
 
 ### 6. Open the HTML report
 

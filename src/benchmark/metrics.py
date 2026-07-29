@@ -13,13 +13,21 @@ import numpy as np
 
 def polygon_to_mask(polygon: list[float], width: int, height: int) -> np.ndarray:
     """Rasterise a COCO flat polygon [x1,y1,x2,y2,...] to a binary mask."""
-    from src.utils.ml_dependencies import import_cv2
-    cv2 = import_cv2()
-
     pts = np.array(polygon, dtype=np.float32).reshape(-1, 2).astype(np.int32)
-    mask = np.zeros((height, width), dtype=np.uint8)
-    cv2.fillPoly(mask, [pts], 1)
-    return mask.astype(bool)
+    try:
+        from src.utils.ml_dependencies import import_cv2
+
+        mask = np.zeros((height, width), dtype=np.uint8)
+        import_cv2().fillPoly(mask, [pts], 1)
+        return mask.astype(bool)
+    except Exception:
+        # Metrics should remain available when OpenCV's optional wheels are in
+        # conflict. Pillow provides a dependable pure-Python fallback.
+        from PIL import Image, ImageDraw
+
+        image = Image.new("1", (width, height), 0)
+        ImageDraw.Draw(image).polygon([tuple(point) for point in pts], fill=1)
+        return np.asarray(image, dtype=bool)
 
 
 def mask_iou(pred: np.ndarray, gt: np.ndarray) -> float:
@@ -224,6 +232,45 @@ class SizeBucketMetrics:
 
 def _safe_div(a: float, b: float) -> float:
     return a / b if b > 0 else 0.0
+
+
+def semantic_metrics(
+    predictions: list[np.ndarray], ground_truth: list[np.ndarray], class_ids: list[int]
+) -> dict[str, object]:
+    """Compute dense semantic-segmentation metrics from class-index masks.
+
+    Pixels whose ground truth is negative are ignored. Background (0) is
+    included only when explicitly supplied in ``class_ids``.
+    """
+    if len(predictions) != len(ground_truth):
+        raise ValueError("Semantic predictions and ground truth must have the same length.")
+    per_class: dict[int, dict[str, float]] = {}
+    total_correct = total_pixels = 0
+    for class_id in class_ids:
+        intersection = union = pred_count = gt_count = 0
+        for pred, gt in zip(predictions, ground_truth):
+            if pred.shape != gt.shape:
+                raise ValueError("Semantic prediction and ground-truth mask shapes must match.")
+            valid = gt >= 0
+            total_correct += int(np.logical_and(pred == gt, valid).sum())
+            total_pixels += int(valid.sum())
+            pred_class = np.logical_and(pred == class_id, valid)
+            gt_class = np.logical_and(gt == class_id, valid)
+            intersection += int(np.logical_and(pred_class, gt_class).sum())
+            union += int(np.logical_or(pred_class, gt_class).sum())
+            pred_count += int(pred_class.sum())
+            gt_count += int(gt_class.sum())
+        iou = _safe_div(intersection, union)
+        dice = _safe_div(2 * intersection, pred_count + gt_count)
+        per_class[class_id] = {"iou": iou, "dice": dice, "pixels": float(gt_count)}
+    ious = [values["iou"] for values in per_class.values()]
+    dices = [values["dice"] for values in per_class.values()]
+    return {
+        "miou": float(np.mean(ious)) if ious else 0.0,
+        "pixel_accuracy": _safe_div(total_correct, total_pixels),
+        "dice": float(np.mean(dices)) if dices else 0.0,
+        "per_class": per_class,
+    }
 
 
 def aggregate_metrics(per_image_results: list, task: str) -> dict:
