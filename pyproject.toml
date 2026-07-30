@@ -10,7 +10,7 @@ dependencies = [
   "ultralytics",
   "clearml",
   "pyyaml",
-  "opencv-python>=4.10,<5",
+  "opencv-python>=4.10,<6",
   "numpy>=1.24.4",
   "torch",
   "torchvision",
