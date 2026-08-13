@@ -59,8 +59,30 @@ def _opencv_conflict_error(installed: list[str]) -> MLDependencyError:
     return MLDependencyError(
         "Conflicting OpenCV wheels are installed in this environment: "
         f"{packages}. They all provide the same 'cv2' module.\n"
-        "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python\n"
+        "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python-headless\n"
         "If the conflict remains, run: uv pip uninstall opencv-python "
+        "opencv-python-headless opencv-contrib-python opencv-contrib-python-headless\n"
+        "Then run: uv sync"
+    )
+
+
+# Attributes that only exist once OpenCV's native extension module has loaded
+# successfully. When two OpenCV wheels were ever installed side by side, one
+# uninstall can silently delete files the other wheel also owns (they share the
+# same on-disk ``cv2`` package layout), leaving a ``cv2`` module that imports
+# without error but is missing most of its real contents.
+_CV2_REQUIRED_ATTRS = ("imwrite", "imread", "imdecode", "CV_8U")
+
+
+def _opencv_corrupted_error(missing: list[str]) -> MLDependencyError:
+    attrs = ", ".join(missing)
+    return MLDependencyError(
+        "The installed OpenCV package is missing core attributes "
+        f"({attrs}), which usually means two OpenCV wheels (e.g. opencv-python and "
+        "opencv-python-headless) were installed at some point and one uninstall "
+        "deleted files the other still needs.\n"
+        "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python-headless\n"
+        "If the problem remains, run: uv pip uninstall opencv-python "
         "opencv-python-headless opencv-contrib-python opencv-contrib-python-headless\n"
         "Then run: uv sync"
     )
@@ -289,7 +311,7 @@ def import_cv2() -> _T:
         if len(installed) > 1:
             raise _opencv_conflict_error(installed)
         try:
-            return importlib.import_module("cv2")
+            module = importlib.import_module("cv2")
         except AttributeError as error:
             if "gapi_wip_gst_GStreamerPipeline" not in str(error) and "cv2" not in str(error):
                 _raise_dependency_error("cv2", error)
@@ -298,11 +320,18 @@ def import_cv2() -> _T:
                 if mod_name == "cv2" or mod_name.startswith("cv2."):
                     sys.modules.pop(mod_name, None)
             try:
-                return importlib.import_module("cv2")
+                module = importlib.import_module("cv2")
             except Exception as retry_error:
                 _raise_dependency_error("cv2", retry_error)
+                return None  # unreachable; keeps type checkers happy
         except Exception as error:
             _raise_dependency_error("cv2", error)
+            return None  # unreachable; keeps type checkers happy
+
+        missing = [attr for attr in _CV2_REQUIRED_ATTRS if not hasattr(module, attr)]
+        if missing:
+            raise _opencv_corrupted_error(missing)
+        return module
 
 
 def check_hf_auth() -> str | None:

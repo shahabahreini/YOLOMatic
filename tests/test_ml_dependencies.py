@@ -29,6 +29,8 @@ class ImportCv2Tests(unittest.TestCase):
         stale_cv2 = ModuleType("cv2")
         stale_gapi = ModuleType("cv2.gapi")
         replacement = ModuleType("cv2")
+        for attr in ml_dependencies._CV2_REQUIRED_ATTRS:
+            setattr(replacement, attr, object())
         original_modules = {
             name: sys.modules.get(name) for name in ("cv2", "cv2.gapi")
         }
@@ -60,6 +62,17 @@ class ImportCv2Tests(unittest.TestCase):
                     sys.modules.pop(name, None)
                 else:
                     sys.modules[name] = module
+
+    def test_rejects_cv2_module_missing_core_attributes(self) -> None:
+        broken = ModuleType("cv2")  # simulates a corrupted install: imports fine, no real bindings
+
+        with (
+            patch.object(ml_dependencies, "prepare_ml_runtime"),
+            patch.object(ml_dependencies.metadata, "distributions", return_value=[]),
+            patch.object(ml_dependencies.importlib, "import_module", return_value=broken),
+        ):
+            with self.assertRaisesRegex(ml_dependencies.MLDependencyError, "missing core attributes"):
+                ml_dependencies.import_cv2()
 
 
 if __name__ == "__main__":

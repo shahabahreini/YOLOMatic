@@ -158,17 +158,40 @@ COCO output is required when the augmented dataset will be used for Detectron2 t
 
 YOLOmatic initializes OpenCV before Albumentations and parallel augmentation
 workers to avoid OpenCV's partial-import race on Windows. It uses only
-`opencv-python`; the desktop and headless OpenCV wheels cannot coexist
-because both provide `cv2`. If the error remains, close YOLOmatic and run:
+`opencv-python-headless`; the desktop and headless OpenCV wheels cannot
+coexist because both provide `cv2`. If the error remains, close YOLOmatic and
+run:
 
 ```powershell
-uv sync --reinstall-package opencv-python
+uv sync --reinstall-package opencv-python-headless
 ```
 
 If YOLOmatic reports a remaining conflict, remove the other variants and sync:
 
 ```powershell
-uv pip uninstall opencv-python-headless opencv-contrib-python opencv-contrib-python-headless
+uv pip uninstall opencv-python opencv-contrib-python opencv-contrib-python-headless
+uv sync
+```
+
+### Windows/any OS: `cv2` reports `module 'cv2' has no attribute ...` (e.g. `CV_8U`, `imwrite`)
+
+This means `cv2` imports without error but its native extension never loaded —
+usually because `opencv-python` and `opencv-python-headless` were both
+installed at some point in this `.venv`, and uninstalling one deleted files the
+other still needed (both wheels share the same on-disk `cv2/` package layout).
+A plain `uv sync` will not repair this, because uv sees the headless wheel as
+"already installed" and won't touch it. Close YOLOmatic and force a clean
+reinstall:
+
+```powershell
+uv sync --reinstall-package opencv-python-headless
+```
+
+If attributes are still missing afterwards, wipe every OpenCV variant and
+resync from scratch:
+
+```powershell
+uv pip uninstall opencv-python opencv-python-headless opencv-contrib-python opencv-contrib-python-headless
 uv sync
 ```
 

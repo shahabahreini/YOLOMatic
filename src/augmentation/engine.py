@@ -1048,11 +1048,11 @@ def run_augmentation(
             continue
         img_dir = tmp_root / split_name / "images"
         img_dir.mkdir(parents=True, exist_ok=True)
+        mask_dir = tmp_root / split_name / "masks"
+        lbl_dir = tmp_root / split_name / "labels"
         if write_as_semantic:
-            mask_dir = tmp_root / split_name / "masks"
             mask_dir.mkdir(parents=True, exist_ok=True)
         else:
-            lbl_dir = tmp_root / split_name / "labels"
             lbl_dir.mkdir(parents=True, exist_ok=True)
         for idx, (img_bytes, anns, cls_ids) in enumerate(items):
             stem = f"aug_{split_name}_{idx:06d}"
