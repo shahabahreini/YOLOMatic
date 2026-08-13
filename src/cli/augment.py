@@ -1,6 +1,7 @@
 """Albumentations dataset augmentation wizard."""
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import replace
@@ -63,6 +64,24 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_DEFAULT_MAX_WORKERS = 4
+
+
+def _auto_augmentation_workers() -> int:
+    """Heuristic worker count for 'Auto' (0): augmentation is I/O + OpenCV/NumPy
+    bound and releases the GIL during the heavy lifting, so a moderate
+    oversubscription of the CPU count keeps threads busy without thrashing.
+    """
+    cpu_count = os.cpu_count() or _DEFAULT_MAX_WORKERS
+    return max(1, min(32, cpu_count * 2))
+
+
+def _resolve_augmentation_workers(requested: int) -> int:
+    if requested <= 0:
+        return _auto_augmentation_workers()
+    return max(1, min(64, requested))
+
 
 def _all_profile_names() -> list[str]:
     """Builtin names first (deduped), then user-saved names."""
@@ -951,6 +970,7 @@ def _run_with_progress(
     profile: AugmentationProfile,
     split_config: SplitConfig,
     output_format: str,
+    max_workers: int = _DEFAULT_MAX_WORKERS,
 ) -> None:
     stats_holder: list[AugmentationStats] = []
     error_holder: list[Exception] = []
@@ -969,6 +989,7 @@ def _run_with_progress(
                 split_config=split_config,
                 output_format=output_format,
                 progress_callback=callback,
+                max_workers=max_workers,
             )
             stats_holder.append(stats)
         except Exception as exc:
@@ -1094,7 +1115,27 @@ def _run_augmentation_flow() -> None:
     if split_config is None:
         return
 
-    # Step 5: Output name
+    # Step 5: Parallel workers
+    workers_param = ParameterDefinition(
+        name="max_workers", category="performance",
+        default=0, value_type="int",
+        description="Parallel augmentation workers (0 = Auto)",
+        help_text=(
+            "How many images to augment concurrently. Augmentation is "
+            "I/O- and OpenCV/NumPy-bound, so [bold]0[/bold] (Auto) picks a "
+            f"heuristic based on your CPU ({os.cpu_count() or '?'} cores detected). "
+            "Raise this on machines with fast storage and many cores; lower it "
+            "(e.g. to 1-2) if you hit memory pressure or disk contention."
+        ),
+        min_value=0,
+        max_value=64,
+    )
+    workers_raw = get_parameter_value_input(workers_param, 0)
+    if workers_raw is None or workers_raw == NAV_BACK:
+        return
+    max_workers = _resolve_augmentation_workers(int(workers_raw))
+
+    # Step 6: Output name
     default_name = dataset_path.name + "_augmented"
     out_param = ParameterDefinition(
         name="output_name", category="output",
@@ -1143,7 +1184,7 @@ def _run_augmentation_flow() -> None:
 
     active_transforms = sum(1 for t in profile.transforms if t.get("enabled", False))
 
-    # Step 6: Confirm
+    # Step 7: Confirm
     clear_screen()
     print_stylized_header("Augment Dataset — Confirm")
     render_summary_panel("Augmentation Plan", {
@@ -1159,6 +1200,7 @@ def _run_augmentation_flow() -> None:
             f"{split_config.val_ratio:.0%} / "
             f"{split_config.test_ratio:.0%}"
         ),
+        "Workers":                f"{max_workers}" + (" (Auto)" if int(workers_raw) == 0 else ""),
         "Estimated Output":       estimated,
         "Est. Train / Val / Test": est_splits,
         "Output Location":        f"datasets/{output_name}/",
@@ -1185,10 +1227,10 @@ def _run_augmentation_flow() -> None:
     if confirm in (NAV_BACK, "Back"):
         return
 
-    # Step 7: Run
+    # Step 8: Run
     clear_screen()
     print_stylized_header("Running Augmentation...")
-    _run_with_progress(dataset_path, output_name, profile, split_config, output_format)
+    _run_with_progress(dataset_path, output_name, profile, split_config, output_format, max_workers)
     input("\nPress Enter to return to main menu...")
 
 
