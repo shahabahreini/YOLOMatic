@@ -6,7 +6,8 @@ Supports:
   - YOLO seg format   (class_id x1 y1 x2 y2 … xn yn)
   - Auto-detection of source format
   - Pool-all-images → augment → redistribute to train/val/test splits
-  - Output as YOLO Detection, YOLO Segmentation, or COCO
+  - Output as YOLO Detection (box), YOLO Segmentation (instance polygon),
+    YOLO Segmentation (Semantic) (dense per-pixel class mask), or COCO
 """
 from __future__ import annotations
 
@@ -331,6 +332,32 @@ def polygon_to_mask(polygon: list[float], W: int, H: int) -> np.ndarray:
     mask = np.zeros((H, W), dtype=np.uint8)
     cv2.fillPoly(mask, [pts], 1)
     return mask
+
+
+def polygons_to_semantic_mask(
+    polygons: list[list[float]], class_ids: list[int], width: int, height: int
+) -> np.ndarray:
+    """Combine per-instance polygons into a dense uint8 class-index mask.
+
+    Background is ``0``; each instance occupies ``class_id + 1``. When instances
+    overlap, later polygons draw over earlier ones — the same convention used by
+    ``benchmark.engine._semantic_ground_truth`` when deriving semantic ground
+    truth from instance annotations.
+    """
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for polygon, cls in zip(polygons, class_ids):
+        if not polygon:
+            continue
+        instance_mask = polygon_to_mask(polygon, width, height)
+        mask[instance_mask.astype(bool)] = cls + 1
+    return mask
+
+
+def write_semantic_mask(mask_path: Path, mask: np.ndarray) -> None:
+    """Write a dense class-index mask as a single-channel PNG."""
+    cv2 = _get_cv2()
+    mask_path.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(mask_path), mask)
 
 
 def mask_to_polygon(
@@ -1008,7 +1035,10 @@ def run_augmentation(
     # (independent of the source annotation format). Pose source + COCO output keeps
     # keypoints by writing pose rows to the tmp YOLO dataset before conversion.
     write_as_pose = output_format == "YOLO Pose" or (ann_format == "yolo_pose" and output_format == "COCO")
-    write_as_seg = output_format in ("YOLO Segmentation", "COCO") and not write_as_pose
+    write_as_semantic = output_format == "YOLO Segmentation (Semantic)" and not write_as_pose
+    write_as_seg = (
+        output_format in ("YOLO Segmentation", "COCO") and not write_as_pose and not write_as_semantic
+    )
 
     # Write files
     split_counts: dict[str, int] = {}
@@ -1017,13 +1047,35 @@ def run_augmentation(
             split_counts[split_name] = 0
             continue
         img_dir = tmp_root / split_name / "images"
-        lbl_dir = tmp_root / split_name / "labels"
         img_dir.mkdir(parents=True, exist_ok=True)
-        lbl_dir.mkdir(parents=True, exist_ok=True)
+        if write_as_semantic:
+            mask_dir = tmp_root / split_name / "masks"
+            mask_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            lbl_dir = tmp_root / split_name / "labels"
+            lbl_dir.mkdir(parents=True, exist_ok=True)
         for idx, (img_bytes, anns, cls_ids) in enumerate(items):
             stem = f"aug_{split_name}_{idx:06d}"
             img_path = img_dir / f"{stem}.jpg"
             img_path.write_bytes(img_bytes)
+
+            if write_as_semantic:
+                # Dense per-pixel class mask (semantic segmentation), not a polygon
+                # label file. Instance boundaries are merged; last-drawn polygon wins
+                # where instances overlap (mirrors benchmark's semantic ground truth).
+                if ann_format == "yolo_pose":
+                    bboxes, _keypoints = anns
+                    polys = [bbox_to_polygon(bb) for bb in bboxes]
+                elif ann_format == "yolo_seg":
+                    polys = anns
+                else:
+                    polys = [bbox_to_polygon(bb) for bb in anns]
+                decoded = cv2.imdecode(np.frombuffer(img_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+                h, w = decoded.shape[:2]
+                mask = polygons_to_semantic_mask(polys, cls_ids, w, h)
+                write_semantic_mask(mask_dir / f"{stem}.png", mask)
+                continue
+
             lbl_path = lbl_dir / f"{stem}.txt"
             if ann_format == "yolo_pose":
                 bboxes, keypoints = anns
@@ -1052,6 +1104,8 @@ def run_augmentation(
     # Write data.yaml (include task field so future detection is instant)
     if write_as_pose:
         task_field = "pose"
+    elif write_as_semantic:
+        task_field = "semantic"
     elif write_as_seg:
         task_field = "segment"
     else:
@@ -1067,6 +1121,14 @@ def run_augmentation(
         data_yaml_content["test"] = "test/images"
     if write_as_pose and kpt_shape is not None:
         data_yaml_content["kpt_shape"] = [kpt_shape[0], kpt_shape[1]]
+    if write_as_semantic:
+        # Dense masks live in a sibling "masks/" directory next to each split's
+        # "images/" directory; pixel value 0 is background, class_id + 1 otherwise.
+        data_yaml_content["mask_dir"] = "masks"
+        data_yaml_content["train_masks"] = "train/masks"
+        data_yaml_content["val_masks"] = "valid/masks"
+        if split_data["test"]:
+            data_yaml_content["test_masks"] = "test/masks"
     with open(tmp_root / "data.yaml", "w", encoding="utf-8") as f:
         yaml.dump(data_yaml_content, f, default_flow_style=False, allow_unicode=True)
 

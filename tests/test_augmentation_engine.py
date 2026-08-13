@@ -20,6 +20,13 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("0 0.500000 0.500000 0.250000 0.250000\n", encoding="utf-8")
 
+    def _write_seg_label(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "0 0.100000 0.100000 0.900000 0.100000 0.900000 0.900000 0.100000 0.900000\n",
+            encoding="utf-8",
+        )
+
     def _write_image(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         image = np.full((12, 12, 3), 120, dtype=np.uint8)
@@ -362,6 +369,44 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
                 if line.strip()
             ]
             self.assertEqual(rows, ["0 0.500000 0.500000 0.250000 0.250000"])
+
+    def test_run_augmentation_semantic_output_writes_dense_class_masks(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: segment\nnames: [item]\ntrain: train/images\n",
+                encoding="utf-8",
+            )
+            self._write_image(root / "train" / "images" / "a.jpg")
+            self._write_seg_label(root / "train" / "labels" / "a.txt")
+
+            stats = run_augmentation(
+                root,
+                "augmented",
+                self._noop_profile(multiplier=0, include_originals=True),
+                SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0),
+                output_format="YOLO Segmentation (Semantic)",
+                max_workers=1,
+            )
+
+            out_root = root.parent / "augmented"
+            self.assertEqual(stats.total_output_images, 1)
+            self.assertFalse((out_root / "train" / "labels").exists())
+
+            mask_files = list((out_root / "train" / "masks").glob("*.png"))
+            self.assertEqual(len(mask_files), 1)
+            mask = cv2.imread(str(mask_files[0]), cv2.IMREAD_UNCHANGED)
+            self.assertIsNotNone(mask)
+            # Class 0 occupies value 1 (0 stays reserved for background).
+            self.assertEqual(set(np.unique(mask).tolist()), {0, 1})
+            self.assertGreater(int((mask == 1).sum()), 0)
+
+            data_yaml = yaml.safe_load(
+                (out_root / "data.yaml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(data_yaml["task"], "semantic")
+            self.assertEqual(data_yaml["train_masks"], "train/masks")
 
 
 if __name__ == "__main__":

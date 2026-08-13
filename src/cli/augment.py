@@ -795,7 +795,7 @@ def _quick_dataset_description(name: str, ds_path: Path) -> str:
 def _select_output_format(is_pose: bool = False) -> str | None:
     clear_screen()
     print_stylized_header("Select Output Format")
-    options = ["YOLO Detection", "YOLO Segmentation", "COCO"]
+    options = ["YOLO Detection", "YOLO Segmentation", "YOLO Segmentation (Semantic)", "COCO"]
     descriptions = {
             "YOLO Detection": (
                 "[bold cyan]YOLO Detection Format[/bold cyan]\n\n"
@@ -805,12 +805,23 @@ def _select_output_format(is_pose: bool = False) -> str | None:
                 "Compatible with all Ultralytics YOLO variants."
             ),
             "YOLO Segmentation": (
-                "[bold cyan]YOLO Segmentation Format[/bold cyan]\n\n"
+                "[bold cyan]YOLO Segmentation Format (Instance)[/bold cyan]\n\n"
                 "Output structure:\n"
                 "  train/images/  train/labels/  data.yaml\n\n"
                 "Label format: [dim]class_id x1 y1 x2 y2 … xn yn[/dim] (normalized polygon)\n\n"
                 "Compatible with yolo26, yolov11-seg, yolov8-seg, and other -seg variants.\n\n"
                 "[dim]Note: requires a segmentation-format source dataset.[/dim]"
+            ),
+            "YOLO Segmentation (Semantic)": (
+                "[bold cyan]YOLO Semantic Segmentation Format[/bold cyan]\n\n"
+                "Output structure:\n"
+                "  train/images/  train/masks/  data.yaml\n\n"
+                "Label format: [dim]dense single-channel PNG mask[/dim] per image "
+                "(pixel value 0 = background, class_id + 1 otherwise)\n\n"
+                "Instance polygons are merged into one per-pixel class mask per image — "
+                "instance boundaries between same-class objects are not preserved.\n\n"
+                "[dim]Note: best results with a segmentation-format source dataset; "
+                "box/pose sources fall back to rectangular masks.[/dim]"
             ),
             "COCO": (
                 "[bold cyan]COCO JSON Format[/bold cyan]\n\n"
@@ -822,7 +833,7 @@ def _select_output_format(is_pose: bool = False) -> str | None:
             ),
     }
     if is_pose:
-        options.insert(2, "YOLO Pose")
+        options.insert(3, "YOLO Pose")
         descriptions["YOLO Pose"] = (
             "[bold cyan]YOLO Pose Format[/bold cyan]\n\n"
             "Output structure:\n"
@@ -1221,7 +1232,8 @@ def main() -> None:
                 "Augment Dataset": (
                     "[bold cyan]Run Augmentation[/bold cyan]\n\n"
                     "Select a source dataset and an augmentation profile, then:\n\n"
-                    "  1. Choose output format: YOLO Detection, YOLO Segmentation, or COCO\n"
+                    "  1. Choose output format: YOLO Detection (box), YOLO Segmentation (instance),\n"
+                    "     YOLO Segmentation (Semantic), or COCO\n"
                     "  2. Set train / val / test split ratios\n"
                     "  3. Confirm and run\n\n"
                     "Supports [bold]YOLO bbox[/bold] and [bold]YOLO seg[/bold] formats "

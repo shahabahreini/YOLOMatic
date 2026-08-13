@@ -10,7 +10,7 @@ dependencies = [
   "ultralytics",
   "clearml",
   "pyyaml",
-  "opencv-python>=4.10,<6",
+  "opencv-python-headless>=4.10,<6",
   "numpy>=1.24.4",
   "torch",
   "torchvision",
@@ -169,8 +169,17 @@ tensorrt-cu12-libs = [
 [tool.uv]
 # Albumentations and Roboflow request the headless wheel while Ultralytics and
 # NCNN request the desktop wheel. Both publish the same ``cv2`` namespace, so
-# the application must install exactly one variant.
+# the application must install exactly one variant. The project depends on
+# opencv-python-headless directly (above); the override forces every transitive
+# request for the headless wheel to the same version range, and the excludes
+# stop any transitive dependency from pulling in a conflicting desktop or
+# contrib variant.
 override-dependencies = ["opencv-python-headless >= 4.10"]
+exclude-dependencies = [
+  "opencv-python",
+  "opencv-contrib-python",
+  "opencv-contrib-python-headless",
+]
 
 [project.scripts]
 bump = "src.cli.bump:main"
