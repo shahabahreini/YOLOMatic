@@ -2153,11 +2153,11 @@ wheels = [
 
 [[package]]
 name = "platformdirs"
-version = "4.11.2"
+version = "4.11.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e5/98/0bf930c4f97d0266b58a89e36c015f56232c52b5d2f207215d48cca9e8f7/platformdirs-4.11.2.tar.gz", hash = "sha256:3a2ae5fca3520a01ab1be8b45613537f52ddf5b5f6f53d88233892dfbf0cd82d", size = 32716, upload-time = "2026-08-10T15:48:06.092Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/d7/e7bfbc86e9f99ff7807e24de7703f032e9c9ba80bb355cf26e0e9bc5a75e/platformdirs-4.11.3.tar.gz", hash = "sha256:66a73d38a849810252df809a3d8bcbda8e26f6c189920e7535ad608a48dbb5ab", size = 33050, upload-time = "2026-08-13T22:43:27.52Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/e2/4e6eee633809c376c024821b91ade709cbfd040ec53939ffbcc292aa7eee/platformdirs-4.11.2-py3-none-any.whl", hash = "sha256:7f89089b6ea71bda7962953edcf784b2e2d9d285b40ad88be2bb75c6e9d82ab4", size = 23361, upload-time = "2026-08-10T15:48:04.855Z" },
+    { url = "https://files.pythonhosted.org/packages/19/a9/c34aebedd3a4c9afe5101b1b8713710b3fec18087c8a36c35d2f909861bd/platformdirs-4.11.3-py3-none-any.whl", hash = "sha256:5ed065d443751de711da036041a7a214122efc4a4de393b3f4137ba5576540e7", size = 23491, upload-time = "2026-08-13T22:43:26.121Z" },
 ]
 
 [[package]]
@@ -3427,7 +3427,7 @@ wheels = [
 
 [[package]]
 name = "ultralytics"
-version = "8.4.118"
+version = "8.4.120"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
@@ -3443,11 +3443,24 @@ dependencies = [
     { name = "torch", version = "2.13.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
     { name = "torchvision", version = "0.26.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "torchvision", version = "0.28.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "ultralytics-platform" },
     { name = "ultralytics-thop" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/80/2d/f5da52d87c859c5748507f5a791af1f2e500b467b0fb92c89581f065d988/ultralytics-8.4.118.tar.gz", hash = "sha256:3c6edf869146e91a67493f68abe4e2001e5d765d6d3e82aa1521edcd65d981a1", size = 1204401, upload-time = "2026-08-11T23:50:32.677Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/d7/bee7f5a1bd6bcecaf173eca5fdc092cfa79fd39001a96ff272c88eefc710/ultralytics-8.4.120.tar.gz", hash = "sha256:e6eec3adfcbe8623360d3eea949e98a0d143d00f4cdf72d130b013f5c11ed19c", size = 1205284, upload-time = "2026-08-13T22:39:00.52Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/6b/832bcb9f798c78fe58334cc706336a6cdcd6f1924f1ac12bc76df45d00e9/ultralytics-8.4.118-py3-none-any.whl", hash = "sha256:67c4f51fb4d8379e8c37605f2bdcdddbbf12f031dd2d9d9f6312d261a246d92c", size = 1423476, upload-time = "2026-08-11T23:50:27.501Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/d2/cdbb826de49f2c000808b9ed8d43dd779618f0e4387f5b06521db2c4033b/ultralytics-8.4.120-py3-none-any.whl", hash = "sha256:d1872e5ee295c5cdbcdd1309199f2326b4d3c72a871af272bf6218e4d747ee72", size = 1424205, upload-time = "2026-08-13T22:38:56.387Z" },
+]
+
+[[package]]
+name = "ultralytics-platform"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/4c/1d8968b8b631afcaaf9439338c2fdb44ccc242060aad01dce1c7e273a94c/ultralytics_platform-0.1.4.tar.gz", hash = "sha256:f93f2432aedf3f24b05189a45e0c1cea8c794c3c7d957e798cba9c3d9b7aa86d", size = 50930, upload-time = "2026-08-13T11:45:07.08Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/54/4e/98707d8b2225e5a373d81cae476434163c5d54cabf957242ae5a8e55524e/ultralytics_platform-0.1.4-py3-none-any.whl", hash = "sha256:bf5016a8011495e67349264cc61462f5bdd550bb3f0cbcce31a01817bdb5c7c9", size = 61395, upload-time = "2026-08-13T11:45:05.8Z" },
 ]
 
 [[package]]
@@ -3653,7 +3666,7 @@ wheels = [
 
 [[package]]
 name = "yolomatic"
-version = "6.2.0"
+version = "6.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
