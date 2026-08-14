@@ -1,0 +1,9 @@
+/* TEAM */
+Maintainer: Shahab Bahreini Jangjoo
+Contact: shahabahreini@hotmail.com
+Repository: https://github.com/shahabahreini/YOLOMatic
+
+/* SITE */
+Docs: https://shahabahreini.github.io/YOLOMatic/
+Standards: HTML5, CSS, schema.org, llms.txt
+Generator: MkDocs Material

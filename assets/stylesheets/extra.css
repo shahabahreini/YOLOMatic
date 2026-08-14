@@ -1,0 +1,14 @@
+:root {
+  --md-primary-fg-color: #007c73;
+  --md-accent-fg-color: #c77800;
+}
+
+.md-typeset .hero-shot {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+}
+
+.md-typeset .grid.cards > ul > li {
+  border-radius: 8px;
+}
