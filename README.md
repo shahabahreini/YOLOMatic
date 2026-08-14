@@ -39,6 +39,8 @@ RF-DETR, SAM 3.1, and Detectron2 from one terminal workflow.
   without hand-writing boilerplate.
 - **Hardware-aware configs:** CUDA, Apple Silicon MPS, CPU fallback, workers,
   batch sizes, and runtime preflight checks are handled before training starts.
+- **Safe offline augmentation:** isolated worker processes create reproducible
+  Albumentations datasets without replacing a prior output until the new one succeeds.
 - **10+ model families in one CLI:** Ultralytics YOLO, native RF-DETR, SAM 3.1,
   Detectron2, Roboflow upload, ClearML tracking, Labelbox conversion, and local
   benchmark reports.

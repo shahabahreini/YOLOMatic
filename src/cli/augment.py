@@ -25,6 +25,7 @@ from src.augmentation.engine import (
     AugmentationStats,
     SplitConfig,
     collect_all_images,
+    resolve_augmentation_workers,
     run_augmentation,
 )
 from src.augmentation.profiles import (
@@ -66,21 +67,6 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MAX_WORKERS = 4
-
-
-def _auto_augmentation_workers() -> int:
-    """Heuristic worker count for 'Auto' (0): augmentation is I/O + OpenCV/NumPy
-    bound and releases the GIL during the heavy lifting, so a moderate
-    oversubscription of the CPU count keeps threads busy without thrashing.
-    """
-    cpu_count = os.cpu_count() or _DEFAULT_MAX_WORKERS
-    return max(1, min(32, cpu_count * 2))
-
-
-def _resolve_augmentation_workers(requested: int) -> int:
-    if requested <= 0:
-        return _auto_augmentation_workers()
-    return max(1, min(64, requested))
 
 
 def _all_profile_names() -> list[str]:
@@ -1121,10 +1107,10 @@ def _run_augmentation_flow() -> None:
         default=0, value_type="int",
         description="Parallel augmentation workers (0 = Auto)",
         help_text=(
-            "How many images to augment concurrently. Augmentation is "
-            "I/O- and OpenCV/NumPy-bound, so [bold]0[/bold] (Auto) picks a "
-            f"heuristic based on your CPU ({os.cpu_count() or '?'} cores detected). "
-            "Raise this on machines with fast storage and many cores; lower it "
+            "How many isolated worker processes augment images concurrently. "
+            "[bold]0[/bold] (Auto) picks a conservative count from your CPU "
+            f"({os.cpu_count() or '?'} cores detected). "
+            "Raise this on machines with fast storage and enough RAM; lower it "
             "(e.g. to 1-2) if you hit memory pressure or disk contention."
         ),
         min_value=0,
@@ -1133,7 +1119,7 @@ def _run_augmentation_flow() -> None:
     workers_raw = get_parameter_value_input(workers_param, 0)
     if workers_raw is None or workers_raw == NAV_BACK:
         return
-    max_workers = _resolve_augmentation_workers(int(workers_raw))
+    max_workers = resolve_augmentation_workers(int(workers_raw))
 
     # Step 6: Output name
     default_name = dataset_path.name + "_augmented"

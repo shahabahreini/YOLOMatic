@@ -2,13 +2,18 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 import yaml
 
-from src.augmentation.engine import SplitConfig, collect_all_images, run_augmentation
+from src.augmentation.engine import (
+    SplitConfig,
+    collect_all_images,
+    resolve_augmentation_workers,
+    run_augmentation,
+)
 
 
 class AugmentationEngineCollectionTest(unittest.TestCase):
@@ -182,37 +187,30 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             )
             self.assertNotIn("test", data_yaml)
 
-    def test_primes_cv2_once_before_parallel_workers(self) -> None:
+    def test_resolves_auto_and_rejects_negative_worker_counts(self) -> None:
+        self.assertGreaterEqual(resolve_augmentation_workers(0), 1)
+        self.assertEqual(resolve_augmentation_workers(2), 2)
+        with self.assertRaises(ValueError):
+            resolve_augmentation_workers(-1)
+
+    def test_rejects_invalid_split_before_replacing_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "source"
             root.mkdir()
-            (root / "data.yaml").write_text(
-                "task: detect\nnames: [item]\ntrain: train/images\n",
-                encoding="utf-8",
-            )
-            for index in range(2):
-                self._write_image(root / "train" / "images" / f"{index}.jpg")
-                self._write_label(root / "train" / "labels" / f"{index}.txt")
+            existing = root.parent / "augmented"
+            existing.mkdir()
+            marker = existing / "keep.txt"
+            marker.write_text("old output", encoding="utf-8")
 
-            fake_cv2 = MagicMock()
-            fake_cv2.imread.return_value = np.full((12, 12, 3), 120, dtype=np.uint8)
-            fake_cv2.imencode.return_value = (True, np.array([1], dtype=np.uint8))
-
-            with (
-                patch("src.augmentation.engine._get_cv2", return_value=fake_cv2) as get_cv2,
-                patch("src.augmentation.engine.build_bbox_pipeline", return_value=object()),
-                patch("src.augmentation.engine._augment_bbox", return_value=[]),
-            ):
+            with self.assertRaisesRegex(ValueError, "Split ratios"):
                 run_augmentation(
                     root,
                     "augmented",
-                    self._noop_profile(multiplier=1, include_originals=True),
-                    SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0),
-                    output_format="YOLO Detection",
-                    max_workers=2,
+                    self._noop_profile(),
+                    SplitConfig(train_ratio=0.9, val_ratio=0.2, test_ratio=0.0),
                 )
 
-            self.assertEqual(get_cv2.call_count, 1)
+            self.assertEqual(marker.read_text(encoding="utf-8"), "old output")
 
     def test_run_augmentation_pools_all_source_splits_then_redistributes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -245,7 +243,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
                 ),
                 SplitConfig(train_ratio=0.50, val_ratio=0.25, test_ratio=0.25),
                 output_format="YOLO Detection",
-                max_workers=1,
+                max_workers=2,
             )
 
             out_root = root.parent / "augmented"
@@ -275,6 +273,63 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             self.assertEqual(data_yaml["train"], "train/images")
             self.assertEqual(data_yaml["val"], "valid/images")
             self.assertEqual(data_yaml["test"], "test/images")
+
+    def test_fixed_seed_is_deterministic_across_worker_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: detect\nnames: [item]\ntrain: train/images\n", encoding="utf-8"
+            )
+            for index in range(3):
+                self._write_image(root / "train" / "images" / f"{index}.jpg")
+                self._write_label(root / "train" / "labels" / f"{index}.txt")
+            profile = SimpleNamespace(
+                name="seeded",
+                multiplier=1,
+                include_originals=True,
+                seed=42,
+                transforms=[{"name": "RandomBrightnessContrast", "enabled": True, "p": 1.0}],
+            )
+            split = SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0)
+            run_augmentation(root, "single", profile, split, "YOLO Detection", max_workers=1)
+            run_augmentation(root, "parallel", profile, split, "YOLO Detection", max_workers=2)
+
+            def contents(dataset: Path) -> dict[str, bytes]:
+                return {
+                    path.relative_to(dataset).as_posix(): path.read_bytes()
+                    for path in sorted(dataset.rglob("*"))
+                    if path.is_file()
+                }
+
+            self.assertEqual(contents(root.parent / "single"), contents(root.parent / "parallel"))
+
+    def test_failed_coco_conversion_keeps_existing_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            root.mkdir()
+            (root / "data.yaml").write_text(
+                "task: detect\nnames: [item]\ntrain: train/images\n", encoding="utf-8"
+            )
+            self._write_image(root / "train" / "images" / "a.jpg")
+            self._write_label(root / "train" / "labels" / "a.txt")
+            existing = root.parent / "augmented"
+            existing.mkdir()
+            marker = existing / "keep.txt"
+            marker.write_text("old output", encoding="utf-8")
+
+            with patch("src.datasets.core.convert_yolo_to_coco", side_effect=RuntimeError("conversion failed")):
+                with self.assertRaisesRegex(RuntimeError, "conversion failed"):
+                    run_augmentation(
+                        root,
+                        "augmented",
+                        self._noop_profile(multiplier=0, include_originals=True),
+                        SplitConfig(train_ratio=1.0, val_ratio=0.0, test_ratio=0.0),
+                        output_format="COCO",
+                        max_workers=1,
+                    )
+
+            self.assertEqual(marker.read_text(encoding="utf-8"), "old output")
 
     def test_run_augmentation_removes_stale_output_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

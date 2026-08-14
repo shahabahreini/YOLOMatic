@@ -56,6 +56,26 @@ Choose your multiplier based on how small your source dataset is:
 
 ---
 
+## Parallel Workers and Reproducibility
+
+The wizard’s **Parallel augmentation workers** setting uses isolated worker
+processes. Set it to `0` for a conservative automatic count, or choose a
+positive count when you know the available CPU, RAM, and storage bandwidth.
+Each worker limits OpenCV to one internal thread, avoiding the CPU
+oversubscription that can make high worker counts slower rather than faster.
+
+More workers improve throughput only while your disk and memory can keep up.
+Start with Auto, then reduce the count if the machine starts swapping or the
+storage becomes saturated. The selected profile seed now determines both the
+augmentation randomness and split assignment, so a fixed dataset, profile, and
+seed produce the same output regardless of worker count.
+
+YOLOmatic builds augmented datasets in a staging directory and replaces an
+existing output only after the new dataset has completed successfully. A failed
+run therefore leaves the previous output dataset intact.
+
+---
+
 ## Transforms
 
 YOLOmatic exposes 20+ Albumentations transforms organized into five categories. Each transform has an independent enable toggle, probability, and configurable parameters.

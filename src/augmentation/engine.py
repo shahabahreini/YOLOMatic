@@ -11,12 +11,16 @@ Supports:
 """
 from __future__ import annotations
 
+import json
 import logging
+import math
+import multiprocessing
 import os
 import random
 import shutil
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import uuid
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -40,6 +44,10 @@ SPLIT_ALIASES = {
     "val": ("val", "valid", "validation"),
     "test": ("test", "testing"),
 }
+
+_DEFAULT_MAX_WORKERS = 4
+_AUTO_MAX_WORKERS = 8
+_WORKER_STATE: tuple[Any, Any, str, tuple[int, int] | None, int] | None = None
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -68,6 +76,26 @@ class AugmentationStats:
     elapsed_seconds: float = 0.0
     cache_files_removed: int = 0
     cache_bytes_reclaimed: int = 0
+
+
+def resolve_augmentation_workers(requested: int) -> int:
+    """Resolve ``0`` to a conservative process-worker count."""
+    if requested < 0:
+        raise ValueError("max_workers must be 0 (Auto) or a positive integer.")
+    if requested == 0:
+        return max(1, min(_AUTO_MAX_WORKERS, os.cpu_count() or _DEFAULT_MAX_WORKERS))
+    return requested
+
+
+def _validate_split_config(split_config: SplitConfig) -> None:
+    ratios = (split_config.train_ratio, split_config.val_ratio, split_config.test_ratio)
+    if any(
+        not isinstance(ratio, (int, float)) or not math.isfinite(ratio) or ratio < 0
+        for ratio in ratios
+    ):
+        raise ValueError("Split ratios must be finite, non-negative numbers.")
+    if abs(sum(ratios) - 1.0) > 0.02:
+        raise ValueError(f"Split ratios must sum to 1.0 (got {sum(ratios):.3f}).")
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +674,98 @@ def _augment_pose(
     return results
 
 
+def _initialize_augmentation_worker(
+    profile: Any,
+    annotation_format: str,
+    kpt_shape: tuple[int, int] | None,
+) -> None:
+    """Initialize one isolated OpenCV/Albumentations pipeline per process."""
+    global _WORKER_STATE
+    cv2 = _get_cv2()
+    cv2.setNumThreads(1)
+    if annotation_format == "yolo_pose":
+        pipeline = build_pose_pipeline(profile)
+    elif annotation_format == "yolo_seg":
+        pipeline = build_seg_pipeline(profile)
+    else:
+        pipeline = build_bbox_pipeline(profile)
+    _WORKER_STATE = (cv2, pipeline, annotation_format, kpt_shape, int(profile.multiplier))
+
+
+def _write_staged_item(
+    group_dir: Path,
+    name: str,
+    image: np.ndarray,
+    annotations: Any,
+    class_ids: list[int],
+    cv2: Any,
+) -> None:
+    success, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    if not success:
+        raise RuntimeError("OpenCV could not encode an augmented image as JPEG.")
+    (group_dir / f"{name}.jpg").write_bytes(encoded.tobytes())
+    (group_dir / f"{name}.json").write_text(
+        json.dumps({"annotations": annotations, "class_ids": class_ids}), encoding="utf-8"
+    )
+
+
+def _process_augmentation_job(
+    index: int,
+    image_path_text: str,
+    label_path_text: str | None,
+    stage_root_text: str,
+    seed: int,
+) -> tuple[int, str | None, int]:
+    """Augment one source image and stage its variants without returning image bytes."""
+    if _WORKER_STATE is None:
+        raise RuntimeError("Augmentation worker was not initialized.")
+    cv2, pipeline, annotation_format, kpt_shape, multiplier = _WORKER_STATE
+    image_path = Path(image_path_text)
+    label_path = Path(label_path_text) if label_path_text else None
+    image = cv2.imread(str(image_path))
+    if image is None:
+        return index, None, 0
+
+    if hasattr(pipeline, "set_random_seed"):
+        pipeline.set_random_seed(seed)
+    else:  # Albumentations 1.x compatibility
+        random.seed(seed)
+        np.random.seed(seed)
+    group_dir = Path(stage_root_text) / f"group_{index:08d}"
+    group_dir.mkdir(parents=True, exist_ok=False)
+    discarded = 0
+
+    if annotation_format == "yolo_pose":
+        if kpt_shape is None:
+            raise RuntimeError("Pose worker requires kpt_shape.")
+        bboxes, keypoints, class_ids = read_yolo_pose(label_path, kpt_shape)
+        _write_staged_item(group_dir, "original", image, [bboxes, keypoints], class_ids, cv2)
+        for variant, (aug_image, aug_boxes, aug_keypoints, aug_classes) in enumerate(
+            _augment_pose(image, bboxes, keypoints, class_ids, pipeline, multiplier, kpt_shape)
+        ):
+            discarded += max(0, len(bboxes) - len(aug_boxes))
+            _write_staged_item(
+                group_dir, f"aug_{variant:04d}", aug_image, [aug_boxes, aug_keypoints], aug_classes, cv2
+            )
+    elif annotation_format == "yolo_seg":
+        polygons, class_ids = read_yolo_seg(label_path)
+        _write_staged_item(group_dir, "original", image, polygons, class_ids, cv2)
+        for variant, (aug_image, aug_polygons, aug_classes) in enumerate(
+            _augment_seg(image, polygons, class_ids, pipeline, multiplier)
+        ):
+            discarded += max(0, len(polygons) - len(aug_polygons))
+            _write_staged_item(group_dir, f"aug_{variant:04d}", aug_image, aug_polygons, aug_classes, cv2)
+    else:
+        bboxes, class_ids = read_yolo_bbox(label_path)
+        _write_staged_item(group_dir, "original", image, bboxes, class_ids, cv2)
+        for variant, (aug_image, aug_boxes, aug_classes) in enumerate(
+            _augment_bbox(image, bboxes, class_ids, pipeline, multiplier)
+        ):
+            discarded += max(0, len(bboxes) - len(aug_boxes))
+            _write_staged_item(group_dir, f"aug_{variant:04d}", aug_image, aug_boxes, aug_classes, cv2)
+    return index, str(group_dir), discarded
+
+
 # ---------------------------------------------------------------------------
 # Image collection
 # ---------------------------------------------------------------------------
@@ -826,7 +946,7 @@ def run_augmentation(
     split_config: SplitConfig,
     output_format: str = "YOLO Segmentation",
     progress_callback: Callable[[int, int, str], None] | None = None,
-    max_workers: int = 4,
+    max_workers: int = 0,
 ) -> AugmentationStats:
     """
     Non-destructive augmentation runner.
@@ -843,6 +963,8 @@ def run_augmentation(
       7. If COCO: convert using existing convert_yolo_to_coco()
     """
     t0 = time.time()
+    _validate_split_config(split_config)
+    max_workers = resolve_augmentation_workers(max_workers)
 
     cache_cleanup = clean_dataset_image_cache(source_dataset_path)
     if cache_cleanup.removed_files:
@@ -891,112 +1013,78 @@ def run_augmentation(
             "Keypoints cannot be synthesized from boxes or polygons."
         )
 
-    # OpenCV must finish bootstrapping before Albumentations and the worker pool
-    # touch it.  On Windows, importing it first from parallel workers can leave
-    # ``cv2`` partially initialized (notably around its GStreamer bindings).
-    cv2 = _get_cv2()
-
-    # Build pipeline
-    if ann_format == "yolo_pose":
-        pipeline = build_pose_pipeline(profile)
-    elif ann_format == "yolo_seg":
-        pipeline = build_seg_pipeline(profile)
-    else:
-        pipeline = build_bbox_pipeline(profile)
-
-    # Output directory (under datasets/ by default)
+    # Output directory (under datasets/ by default). Build in a sibling staging
+    # directory so a failed run never destroys an existing augmented dataset.
     out_root = source_dataset_path.parent / output_name
     if out_root.resolve() == source_dataset_path.resolve():
         raise ValueError("Augmentation output path must be different from the source dataset path.")
-    if out_root.exists():
-        shutil.rmtree(out_root)
-    # Use a temporary YOLO structure for augmented images, then optionally convert
-    tmp_root = out_root if output_format != "COCO" else out_root / "_yolo_tmp"
+    stage_root = source_dataset_path.parent / f".{output_name}.augmenting-{uuid.uuid4().hex}"
+    groups_root = stage_root / "groups"
+    build_root = stage_root / "output"
+    tmp_root = build_root if output_format != "COCO" else stage_root / "yolo"
+    groups_root.mkdir(parents=True)
+    skipped = discarded = 0
+    completed_groups: dict[int, list[Path]] = {}
+    worker_context = multiprocessing.get_context("spawn")
 
-    # Augmented pool: list of (img_bgr_bytes, polygons_or_bboxes, class_ids, is_seg)
-    # We store encoded bytes to avoid holding all images in RAM simultaneously.
-    # Instead, write immediately to disk to keep memory bounded.
+    try:
+        # Keep at most two jobs per process outstanding: large images remain on disk,
+        # not in the parent process or an unbounded executor queue.
+        job_iter = iter(enumerate(all_pairs))
+        pending: dict[Any, tuple[int, Path]] = {}
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=worker_context,
+            initializer=_initialize_augmentation_worker,
+            initargs=(profile, ann_format, kpt_shape),
+        ) as executor:
+            def submit_next() -> bool:
+                try:
+                    index, (image_path, label_path) = next(job_iter)
+                except StopIteration:
+                    return False
+                future = executor.submit(
+                    _process_augmentation_job,
+                    index,
+                    str(image_path),
+                    str(label_path) if label_path else None,
+                    str(groups_root),
+                    int(profile.seed) + index,
+                )
+                pending[future] = (index, image_path)
+                return True
 
-    skipped = 0
-    discarded = 0
-
-    def _process(pair: tuple[Path, Path | None]) -> tuple[
-        list[tuple[bytes, list, list]],   # augmented
-        tuple[bytes, list, list] | None,   # original
-        int,                               # discarded annotations
-    ]:
-        img_path, lbl_path = pair
-        img_bgr = cv2.imread(str(img_path))
-        if img_bgr is None:
-            return [], None, 0
-
-        orig_discarded = 0
-        if ann_format == "yolo_pose":
-            bboxes, keypoints, cls_ids = read_yolo_pose(lbl_path, kpt_shape)
-            aug_results = _augment_pose(img_bgr, bboxes, keypoints, cls_ids, pipeline, profile.multiplier, kpt_shape)
-            aug_items = []
-            for aug_img, aug_bb, aug_kp, aug_cls in aug_results:
-                orig_discarded += max(0, len(bboxes) - len(aug_bb))
-                _, buf = cv2.imencode(".jpg", aug_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                aug_items.append((buf.tobytes(), (aug_bb, aug_kp), aug_cls))
-            _, orig_buf = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            return aug_items, (orig_buf.tobytes(), (bboxes, keypoints), cls_ids), orig_discarded
-
-        elif ann_format == "yolo_seg":
-            polygons, cls_ids = read_yolo_seg(lbl_path)
-            aug_results = _augment_seg(img_bgr, polygons, cls_ids, pipeline, profile.multiplier)
-            aug_items = []
-            for aug_img, aug_poly, aug_cls in aug_results:
-                orig_discarded += len(polygons) - len(aug_poly)
-                _, buf = cv2.imencode(".jpg", aug_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                aug_items.append((buf.tobytes(), aug_poly, aug_cls))
-            # Original
-            _, orig_buf = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            return aug_items, (orig_buf.tobytes(), polygons, cls_ids), orig_discarded
-
-        else:
-            bboxes, cls_ids = read_yolo_bbox(lbl_path)
-            aug_results = _augment_bbox(img_bgr, bboxes, cls_ids, pipeline, profile.multiplier)
-            aug_items = []
-            for aug_img, aug_bb, aug_cls in aug_results:
-                orig_discarded += max(0, len(bboxes) - len(aug_bb))
-                _, buf = cv2.imencode(".jpg", aug_img, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                aug_items.append((buf.tobytes(), aug_bb, aug_cls))
-            _, orig_buf = cv2.imencode(".jpg", img_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            return aug_items, (orig_buf.tobytes(), bboxes, cls_ids), orig_discarded
-
-    # One group per source image: [original?] + its augmented variants. Splitting at
-    # the group level (rather than per-item) keeps every variant of an image in the
-    # same split, preventing train/val/test leakage.
-    groups: list[list[tuple[bytes, list, list]]] = []
-    done_count = 0
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_process, pair): pair for pair in all_pairs}
-        for future in as_completed(futures):
-            pair = futures[future]
-            done_count += 1
-            try:
-                aug_items, orig_item, n_disc = future.result()
-                if orig_item is None:
-                    # Unreadable image — nothing produced.
+            for _ in range(min(total_source, max_workers * 2)):
+                submit_next()
+            done_count = 0
+            while pending:
+                future = next(as_completed(pending))
+                _index, image_path = pending.pop(future)
+                done_count += 1
+                try:
+                    result_index, group_text, n_disc = future.result()
+                    discarded += n_disc
+                    if group_text is None:
+                        skipped += 1
+                    else:
+                        group_dir = Path(group_text)
+                        item_paths = sorted(group_dir.glob("*.jpg"))
+                        if not profile.include_originals:
+                            item_paths = [path for path in item_paths if path.stem != "original"]
+                        if item_paths:
+                            completed_groups[result_index] = item_paths
+                except Exception as exc:
+                    logger.warning("Failed to augment %s: %s", image_path.name, exc)
                     skipped += 1
-                else:
-                    group: list[tuple[bytes, list, list]] = []
-                    if profile.include_originals:
-                        group.append(orig_item)
-                    group.extend(aug_items)
-                    if group:
-                        groups.append(group)
-                discarded += n_disc
-            except Exception as exc:
-                logger.warning("Failed to augment %s: %s", pair[0].name, exc)
-                skipped += 1
-
-            if progress_callback and done_count % max(1, total_source // 100) == 0:
-                progress_callback(done_count, total_source, pair[0].name)
+                submit_next()
+                if progress_callback and done_count % max(1, total_source // 100) == 0:
+                    progress_callback(done_count, total_source, image_path.name)
+    except Exception:
+        shutil.rmtree(stage_root, ignore_errors=True)
+        raise
 
     # Shuffle groups, then assign whole groups to splits by ratio.
+    groups = [completed_groups[index] for index in sorted(completed_groups)]
     rng = random.Random(profile.seed)
     rng.shuffle(groups)
 
@@ -1006,7 +1094,7 @@ def run_augmentation(
 
     # Fill test then val up to their targets (whole groups only); the remainder goes
     # to train, so a 0.0 test ratio never receives leftover images.
-    split_data: dict[str, list[tuple[bytes, list, list]]] = {
+    split_data: dict[str, list[Path]] = {
         "train": [], "valid": [], "test": [],
     }
     val_count = test_count = 0
@@ -1054,10 +1142,13 @@ def run_augmentation(
             mask_dir.mkdir(parents=True, exist_ok=True)
         else:
             lbl_dir.mkdir(parents=True, exist_ok=True)
-        for idx, (img_bytes, anns, cls_ids) in enumerate(items):
+        for idx, staged_image_path in enumerate(items):
             stem = f"aug_{split_name}_{idx:06d}"
             img_path = img_dir / f"{stem}.jpg"
-            img_path.write_bytes(img_bytes)
+            shutil.copy2(staged_image_path, img_path)
+            staged_metadata = json.loads(staged_image_path.with_suffix(".json").read_text(encoding="utf-8"))
+            anns = staged_metadata["annotations"]
+            cls_ids = staged_metadata["class_ids"]
 
             if write_as_semantic:
                 # Dense per-pixel class mask (semantic segmentation), not a polygon
@@ -1070,7 +1161,10 @@ def run_augmentation(
                     polys = anns
                 else:
                     polys = [bbox_to_polygon(bb) for bb in anns]
-                decoded = cv2.imdecode(np.frombuffer(img_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+                cv2 = _get_cv2()
+                decoded = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                if decoded is None:
+                    raise RuntimeError(f"Could not read staged image {img_path.name}.")
                 h, w = decoded.shape[:2]
                 mask = polygons_to_semantic_mask(polys, cls_ids, w, h)
                 write_semantic_mask(mask_dir / f"{stem}.png", mask)
@@ -1132,10 +1226,25 @@ def run_augmentation(
     with open(tmp_root / "data.yaml", "w", encoding="utf-8") as f:
         yaml.dump(data_yaml_content, f, default_flow_style=False, allow_unicode=True)
 
-    # COCO conversion
+        # COCO conversion writes its final dataset inside the staging directory.
     if output_format == "COCO":
-        convert_yolo_to_coco(tmp_root, out_root)
-        shutil.rmtree(tmp_root, ignore_errors=True)
+        convert_yolo_to_coco(tmp_root, build_root)
+
+        # Swap only a fully written dataset into the user-visible location. Directory
+        # replacement is recoverable on all supported platforms.
+    backup_root: Path | None = None
+    if out_root.exists():
+        backup_root = source_dataset_path.parent / f".{output_name}.backup-{uuid.uuid4().hex}"
+        out_root.rename(backup_root)
+    try:
+        build_root.rename(out_root)
+    except Exception:
+        if backup_root is not None and backup_root.exists():
+            backup_root.rename(out_root)
+        raise
+    if backup_root is not None:
+        shutil.rmtree(backup_root)
+    shutil.rmtree(stage_root, ignore_errors=True)
 
     return AugmentationStats(
         source_dataset=source_dataset_path.name,
