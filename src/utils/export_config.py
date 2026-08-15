@@ -5,11 +5,15 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 
+# Tasks whose exports carry an NMS stage. Semantic segmentation is deliberately
+# excluded: it emits a dense class map with no boxes to suppress.
 DETECTION_LIKE_TASKS = frozenset({"detect", "segment", "pose", "obb"})
 ONNX_BACKED_FORMATS = frozenset({"onnx", "engine"})
 INT8_CAPABLE_FORMATS = frozenset({"engine", "tflite", "edgetpu"})
+# Which tasks each format can carry. Kept separate from DETECTION_LIKE_TASKS so that
+# excluding semantic from NMS handling does not also strip its export formats.
 TASK_LIMITED_FORMATS = {
-    "edgetpu": DETECTION_LIKE_TASKS | frozenset({"classify"}),
+    "edgetpu": DETECTION_LIKE_TASKS | frozenset({"classify", "semantic"}),
 }
 FORMAT_PARAM_NAMES = {
     "engine": {

@@ -161,7 +161,7 @@ def infer_model_type_from_text(raw_text: str) -> str | None:
     if "rf-detr" in normalized_text or "rfdetr" in normalized_text or ".pth" in normalized_text:
         return "rfdetr-seg" if "seg" in normalized_text else "rfdetr"
 
-    yolo26_match = re.search(r"yolo26([nslmx])(?:-seg)?\b", normalized_text)
+    yolo26_match = re.search(r"yolo26([nslmx])(?:-(?:seg|sem))?\b", normalized_text)
     if yolo26_match is not None:
         return f"yolo26{yolo26_match.group(1)}"
 

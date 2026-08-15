@@ -233,7 +233,15 @@ def _select_source() -> Path | None:
 
 def _select_output_format(source: Path) -> str | None:
     choice = get_user_choice(
-        ["YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose", "Back"],
+        [
+            "YOLO Detection",
+            "YOLO Segmentation",
+            "YOLO Semantic",
+            "YOLO Pose",
+            "COCO",
+            "COCO Pose",
+            "Back",
+        ],
         title="Output Format",
         text="Choose the format for the prepared training dataset:",
         descriptions={
@@ -244,6 +252,13 @@ def _select_output_format(source: Path) -> str | None:
             "YOLO Segmentation": (
                 "Writes Ultralytics polygon labels: class_id x1 y1 ... xn yn.\n\n"
                 "If the source has only boxes, YOLOmatic creates rectangle polygons."
+            ),
+            "YOLO Semantic": (
+                "Writes the same polygon labels as YOLO Segmentation, but data.yaml "
+                "declares task: semantic.\n\n"
+                "Ultralytics rasterizes the polygons into a dense per-pixel target and "
+                "adds a background class. Train yolo26*-sem on this. Choose it when you "
+                "want per-pixel class maps rather than separate object instances."
             ),
             "YOLO Pose": (
                 "Writes Ultralytics pose labels: class_id cx cy w h kpt_x kpt_y [v] ...\n\n"

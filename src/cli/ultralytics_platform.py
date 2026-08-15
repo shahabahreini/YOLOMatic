@@ -8,8 +8,18 @@ from pathlib import Path
 from typing import Any, Callable
 
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from src.config.settings import load_settings, ultralytics_credential_status
+from src.datasets.archive import DEFAULT_MAX_ARCHIVE_GIB, package_dataset_archives
+from src.datasets.validate import validate_dataset
 from src.datasets.prepare import PrepareDatasetConfig, PrepareSplitConfig, prepare_dataset, slugify
 from src.integrations.ultralytics_platform import (
     DEFAULT_BASE_URL,
@@ -68,6 +78,50 @@ def build_parser() -> argparse.ArgumentParser:
     upload_dataset.add_argument("dataset_path", type=Path)
     upload_dataset.add_argument("--dataset-id", help="Existing Platform dataset ID to ingest into.")
     upload_dataset.add_argument("--name", help="Name to use when creating/selecting a dataset.")
+
+    package_dataset = subparsers.add_parser(
+        "package-dataset",
+        help="Archive a prepared dataset directory to a .zip without uploading it.",
+    )
+    package_dataset.add_argument("dataset_path", type=Path)
+    package_dataset.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("output"),
+        help="Directory to write the .zip into (default: output/).",
+    )
+    package_dataset.add_argument(
+        "--name",
+        help="Archive filename stem (default: the dataset directory name, slugified).",
+    )
+    package_dataset.add_argument(
+        "--max-size-gb",
+        type=float,
+        default=DEFAULT_MAX_ARCHIVE_GIB,
+        help=(
+            "Maximum size per archive in GiB (default: %(default)s). Datasets larger than "
+            "this are split into a numbered series of standalone zips plus a manifest. "
+            "Pass 0 to disable splitting."
+        ),
+    )
+    package_dataset.add_argument(
+        "--no-checksums",
+        action="store_true",
+        help="Skip sha256 of each archive (faster on very large datasets).",
+    )
+    package_dataset.add_argument(
+        "--compress-images",
+        action="store_true",
+        help=(
+            "Also deflate images. Slower, but on augmented datasets (which repeat the "
+            "same content under different transforms) it can cut ~10%% off the upload."
+        ),
+    )
+    package_dataset.add_argument(
+        "--skip-validation",
+        action="store_true",
+        help="Package even if the dataset's labels do not match its declared task.",
+    )
 
     subparsers.add_parser("list-projects", help="List Platform projects.")
     list_models = subparsers.add_parser("list-models", help="List Platform models.")
@@ -272,6 +326,74 @@ def _make_archive(dataset_path: Path) -> Path:
     archive_base = temp_dir / slugify(dataset_path.name)
     archive_name = shutil.make_archive(str(archive_base), "zip", root_dir=dataset_path)
     return Path(archive_name)
+
+
+def package_dataset(args: argparse.Namespace) -> None:
+    """Write the archive ``upload-dataset`` sends, but keep it on disk.
+
+    Splits into a numbered series when the dataset would exceed ``--max-size-gb``,
+    since upload endpoints reject oversized archives.
+    """
+    stem = slugify(args.name) if args.name else slugify(args.dataset_path.name)
+    max_bytes = int(args.max_size_gb * 1024**3) if args.max_size_gb > 0 else None
+
+    # Catch malformed labels before spending minutes zipping gigabytes that a
+    # training run would then reject.
+    if not args.skip_validation and (args.dataset_path / "data.yaml").is_file():
+        report = validate_dataset(args.dataset_path)
+        if report.errors:
+            console.print(Panel(
+                "[bold red]Dataset validation failed:[/bold red]\n"
+                + "\n".join(f"  • {message}" for message in report.errors[:10])
+                + "\n\n[dim]Fix the dataset, or pass --skip-validation to package anyway.[/dim]",
+                border_style="red", padding=(1, 2),
+            ))
+            raise SystemExit(1)
+        console.print(f"[green]Validation passed[/green] [dim]({report.summary()})[/dim]")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task_id = progress.add_task("Packaging dataset", total=None)
+
+        def on_progress(done: int, total: int, part_name: str) -> None:
+            progress.update(task_id, completed=done, total=total, description=f"Writing {part_name}")
+
+        result = package_dataset_archives(
+            args.dataset_path,
+            args.output_dir,
+            stem,
+            max_bytes=max_bytes,
+            progress_callback=on_progress,
+            compute_checksums=not args.no_checksums,
+            compress_images=args.compress_images,
+        )
+
+    rows = {
+        "Dataset": args.dataset_path.name,
+        "Files": f"{result.total_files:,}",
+        "Uncompressed": f"{result.total_bytes / 1024**3:.2f} GiB",
+        "Size limit": f"{args.max_size_gb:g} GiB" if max_bytes else "none",
+        "Archives": str(len(result.parts)),
+        "Image compression": "deflate" if args.compress_images else "stored",
+    }
+    render_summary_panel("Dataset Package", rows)
+    for part in result.parts:
+        checksum = f"  sha256:{part.sha256[:16]}…" if part.sha256 else ""
+        console.print(
+            f"[bold green]Wrote[/bold green] [cyan]{part.path}[/cyan] "
+            f"({part.bytes_written / 1024**3:.2f} GiB, {len(part.members):,} files){checksum}"
+        )
+    if result.manifest_path is not None:
+        console.print(f"[bold green]Manifest:[/bold green] [cyan]{result.manifest_path}[/cyan]")
+        console.print(
+            "[dim]Extract every part into the same directory to reconstruct the dataset.[/dim]"
+        )
 
 
 def upload_dataset(args: argparse.Namespace) -> None:
@@ -674,6 +796,8 @@ def main() -> None:
             download_dataset(args)
         elif args.command == "upload-dataset":
             upload_dataset(args)
+        elif args.command == "package-dataset":
+            package_dataset(args)
         elif args.command == "list-projects":
             _print_items("Ultralytics Projects", _client(args).list_projects())
         elif args.command == "list-models":

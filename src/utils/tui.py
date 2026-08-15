@@ -236,6 +236,25 @@ def build_summary_table(fields: dict[str, Any]) -> Table:
     return table
 
 
+# Ultralytics task suffixes stripped before reading a model's size letter. "-sem"
+# must be present: without it "yolo26x-sem" keeps its suffix and the size letter is
+# read as the trailing "m", labelling every -sem variant "M".
+_MODEL_TASK_SUFFIXES = ("-seg", "-sem", "-cls", "-pose", "-obb")
+
+
+def model_chart_short_name(full: str) -> str:
+    """Compact chart label for a model name: its size letter plus any task tag."""
+    name = full
+    task_tag = ""
+    for suffix in _MODEL_TASK_SUFFIXES:
+        if name.lower().endswith(suffix):
+            name = name[: -len(suffix)]
+            task_tag = suffix
+            break
+    label = name[-1:].upper() if name else full
+    return label + task_tag.replace("-seg", "")
+
+
 def clear_screen() -> None:
     """Clear the terminal screen."""
     TUI_CONSOLE.clear()
@@ -460,18 +479,7 @@ class MenuRenderer:
             except (ValueError, AttributeError):
                 return None
 
-        def _short_name(full: str) -> str:
-            """Extract the size suffix letter(s) from a model name for compact display."""
-            suffixes = ["-seg", "-cls", "-pose", "-obb"]
-            name = full
-            task_tag = ""
-            for sfx in suffixes:
-                if name.lower().endswith(sfx):
-                    name = name[: -len(sfx)]
-                    task_tag = sfx
-                    break
-            label = name[-1:].upper() if name else full
-            return label + task_tag.replace("-seg", "")
+        _short_name = model_chart_short_name
 
         def _bar(value: float, max_val: float, width: int, fill_style: str) -> Text:
             filled = round((value / max_val) * width) if max_val > 0 else 0

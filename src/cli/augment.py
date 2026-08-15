@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from dataclasses import replace
@@ -25,6 +26,7 @@ from src.augmentation.engine import (
     AugmentationStats,
     SplitConfig,
     collect_all_images,
+    derive_group_key,
     resolve_augmentation_workers,
     run_augmentation,
 )
@@ -39,6 +41,7 @@ from src.augmentation.profiles import (
     load_profile,
     save_profile,
 )
+from src.datasets.validate import validate_dataset
 from src.augmentation.transforms import (
     TRANSFORM_GROUPS,
     get_params_for_transform,
@@ -800,7 +803,13 @@ def _quick_dataset_description(name: str, ds_path: Path) -> str:
 def _select_output_format(is_pose: bool = False) -> str | None:
     clear_screen()
     print_stylized_header("Select Output Format")
-    options = ["YOLO Detection", "YOLO Segmentation", "YOLO Segmentation (Semantic)", "COCO"]
+    options = [
+        "YOLO Detection",
+        "YOLO Segmentation",
+        "YOLO Semantic (Polygon)",
+        "YOLO Segmentation (Semantic)",
+        "COCO",
+    ]
     descriptions = {
             "YOLO Detection": (
                 "[bold cyan]YOLO Detection Format[/bold cyan]\n\n"
@@ -815,6 +824,19 @@ def _select_output_format(is_pose: bool = False) -> str | None:
                 "  train/images/  train/labels/  data.yaml\n\n"
                 "Label format: [dim]class_id x1 y1 x2 y2 … xn yn[/dim] (normalized polygon)\n\n"
                 "Compatible with yolo26, yolov11-seg, yolov8-seg, and other -seg variants.\n\n"
+                "[dim]Note: requires a segmentation-format source dataset.[/dim]"
+            ),
+            "YOLO Semantic (Polygon)": (
+                "[bold cyan]YOLO Semantic Segmentation (Polygon Labels)[/bold cyan]\n\n"
+                "Output structure:\n"
+                "  train/images/  train/labels/  data.yaml [dim](task: semantic)[/dim]\n\n"
+                "Label format: [dim]class_id x1 y1 x2 y2 … xn yn[/dim] (normalized polygon)\n\n"
+                "Same files as instance segmentation, but data.yaml declares "
+                "[dim]task: semantic[/dim] and omits [dim]masks_dir[/dim], so Ultralytics "
+                "rasterizes the polygons into a dense target and adds a background class.\n\n"
+                "Train yolo26*-sem on this. Prefer it over the mask variant: it is far "
+                "smaller on disk and stays readable by any tool that understands YOLO "
+                "segmentation labels.\n\n"
                 "[dim]Note: requires a segmentation-format source dataset.[/dim]"
             ),
             "YOLO Segmentation (Semantic)": (
@@ -838,7 +860,7 @@ def _select_output_format(is_pose: bool = False) -> str | None:
             ),
     }
     if is_pose:
-        options.insert(3, "YOLO Pose")
+        options.insert(4, "YOLO Pose")
         descriptions["YOLO Pose"] = (
             "[bold cyan]YOLO Pose Format[/bold cyan]\n\n"
             "Output structure:\n"
@@ -865,16 +887,23 @@ def _configure_split_ratios() -> SplitConfig | None:
         [
             "Standard (70 / 20 / 10)",
             "Large Train (80 / 15 / 5)",
+            "Ultralytics (85 / 10 / 5)",
             "Half-Half (50 / 30 / 20)",
             "Custom",
             "Back",
         ],
         title="Train / Val / Test Split",
         text=(
-            "All images from the source dataset are pooled and randomly redistributed.\n"
-            "Choose how to divide the augmented output:"
+            "All images from the source dataset are pooled and redistributed by group.\n"
+            "Choose how to divide the source images:"
         ),
         descriptions={
+            "Ultralytics (85 / 10 / 5)": (
+                "85% train — 10% validation — 5% test\n\n"
+                "Maximizes training data while keeping validation large enough to be "
+                "stable. A good fit for large datasets (>20k images) and the split the "
+                "Ultralytics platform assumes by default."
+            ),
             "Standard (70 / 20 / 10)": (
                 "70% train — 20% validation — 10% test\n\n"
                 "Recommended for most datasets. Provides sufficient validation data "
@@ -904,6 +933,8 @@ def _configure_split_ratios() -> SplitConfig | None:
         return SplitConfig(0.70, 0.20, 0.10)
     if choice == "Large Train (80 / 15 / 5)":
         return SplitConfig(0.80, 0.15, 0.05)
+    if choice == "Ultralytics (85 / 10 / 5)":
+        return SplitConfig(0.85, 0.10, 0.05)
     if choice == "Half-Half (50 / 30 / 20)":
         return SplitConfig(0.50, 0.30, 0.20)
 
@@ -1050,11 +1081,198 @@ def _run_with_progress(
             "Cache Space Reclaimed": format_size(s.cache_bytes_reclaimed),
             "Time":                 f"{s.elapsed_seconds:.1f}s",
         })
+        _report_validation(Path(s.output_path))
+
+
+def _report_validation(output_path: Path) -> None:
+    """Check the freshly written dataset against the task its data.yaml declares.
+
+    Cheap next to the augmentation itself (a few seconds for ~90k label files) and it
+    is the only thing standing between a subtly malformed label and a training run
+    that fails hours later, or worse, silently learns from bad targets.
+    """
+    if not (output_path / "data.yaml").is_file():
+        return  # COCO output has no data.yaml to check against.
+    try:
+        report = validate_dataset(output_path)
+    except Exception as exc:
+        console.print(f"[yellow]Could not validate the output dataset: {exc}[/yellow]")
+        return
+
+    if report.ok and not report.warnings:
+        console.print(Panel(
+            f"[bold green]Label validation passed.[/bold green]\n\n"
+            f"task [cyan]{report.task}[/cyan] · nc [cyan]{report.num_classes}[/cyan] · "
+            f"labels [cyan]{report.label_style}[/cyan]\n"
+            + "\n".join(
+                f"  {s.name}: {s.images:,} images, {s.annotations:,} annotations"
+                + (f", {s.empty_labels:,} background" if s.empty_labels else "")
+                for s in report.splits
+            ),
+            title="Validation", border_style="green", padding=(1, 2),
+        ))
+        return
+
+    lines: list[str] = []
+    if report.errors:
+        lines.append("[bold red]Errors[/bold red]")
+        lines += [f"  • {message}" for message in report.errors]
+    if report.warnings:
+        lines.append("[bold yellow]Warnings[/bold yellow]")
+        lines += [f"  • {message}" for message in report.warnings]
+    console.print(Panel(
+        "\n".join(lines),
+        title="Validation", border_style="red" if report.errors else "yellow", padding=(1, 2),
+    ))
 
 
 # ---------------------------------------------------------------------------
 # Main run augmentation flow
 # ---------------------------------------------------------------------------
+
+# Tiles cut from one source raster are conventionally named
+# "<raster>_r<row>_c<col>". Neighbouring tiles overlap, so they must never be split
+# across train and val.
+_TILE_GROUP_PATTERN = r"^(.+?)_r\d+_c\d+$"
+
+
+def _describe_grouping(dataset_path: Path, pattern: str | None) -> str:
+    """Summarize how a candidate group pattern would carve up the dataset."""
+    try:
+        stems = [image_path.stem for image_path, _label in collect_all_images(dataset_path)]
+    except Exception as exc:
+        return f"[yellow]Could not scan the dataset: {exc}[/yellow]"
+    if not stems:
+        return "[yellow]No images found in this dataset.[/yellow]"
+    keys = {derive_group_key(stem, pattern) for stem in stems}
+    unmatched = sum(1 for stem in stems if derive_group_key(stem, pattern) == stem)
+    lines = [
+        f"[bold]{len(stems):,}[/bold] images → [bold]{len(keys):,}[/bold] groups "
+        f"(~{len(stems) / len(keys):.1f} images per group)"
+    ]
+    if pattern and unmatched:
+        lines.append(
+            f"[yellow]{unmatched:,} filename(s) did not match; each becomes its own group.[/yellow]"
+        )
+    if len(keys) < 10:
+        lines.append(
+            "[yellow]Very few groups — the split may not land close to the requested "
+            "ratios, since whole groups are assigned at once.[/yellow]"
+        )
+    return "\n".join(lines)
+
+
+def _configure_leakage_controls(
+    dataset_path: Path,
+) -> tuple[str | None, tuple[str, ...] | None] | None:
+    """Choose the split-grouping key and which splits get augmented.
+
+    Returns ``(group_key_pattern, augment_splits)``, or ``None`` if the user backs out.
+    """
+    clear_screen()
+    print_stylized_header("Split Grouping & Leakage")
+    options = [
+        "Standard (per image, augment train only)",
+        "Tiled imagery (group by source raster)",
+        "Custom group pattern",
+        "Legacy (per image, augment every split)",
+        "Back",
+    ]
+    choice = get_user_choice(
+        options,
+        title="Split Grouping",
+        text=(
+            "Images are assigned to splits in whole groups, and only the chosen splits "
+            "are augmented.\nThis is what keeps near-duplicate images out of validation "
+            "and test."
+        ),
+        descriptions={
+            "Standard (per image, augment train only)": (
+                "[green]Recommended.[/green]\n\n"
+                "Each image is its own group. Validation and test keep their original "
+                "images untouched — no augmented copies — so the metrics they report "
+                "reflect real generalization.\n\n"
+                "Also faster: val/test images skip the augmentation pipeline entirely."
+            ),
+            "Tiled imagery (group by source raster)": (
+                "For datasets cut into overlapping tiles from larger images "
+                "(aerial/satellite orthomosaics, whole-slide scans).\n\n"
+                "All tiles from one source raster stay in the same split. Without this, "
+                "a validation tile can overlap a training tile pixel-for-pixel and the "
+                "reported score is meaningfully inflated.\n\n"
+                f"Pattern: [dim]{_TILE_GROUP_PATTERN}[/dim]\n"
+                "Augments train only."
+            ),
+            "Custom group pattern": (
+                "Enter your own regular expression to derive the group key from each "
+                "image filename.\n\n"
+                "The first capture group is the key; with no capture group the whole "
+                "match is used. Filenames that do not match keep their own name as key.\n\n"
+                "Augments train only."
+            ),
+            "Legacy (per image, augment every split)": (
+                "[yellow]Pre-existing behaviour.[/yellow]\n\n"
+                "Every split is augmented, so validation and test contain augmented "
+                "variants of their own images. Reported metrics will be optimistic.\n\n"
+                "Kept for reproducing earlier runs."
+            ),
+        },
+        breadcrumbs=["YOLOmatic", "Augment Dataset", "Grouping"],
+    )
+    if choice in (NAV_BACK, "Back"):
+        return None
+    if choice == "Standard (per image, augment train only)":
+        return None, ("train",)
+    if choice == "Legacy (per image, augment every split)":
+        return None, None
+
+    pattern = _TILE_GROUP_PATTERN
+    if choice == "Custom group pattern":
+        pattern_param = ParameterDefinition(
+            name="group_key_pattern", category="split",
+            default=_TILE_GROUP_PATTERN, value_type="str",
+            description="Group key regex (matched against the image filename stem)",
+            help_text=(
+                "First capture group becomes the key; with no capture group the whole "
+                "match is used. Non-matching filenames keep their own stem as key, so "
+                "they are never merged together.\n\n"
+                f"Tiled example: [cyan]{_TILE_GROUP_PATTERN}[/cyan] groups "
+                "[dim]block12_r0640_c1280[/dim] under [dim]block12[/dim]."
+            ),
+        )
+        raw = get_parameter_value_input(pattern_param, _TILE_GROUP_PATTERN)
+        if raw in (None, NAV_BACK):
+            return None
+        pattern = str(raw).strip()
+        if not pattern:
+            return None, ("train",)
+
+    try:
+        re.compile(pattern)
+    except re.error as exc:
+        console.print(Panel(
+            f"[bold red]Invalid regular expression:[/bold red] {exc}",
+            border_style="red", padding=(1, 2),
+        ))
+        input("\nPress Enter to continue...")
+        return None
+
+    clear_screen()
+    print_stylized_header("Split Grouping — Preview")
+    console.print(Panel(
+        f"Pattern: [cyan]{pattern}[/cyan]\n\n{_describe_grouping(dataset_path, pattern)}",
+        title="Grouping Preview", border_style="cyan", padding=(1, 2),
+    ))
+    confirm = get_user_choice(
+        ["Use this grouping", "Back"],
+        title="Confirm Grouping",
+        text="Whole groups are assigned to a split together.",
+        breadcrumbs=["YOLOmatic", "Augment Dataset", "Grouping", "Preview"],
+    )
+    if confirm in (NAV_BACK, "Back"):
+        return None
+    return pattern, ("train",)
+
 
 def _run_augmentation_flow() -> None:
     # Step 1: Dataset
@@ -1101,7 +1319,13 @@ def _run_augmentation_flow() -> None:
     if split_config is None:
         return
 
-    # Step 5: Parallel workers
+    # Step 5: Leakage controls
+    leakage = _configure_leakage_controls(dataset_path)
+    if leakage is None:
+        return
+    split_config.group_key_pattern, split_config.augment_splits = leakage
+
+    # Step 6: Parallel workers
     workers_param = ParameterDefinition(
         name="max_workers", category="performance",
         default=0, value_type="int",
@@ -1121,7 +1345,7 @@ def _run_augmentation_flow() -> None:
         return
     max_workers = resolve_augmentation_workers(int(workers_raw))
 
-    # Step 6: Output name
+    # Step 7: Output name
     default_name = dataset_path.name + "_augmented"
     out_param = ParameterDefinition(
         name="output_name", category="output",
@@ -1156,15 +1380,27 @@ def _run_augmentation_flow() -> None:
 
     est_splits = "unknown"
     if isinstance(source_count, int):
-        aug_count = source_count * profile.multiplier
-        orig_count = source_count if profile.include_originals else 0
-        est_total = aug_count + orig_count
+        # The split is applied to the *source* images, then each split is multiplied
+        # only if it is in augment_splits — so estimate per split, not in aggregate.
+        source_per_split = {
+            "train": int(source_count * split_config.train_ratio),
+            "test": int(source_count * split_config.test_ratio),
+        }
+        source_per_split["valid"] = source_count - source_per_split["train"] - source_per_split["test"]
+        augmented = split_config.augment_splits
+        est_per_split = {}
+        for name, n_source in source_per_split.items():
+            if augmented is None or name in augmented:
+                est_per_split[name] = n_source * profile.multiplier + (
+                    n_source if profile.include_originals else 0
+                )
+            else:
+                est_per_split[name] = n_source
+        est_total = sum(est_per_split.values())
         estimated: str = f"~{est_total:,}"
-        # Mirror the engine's split math (remainder → train) for a per-split estimate.
-        est_test = int(est_total * split_config.test_ratio)
-        est_val = int(est_total * split_config.val_ratio)
-        est_train = est_total - est_val - est_test
-        est_splits = f"{est_train:,} / {est_val:,} / {est_test:,}"
+        est_splits = (
+            f"{est_per_split['train']:,} / {est_per_split['valid']:,} / {est_per_split['test']:,}"
+        )
     else:
         estimated = "unknown"
 
@@ -1185,6 +1421,11 @@ def _run_augmentation_flow() -> None:
             f"{split_config.train_ratio:.0%} / "
             f"{split_config.val_ratio:.0%} / "
             f"{split_config.test_ratio:.0%}"
+        ),
+        "Group Key":              split_config.group_key_pattern or "per image",
+        "Augmented Splits":       (
+            "all" if split_config.augment_splits is None
+            else ", ".join(split_config.augment_splits)
         ),
         "Workers":                f"{max_workers}" + (" (Auto)" if int(workers_raw) == 0 else ""),
         "Estimated Output":       estimated,

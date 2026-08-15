@@ -22,6 +22,7 @@ from .metrics import (
     polygon_to_mask,
     size_bucket,
 )
+from src.utils.semantic import semantic_background_index, semantic_pixel_value
 
 logger = logging.getLogger(__name__)
 
@@ -408,12 +409,19 @@ def _extract_preds(result, task: str, img_w: int, img_h: int) -> list[PredObject
     return preds
 
 
-def _semantic_ground_truth(gts: list[GTObject], img_w: int, img_h: int) -> np.ndarray:
-    """Combine polygon instances into a dense mask; 0 is background."""
-    target = np.zeros((img_h, img_w), dtype=np.int32)
+def _semantic_ground_truth(
+    gts: list[GTObject], img_w: int, img_h: int, num_foreground_classes: int = 1
+) -> np.ndarray:
+    """Combine polygon instances into a dense class-index mask.
+
+    Must use the same pixel convention the model predicts in, or every score is
+    computed against ground truth shifted by one class. See ``src.utils.semantic``.
+    """
+    background = semantic_background_index(num_foreground_classes)
+    target = np.full((img_h, img_w), background, dtype=np.int32)
     for gt in gts:
         if gt.mask is not None:
-            target[gt.mask] = gt.cls + 1
+            target[gt.mask] = semantic_pixel_value(gt.cls, num_foreground_classes)
     return target
 
 
@@ -568,6 +576,20 @@ def _evaluate_model_worker(
         task = expected_task or _detect_task(model, probe[0], conf_threshold, device)
     log(f"  Task: {task}")
 
+    # Semantic ground truth has to be rasterized in the model's own class indexing.
+    # A multi-class semantic model carries an explicit trailing "background" entry in
+    # names, so the foreground count is one less; a single-channel (binary) model has
+    # exactly one foreground class.
+    semantic_foreground_classes = 1
+    if task == "semantic":
+        try:
+            model_class_count = len(getattr(model, "names", None) or {})
+        except TypeError:
+            model_class_count = 0
+        semantic_foreground_classes = max(1, model_class_count - 1) if model_class_count > 1 else 1
+        log(f"  Semantic foreground classes: {semantic_foreground_classes}")
+    semantic_bg_index = semantic_background_index(semantic_foreground_classes)
+
     import time
     valid_images = [p for p in all_images if p.exists()]
     total = len(valid_images)
@@ -630,15 +652,19 @@ def _evaluate_model_worker(
             if task == "semantic":
                 try:
                     prediction = _extract_semantic_mask(result, iw, ih) if result is not None else None
-                    ground_truth = _semantic_ground_truth(gts, iw, ih)
+                    ground_truth = _semantic_ground_truth(
+                        gts, iw, ih, semantic_foreground_classes
+                    )
                     if prediction is None:
                         raise ValueError("No semantic prediction was returned.")
                     image_result = ImageResult(
                         image_id=img_id or 0,
                         image_path=img_path,
                         task=task,
-                        gt_count=int(np.count_nonzero(ground_truth)),
-                        pred_count=int(np.count_nonzero(prediction)),
+                        # Foreground pixel counts: background is not always 0, so
+                        # compare against the convention's background index.
+                        gt_count=int(np.count_nonzero(ground_truth != semantic_bg_index)),
+                        pred_count=int(np.count_nonzero(prediction != semantic_bg_index)),
                         tp=0,
                         fp=0,
                         fn=0,

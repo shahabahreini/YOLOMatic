@@ -70,6 +70,27 @@ AUGMENTATION_PROFILES: dict[str, dict[str, float]] = {
         "translate": 0.1,
         "scale": 0.5,
     },
+    # Nadir aerial/satellite imagery whose channels are fused measurements rather
+    # than colour (e.g. a vegetation index in place of blue). The HSV jitters are
+    # pinned to 0 on purpose: they convert to HSV and shift hue/saturation, which is
+    # meaningless on such channels and corrupts the band the labels were derived
+    # from. Orientation augmentation is unrestricted instead — a nadir orthomosaic
+    # has no canonical "up", so full rotation and both flips are all label-preserving.
+    "aerial_fused": {
+        "hsv_h": 0.0,
+        "hsv_s": 0.0,
+        "hsv_v": 0.0,
+        "fliplr": 0.5,
+        "flipud": 0.5,
+        "degrees": 180.0,
+        "translate": 0.1,
+        "scale": 0.4,
+        "mosaic": 1.0,
+        "close_mosaic": 15,
+        # Blends two images but carries only one image's labels through, so every
+        # blended pixel is partly mislabelled. Costly for dense per-pixel targets.
+        "mixup": 0.0,
+    },
 }
 
 COMPUTE_BATCH_TARGETS: dict[str, float | int] = {
@@ -311,9 +332,18 @@ class BaseConfigGenerator:
         ``data.yaml`` (Ultralytics' own marker), since pose label rows
         (``class + bbox + K*ndim`` values) are otherwise easy to confuse with
         segmentation polygons.
+
+        Semantic datasets are likewise identified by declaration rather than by
+        shape: their labels are either polygons (indistinguishable from instance
+        segmentation) or dense masks with no ``.txt`` files at all, so counting rows
+        would classify them as "segmentation" or "unknown" respectively.
         """
         if isinstance(self.data_yaml, dict) and self.data_yaml.get("kpt_shape"):
             return "pose"
+        if isinstance(self.data_yaml, dict):
+            declared = str(self.data_yaml.get("task") or "").strip().lower()
+            if declared in ("semantic", "semantic_segmentation", "semseg"):
+                return "semantic"
 
         detection_hits = 0
         segmentation_hits = 0

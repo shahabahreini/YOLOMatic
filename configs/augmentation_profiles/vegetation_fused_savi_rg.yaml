@@ -1,0 +1,193 @@
+schema_version: 1
+name: vegetation_fused_savi_rg
+description: Fused SAVI/red/green (false-colour) aerial vegetation SEMANTIC segmentation —
+  geovision vegetation_fused dataset (0.1 m GSD nadir ortho, 640 px tiles, 580 px stride,
+  fusion profile savi_red_g). Channel 0 is a SAVI index, not a colour band, and it is the
+  signal the annotations were derived from — so every transform that converts colourspace
+  or mixes channels is disabled, and radiometric jitter is kept tighter than an RGB profile
+  would use. Geometry is limited to exact pixel permutations (D4) because polygon round-trips
+  through the mask rasterizer keep only the largest contour, so any warp silently deletes
+  annotation area. Targets are dense/semantic, so occlusion-style ops that leave the label
+  untouched are disabled as well.
+multiplier: 3
+seed: 42
+include_originals: true
+created_at: '2026-08-15T00:00:00'
+modified_at: '2026-08-15T00:00:00'
+transforms:
+# =====================================================================
+# ENABLED
+# =====================================================================
+# Exact pixel permutation (8-fold dihedral symmetry). Lossless for polygons and
+# free of resampling, and a nadir orthomosaic has no canonical orientation.
+# Subsumes HorizontalFlip / VerticalFlip / RandomRotate90 / Transpose.
+- name: D4
+  enabled: true
+  p: 1.0
+# Uniform across channels — models illumination and atmospheric variation between
+# flights. Held to +-0.10 (an RGB profile would use +-0.20): SAVI is a *normalized*
+# index, so a larger shift pushes channel 0 outside its calibrated range and changes
+# what the pixel means rather than how it was lit.
+- name: RandomBrightnessContrast
+  enabled: true
+  p: 0.5
+  brightness_limit_low: -0.10
+  brightness_limit_high: 0.10
+  contrast_limit_low: -0.10
+  contrast_limit_high: 0.10
+# Sensor read noise and orthomosaic resampling noise.
+- name: GaussNoise
+  enabled: true
+  p: 0.25
+  std_range_low: 0.008
+  std_range_high: 0.022
+# Focus / atmospheric softening. Kernel capped at 5 so 0.1 m GSD canopy texture,
+# which is what separates vegetation from bare ground, survives.
+- name: GaussianBlur
+  enabled: true
+  p: 0.15
+  blur_limit_low: 3
+  blur_limit_high: 5
+# Models the JPEG artifacts the delivered dataset itself carries.
+- name: ImageCompression
+  enabled: true
+  p: 0.15
+  quality_low: 75
+  quality_high: 95
+
+# =====================================================================
+# DISABLED — channel-mixing / colourspace
+# Channel 0 is a derived index and channel 2 is green; there is no blue channel.
+# Any LAB or HSV round-trip is physically meaningless here and corrupts the exact
+# band the labels encode.
+# =====================================================================
+- name: CLAHE            # equalizes the LAB L channel, which blends SAVI into luminance
+  enabled: false
+  p: 0.4
+- name: HueSaturationValue
+  enabled: false
+  p: 0.5
+- name: RGBShift
+  enabled: false
+  p: 0.2
+- name: ColorJitter
+  enabled: false
+  p: 0.3
+- name: ToGray
+  enabled: false
+  p: 0.1
+- name: Equalize
+  enabled: false
+  p: 0.2
+- name: Solarize
+  enabled: false
+  p: 0.1
+- name: Posterize
+  enabled: false
+  p: 0.1
+- name: ISONoise        # models Bayer-sensor chroma noise; meaningless on fused bands
+  enabled: false
+  p: 0.2
+- name: MultiplicativeNoise
+  enabled: false
+  p: 0.2
+- name: ShotNoise
+  enabled: false
+  p: 0.2
+
+# =====================================================================
+# DISABLED — visible-spectrum atmospheric models
+# Tuned for RGB; a vegetation index does not attenuate the way a blue channel does.
+# =====================================================================
+- name: RandomFog
+  enabled: false
+  p: 0.1
+- name: RandomRain
+  enabled: false
+  p: 0.1
+- name: RandomShadow
+  enabled: false
+  p: 0.3
+- name: RandomSunFlare
+  enabled: false
+  p: 0.1
+
+# =====================================================================
+# DISABLED — geometry beyond D4
+# Orthorectified nadir imagery contains none of these distortions. More importantly,
+# mask_to_polygon() keeps only the largest contour, so any op that splits a polygon
+# silently discards the rest of the annotation. Scale/translate belong at training
+# time, where Ultralytics warps image and target together.
+# =====================================================================
+- name: Rotate
+  enabled: false
+  p: 0.5
+- name: Affine
+  enabled: false
+  p: 0.3
+- name: RandomScale
+  enabled: false
+  p: 0.3
+- name: RandomCrop
+  enabled: false
+  p: 0.3
+- name: Pad
+  enabled: false
+  p: 0.3
+- name: Perspective
+  enabled: false
+  p: 0.3
+- name: ElasticTransform
+  enabled: false
+  p: 0.3
+- name: GridDistortion
+  enabled: false
+  p: 0.2
+- name: OpticalDistortion
+  enabled: false
+  p: 0.2
+
+# =====================================================================
+# DISABLED — subsumed by D4 (enabling these would double-apply flips)
+# =====================================================================
+- name: HorizontalFlip
+  enabled: false
+  p: 0.5
+- name: VerticalFlip
+  enabled: false
+  p: 0.5
+- name: RandomRotate90
+  enabled: false
+  p: 0.5
+- name: Transpose
+  enabled: false
+  p: 0.5
+
+# =====================================================================
+# DISABLED — other
+# =====================================================================
+# CoarseDropout erases pixels but does NOT edit the mask, so the blanked patch keeps
+# its vegetation label: the model is trained to predict vegetation on erased pixels.
+# Straight label noise for a dense target.
+- name: CoarseDropout
+  enabled: false
+  p: 0.2
+# GSD is fixed at 0.1 m; scale variation is handled by the training-time `scale` hyperparameter.
+- name: Downscale
+  enabled: false
+  p: 0.1
+- name: MedianBlur
+  enabled: false
+  p: 0.2
+- name: MotionBlur
+  enabled: false
+  p: 0.2
+- name: AdvancedBlur
+  enabled: false
+  p: 0.2
+- name: Sharpen
+  enabled: false
+  p: 0.2
+- name: UnsharpMask
+  enabled: false
+  p: 0.2

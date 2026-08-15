@@ -5,8 +5,9 @@ Supports:
   - YOLO bbox format  (class_id cx cy w h)
   - YOLO seg format   (class_id x1 y1 x2 y2 … xn yn)
   - Auto-detection of source format
-  - Pool-all-images → augment → redistribute to train/val/test splits
+  - Pool-all-images → group-aware split → augment → write train/val/test
   - Output as YOLO Detection (box), YOLO Segmentation (instance polygon),
+    YOLO Semantic (Polygon) (polygons declared as task "semantic"),
     YOLO Segmentation (Semantic) (dense per-pixel class mask), or COCO
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ import math
 import multiprocessing
 import os
 import random
+import re
 import shutil
 import time
 import uuid
@@ -30,6 +32,11 @@ import yaml
 
 from src.datasets.cache import clean_dataset_image_cache
 from src.utils.ml_dependencies import import_cv2
+from src.utils.semantic import (
+    semantic_background_index,
+    semantic_class_names,
+    semantic_pixel_value,
+)
 
 
 def _get_cv2() -> Any:
@@ -59,6 +66,19 @@ class SplitConfig:
     val_ratio: float = 0.20
     test_ratio: float = 0.10
     include_originals: bool = True  # overridden by profile.include_originals at call site
+    # Regex matched against each source image stem to derive a spatial/provenance
+    # group key. Every image sharing a key lands in the same split. Tiled aerial
+    # datasets need this: neighbouring tiles from one raster overlap, so splitting
+    # per-image leaks near-duplicate pixels into val/test. ``None`` keys each image
+    # by its own stem, which reproduces the per-image behaviour.
+    group_key_pattern: str | None = None
+    # Output splits that receive augmented variants. ``None`` augments every split.
+    # ("train",) is the honest default for evaluation: val/test stay pristine
+    # originals instead of augmented twins of the training images.
+    augment_splits: tuple[str, ...] | None = None
+
+
+_SPLIT_NAMES = ("train", "valid", "test")
 
 
 @dataclass
@@ -96,6 +116,77 @@ def _validate_split_config(split_config: SplitConfig) -> None:
         raise ValueError("Split ratios must be finite, non-negative numbers.")
     if abs(sum(ratios) - 1.0) > 0.02:
         raise ValueError(f"Split ratios must sum to 1.0 (got {sum(ratios):.3f}).")
+    if split_config.augment_splits is not None:
+        unknown = set(split_config.augment_splits) - set(_SPLIT_NAMES)
+        if unknown:
+            raise ValueError(
+                f"augment_splits contains unknown split(s): {sorted(unknown)}. "
+                f"Valid names are {list(_SPLIT_NAMES)}."
+            )
+    if split_config.group_key_pattern is not None:
+        try:
+            re.compile(split_config.group_key_pattern)
+        except re.error as exc:
+            raise ValueError(f"group_key_pattern is not a valid regex: {exc}") from exc
+
+
+def derive_group_key(stem: str, pattern: str | None) -> str:
+    """Return the split-grouping key for one source image stem.
+
+    With no pattern each image is its own group. With a pattern, the first capture
+    group is used when the regex defines one, otherwise the whole match. A stem the
+    regex does not match keeps its own stem as key, so unmatched files are never
+    silently merged into one giant group.
+    """
+    if not pattern:
+        return stem
+    match = re.search(pattern, stem)
+    if match is None:
+        return stem
+    if match.re.groups:
+        captured = match.group(1)
+        if captured:
+            return captured
+    return match.group(0)
+
+
+def assign_groups_to_splits(
+    group_sizes: dict[str, int],
+    split_config: SplitConfig,
+    seed: int,
+) -> dict[str, str]:
+    """Assign whole groups to splits, largest group first into the neediest split.
+
+    Largest-first bin packing keeps the realised ratios tight even when group sizes
+    are wildly uneven (real tiled datasets range from a couple of tiles to several
+    hundred). The shuffle before the size sort makes equal-sized groups order
+    deterministically from ``seed`` rather than from filesystem order.
+
+    Returns a mapping of group key -> split name. Splits with a zero ratio are never
+    candidates, so a 0.0 test ratio cannot pick up remainder.
+    """
+    ratios = {
+        "train": split_config.train_ratio,
+        "valid": split_config.val_ratio,
+        "test": split_config.test_ratio,
+    }
+    candidates = {name: ratio for name, ratio in ratios.items() if ratio > 0}
+    if not candidates:
+        raise ValueError("At least one split ratio must be greater than zero.")
+
+    keys = sorted(group_sizes)
+    random.Random(seed).shuffle(keys)
+    keys.sort(key=lambda key: -group_sizes[key])
+
+    total = sum(group_sizes.values())
+    targets = {name: total * ratio for name, ratio in candidates.items()}
+    filled = dict.fromkeys(candidates, 0)
+    assignment: dict[str, str] = {}
+    for key in keys:
+        split_name = max(candidates, key=lambda name: targets[name] - filled[name])
+        assignment[key] = split_name
+        filled[split_name] += group_sizes[key]
+    return assignment
 
 
 # ---------------------------------------------------------------------------
@@ -363,21 +454,26 @@ def polygon_to_mask(polygon: list[float], W: int, H: int) -> np.ndarray:
 
 
 def polygons_to_semantic_mask(
-    polygons: list[list[float]], class_ids: list[int], width: int, height: int
+    polygons: list[list[float]], class_ids: list[int], width: int, height: int,
+    num_classes: int = 1,
 ) -> np.ndarray:
     """Combine per-instance polygons into a dense uint8 class-index mask.
 
-    Background is ``0``; each instance occupies ``class_id + 1``. When instances
-    overlap, later polygons draw over earlier ones — the same convention used by
-    ``benchmark.engine._semantic_ground_truth`` when deriving semantic ground
-    truth from instance annotations.
+    Pixels hold raw class indices under the convention in ``src.utils.semantic``:
+    background is ``0`` and foreground ``1`` for a single-class dataset, while a
+    multi-class dataset puts background at ``num_classes`` and keeps class ids as
+    they are. Ultralytics runs these values straight through CrossEntropyLoss, so
+    anything outside ``[0, nc)`` aborts training with a device-side assert.
+
+    When instances overlap, later polygons draw over earlier ones.
     """
-    mask = np.zeros((height, width), dtype=np.uint8)
+    background = semantic_background_index(num_classes)
+    mask = np.full((height, width), background, dtype=np.uint8)
     for polygon, cls in zip(polygons, class_ids):
         if not polygon:
             continue
         instance_mask = polygon_to_mask(polygon, width, height)
-        mask[instance_mask.astype(bool)] = cls + 1
+        mask[instance_mask.astype(bool)] = semantic_pixel_value(cls, num_classes)
     return mask
 
 
@@ -700,7 +796,20 @@ def _write_staged_item(
     class_ids: list[int],
     cv2: Any,
 ) -> None:
-    success, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    # 4:4:4 — OpenCV defaults to 4:2:0, which halves the resolution of both chroma
+    # planes after RGB->YCbCr. On fused/false-colour imagery the channels carry
+    # independent measurements (e.g. a vegetation index in channel 0), not colour,
+    # so subsampling would blur the very signal the annotations describe.
+    success, encoded = cv2.imencode(
+        ".jpg",
+        image,
+        [
+            cv2.IMWRITE_JPEG_QUALITY,
+            95,
+            cv2.IMWRITE_JPEG_SAMPLING_FACTOR,
+            cv2.IMWRITE_JPEG_SAMPLING_FACTOR_444,
+        ],
+    )
     if not success:
         raise RuntimeError("OpenCV could not encode an augmented image as JPEG.")
     (group_dir / f"{name}.jpg").write_bytes(encoded.tobytes())
@@ -715,11 +824,18 @@ def _process_augmentation_job(
     label_path_text: str | None,
     stage_root_text: str,
     seed: int,
+    n_variants: int | None = None,
 ) -> tuple[int, str | None, int]:
-    """Augment one source image and stage its variants without returning image bytes."""
+    """Augment one source image and stage its variants without returning image bytes.
+
+    ``n_variants`` overrides the profile multiplier for this image; ``0`` stages the
+    original only, which is how non-augmented splits are carried through.
+    """
     if _WORKER_STATE is None:
         raise RuntimeError("Augmentation worker was not initialized.")
     cv2, pipeline, annotation_format, kpt_shape, multiplier = _WORKER_STATE
+    if n_variants is not None:
+        multiplier = int(n_variants)
     image_path = Path(image_path_text)
     label_path = Path(label_path_text) if label_path_text else None
     image = cv2.imread(str(image_path))
@@ -957,10 +1073,16 @@ def run_augmentation(
       3. Augment every image (multiplier × each)
       4. Group each source image with its augmented variants (and its original,
          if include_originals)
-      5. Shuffle groups with seed, then assign whole groups to splits by ratio so
-         a source image and all its variants always stay in the same split (no leakage)
+      5. Assign whole groups to splits by ratio *before* augmenting, so a source
+         image and all its variants always stay in the same split (no leakage), and
+         so splits excluded from ``augment_splits`` never pay the augmentation cost
       6. Write output dataset
       7. If COCO: convert using existing convert_yolo_to_coco()
+
+    A "group" is one source image plus its variants by default. Set
+    ``split_config.group_key_pattern`` to widen it to every image sharing a
+    provenance key (e.g. all tiles cut from one raster), which is what keeps
+    overlapping tiles out of both train and val.
     """
     t0 = time.time()
     _validate_split_config(split_config)
@@ -1013,6 +1135,35 @@ def run_augmentation(
             "Keypoints cannot be synthesized from boxes or polygons."
         )
 
+    # Decide the split for every source image up front. Doing this before the worker
+    # pool runs lets splits outside augment_splits skip augmentation entirely.
+    group_keys = [
+        derive_group_key(image_path.stem, split_config.group_key_pattern)
+        for image_path, _label_path in all_pairs
+    ]
+    group_sizes: dict[str, int] = {}
+    for key in group_keys:
+        group_sizes[key] = group_sizes.get(key, 0) + 1
+    group_split = assign_groups_to_splits(group_sizes, split_config, int(profile.seed))
+    pair_splits = [group_split[key] for key in group_keys]
+
+    augment_splits = split_config.augment_splits
+    variants_for_split = {
+        name: (
+            int(profile.multiplier)
+            if augment_splits is None or name in augment_splits
+            else 0
+        )
+        for name in _SPLIT_NAMES
+    }
+    # A split that is neither augmented nor allowed to keep its originals would be
+    # written out empty. Carrying the original through is the only sane reading of
+    # "don't augment this split".
+    keep_original_for_split = {
+        name: bool(profile.include_originals) or variants_for_split[name] == 0
+        for name in _SPLIT_NAMES
+    }
+
     # Output directory (under datasets/ by default). Build in a sibling staging
     # directory so a failed run never destroys an existing augmented dataset.
     out_root = source_dataset_path.parent / output_name
@@ -1026,6 +1177,7 @@ def run_augmentation(
     skipped = discarded = 0
     completed_groups: dict[int, list[Path]] = {}
     worker_context = multiprocessing.get_context("spawn")
+    split_data: dict[str, list[Path]] = {name: [] for name in _SPLIT_NAMES}
 
     try:
         # Keep at most two jobs per process outstanding: large images remain on disk,
@@ -1050,6 +1202,7 @@ def run_augmentation(
                     str(label_path) if label_path else None,
                     str(groups_root),
                     int(profile.seed) + index,
+                    variants_for_split[pair_splits[index]],
                 )
                 pending[future] = (index, image_path)
                 return True
@@ -1069,7 +1222,7 @@ def run_augmentation(
                     else:
                         group_dir = Path(group_text)
                         item_paths = sorted(group_dir.glob("*.jpg"))
-                        if not profile.include_originals:
+                        if not keep_original_for_split[pair_splits[result_index]]:
                             item_paths = [path for path in item_paths if path.stem != "original"]
                         if item_paths:
                             completed_groups[result_index] = item_paths
@@ -1083,30 +1236,12 @@ def run_augmentation(
         shutil.rmtree(stage_root, ignore_errors=True)
         raise
 
-    # Shuffle groups, then assign whole groups to splits by ratio.
-    groups = [completed_groups[index] for index in sorted(completed_groups)]
-    rng = random.Random(profile.seed)
-    rng.shuffle(groups)
-
-    total_out = sum(len(g) for g in groups)
-    n_val_target = int(total_out * split_config.val_ratio)
-    n_test_target = int(total_out * split_config.test_ratio)
-
-    # Fill test then val up to their targets (whole groups only); the remainder goes
-    # to train, so a 0.0 test ratio never receives leftover images.
-    split_data: dict[str, list[Path]] = {
-        "train": [], "valid": [], "test": [],
-    }
-    val_count = test_count = 0
-    for g in groups:
-        if split_config.test_ratio > 0 and test_count < n_test_target:
-            split_data["test"].extend(g)
-            test_count += len(g)
-        elif split_config.val_ratio > 0 and val_count < n_val_target:
-            split_data["valid"].extend(g)
-            val_count += len(g)
-        else:
-            split_data["train"].extend(g)
+    # Collect each source image's staged variants into the split chosen before
+    # augmentation. Iterating in source order keeps output naming reproducible
+    # regardless of the order workers happened to finish in.
+    for index in sorted(completed_groups):
+        split_data[pair_splits[index]].extend(completed_groups[index])
+    total_out = sum(len(items) for items in split_data.values())
 
     if progress_callback:
         progress_callback(total_source, total_source, "Writing output dataset...")
@@ -1124,8 +1259,14 @@ def run_augmentation(
     # keypoints by writing pose rows to the tmp YOLO dataset before conversion.
     write_as_pose = output_format == "YOLO Pose" or (ann_format == "yolo_pose" and output_format == "COCO")
     write_as_semantic = output_format == "YOLO Segmentation (Semantic)" and not write_as_pose
+    # Polygon-encoded semantic segmentation: identical files to instance segmentation,
+    # but data.yaml declares task "semantic". Ultralytics rasterizes the polygons into
+    # a dense target and adds a background class, so no mask images are needed.
+    write_as_semantic_polygon = output_format == "YOLO Semantic (Polygon)" and not write_as_pose
     write_as_seg = (
-        output_format in ("YOLO Segmentation", "COCO") and not write_as_pose and not write_as_semantic
+        output_format in ("YOLO Segmentation", "COCO", "YOLO Semantic (Polygon)")
+        and not write_as_pose
+        and not write_as_semantic
     )
 
     # Write files
@@ -1166,7 +1307,7 @@ def run_augmentation(
                 if decoded is None:
                     raise RuntimeError(f"Could not read staged image {img_path.name}.")
                 h, w = decoded.shape[:2]
-                mask = polygons_to_semantic_mask(polys, cls_ids, w, h)
+                mask = polygons_to_semantic_mask(polys, cls_ids, w, h, len(class_names))
                 write_semantic_mask(mask_dir / f"{stem}.png", mask)
                 continue
 
@@ -1198,7 +1339,7 @@ def run_augmentation(
     # Write data.yaml (include task field so future detection is instant)
     if write_as_pose:
         task_field = "pose"
-    elif write_as_semantic:
+    elif write_as_semantic or write_as_semantic_polygon:
         task_field = "semantic"
     elif write_as_seg:
         task_field = "segment"
@@ -1217,14 +1358,48 @@ def run_augmentation(
         data_yaml_content["kpt_shape"] = [kpt_shape[0], kpt_shape[1]]
     if write_as_semantic:
         # Dense masks live in a sibling "masks/" directory next to each split's
-        # "images/" directory; pixel value 0 is background, class_id + 1 otherwise.
-        data_yaml_content["mask_dir"] = "masks"
+        # "images/" directory. Pixels are raw class indices (see src.utils.semantic):
+        # a multi-class dataset gains an explicit trailing "background" class, so nc
+        # and names must grow to match or CrossEntropyLoss sees an out-of-range target.
+        # The key must be "masks_dir": that is what Ultralytics' SemanticDataset
+        # reads, and its absence is what selects the polygon-rasterizing path
+        # instead — so a misspelling silently produces an unloadable dataset.
+        mask_names = semantic_class_names(class_names)
+        data_yaml_content["names"] = mask_names
+        data_yaml_content["nc"] = len(mask_names)
+        data_yaml_content["bg_class_idx"] = semantic_background_index(len(class_names))
+        data_yaml_content["masks_dir"] = "masks"
         data_yaml_content["train_masks"] = "train/masks"
         data_yaml_content["val_masks"] = "valid/masks"
         if split_data["test"]:
             data_yaml_content["test_masks"] = "test/masks"
     with open(tmp_root / "data.yaml", "w", encoding="utf-8") as f:
         yaml.dump(data_yaml_content, f, default_flow_style=False, allow_unicode=True)
+
+    # Record which source images landed in which split. Output files are renamed to
+    # aug_<split>_<n>, so this is the only way to audit the split after the fact —
+    # in particular to prove that no group key spans two splits.
+    if output_format != "COCO":
+        assignment_report = {
+            "seed": int(profile.seed),
+            "group_key_pattern": split_config.group_key_pattern,
+            "augment_splits": list(augment_splits) if augment_splits is not None else None,
+            "multiplier": int(profile.multiplier),
+            "include_originals": bool(profile.include_originals),
+            "ratios": {
+                "train": split_config.train_ratio,
+                "valid": split_config.val_ratio,
+                "test": split_config.test_ratio,
+            },
+            "group_splits": group_split,
+            "sources": {
+                str(image_path.name): {"group": group_keys[index], "split": pair_splits[index]}
+                for index, (image_path, _label) in enumerate(all_pairs)
+            },
+        }
+        (tmp_root / "split_assignment.json").write_text(
+            json.dumps(assignment_report, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
         # COCO conversion writes its final dataset inside the staging directory.
     if output_format == "COCO":

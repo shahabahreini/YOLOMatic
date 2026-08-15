@@ -92,6 +92,8 @@ def _infer_family(path: Path) -> str:
     for key, label in families:
         if key in name:
             return label
+    if "-sem" in name:
+        return "YOLO-Sem"
     if "-seg" in name:
         return "YOLO-Seg"
     if "best" in name or "last" in name:
@@ -145,7 +147,7 @@ def _find_run_context(path: Path) -> tuple[str, str]:
     for i, part in enumerate(parts):
         if part == "weights" and i > 0:
             run_name = parts[i - 1]
-        if part in ("runs", "segment", "detect", "classify", "pose"):
+        if part in ("runs", "segment", "semantic", "detect", "classify", "pose", "obb"):
             if i + 1 < len(parts):
                 config_name = parts[i + 1]
     return run_name, config_name

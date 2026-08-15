@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,10 +11,16 @@ import yaml
 
 from src.augmentation.engine import (
     SplitConfig,
+    _write_staged_item,
+    assign_groups_to_splits,
     collect_all_images,
+    derive_group_key,
     resolve_augmentation_workers,
     run_augmentation,
 )
+
+# Tiles named "<raster>_r<row>_c<col>" — the convention the augment wizard offers.
+TILE_PATTERN = r"^(.+?)_r\d+_c\d+$"
 
 
 class AugmentationEngineCollectionTest(unittest.TestCase):
@@ -462,6 +469,334 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             )
             self.assertEqual(data_yaml["task"], "semantic")
             self.assertEqual(data_yaml["train_masks"], "train/masks")
+            # "masks_dir" is the key Ultralytics' SemanticDataset reads. Spelling it
+            # "mask_dir" silently selects the polygon path, which finds no labels.
+            self.assertEqual(data_yaml["masks_dir"], "masks")
+
+
+class SemanticMaskOutputTest(unittest.TestCase):
+    """Dense-mask output must use the class indices Ultralytics feeds to its loss."""
+
+    def _build_source(self, root: Path, class_names: list[str]) -> None:
+        root.mkdir(parents=True)
+        (root / "data.yaml").write_text(
+            yaml.dump({
+                "names": class_names,
+                "nc": len(class_names),
+                "task": "segment",
+                "train": "images/train",
+                "val": "images/train",
+            }),
+            encoding="utf-8",
+        )
+        # Each class gets its own horizontal band. Overlapping polygons would let a
+        # later class overdraw an earlier one, hiding its value from the mask.
+        rows = ""
+        for cls in range(len(class_names)):
+            top = 0.02 + cls * (0.96 / len(class_names))
+            bottom = top + (0.96 / len(class_names)) - 0.02
+            rows += (
+                f"{cls} 0.02 {top:.4f} 0.98 {top:.4f} "
+                f"0.98 {bottom:.4f} 0.02 {bottom:.4f}\n"
+            )
+        for index in range(4):
+            stem = f"img{index:02d}_r0000_c0000"
+            image_path = root / "images" / "train" / f"{stem}.jpg"
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(image_path), np.full((32, 32, 3), 120, dtype=np.uint8))
+            label_path = root / "labels" / "train" / f"{stem}.txt"
+            label_path.parent.mkdir(parents=True, exist_ok=True)
+            label_path.write_text(rows, encoding="utf-8")
+
+    def _run(self, root: Path, class_names: list[str]):
+        self._build_source(root, class_names)
+        run_augmentation(
+            root, "augmented",
+            SimpleNamespace(name="noop", multiplier=1, include_originals=True,
+                            seed=5, transforms=[]),
+            SplitConfig(0.75, 0.25, 0.0, augment_splits=("train",)),
+            output_format="YOLO Segmentation (Semantic)",
+            max_workers=1,
+        )
+        out_root = root.parent / "augmented"
+        data_yaml = yaml.safe_load((out_root / "data.yaml").read_text(encoding="utf-8"))
+        masks = sorted((out_root / "train" / "masks").glob("*.png"))
+        values: set[int] = set()
+        for mask_path in masks:
+            mask = cv2.imread(str(mask_path), cv2.IMREAD_UNCHANGED)
+            values |= {int(v) for v in np.unique(mask)}
+        return data_yaml, values
+
+    def test_binary_dataset_writes_background_zero_and_foreground_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_yaml, values = self._run(Path(temp_dir) / "source", ["veg"])
+            self.assertEqual(values, {0, 1})
+            self.assertEqual(data_yaml["nc"], 1)
+            self.assertEqual(data_yaml["names"], ["veg"])
+            self.assertEqual(data_yaml["bg_class_idx"], 0)
+
+    def test_multiclass_appends_background_and_keeps_class_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_yaml, values = self._run(Path(temp_dir) / "source", ["alpha", "beta"])
+            # Foreground ids are NOT shifted; background takes the next free index.
+            self.assertEqual(values, {0, 1, 2})
+            self.assertEqual(data_yaml["names"], ["alpha", "beta", "background"])
+            self.assertEqual(data_yaml["nc"], 3)
+            self.assertEqual(data_yaml["bg_class_idx"], 2)
+
+    def test_no_mask_pixel_exceeds_the_declared_class_count(self) -> None:
+        # Regression: writing class_id + 1 with an unwidened nc put a target of `nc`
+        # into CrossEntropyLoss, which aborts training with a device-side assert.
+        for class_names in (["a"], ["a", "b"], ["a", "b", "c"]):
+            with self.subTest(classes=len(class_names)), tempfile.TemporaryDirectory() as temp_dir:
+                data_yaml, values = self._run(Path(temp_dir) / "source", class_names)
+                limit = data_yaml["nc"] if len(class_names) > 1 else 2
+                self.assertLess(max(values), limit)
+
+
+class GroupKeyTest(unittest.TestCase):
+    def test_no_pattern_keys_each_image_by_its_own_stem(self) -> None:
+        self.assertEqual(derive_group_key("block_r01_c02", None), "block_r01_c02")
+
+    def test_capture_group_becomes_the_key(self) -> None:
+        self.assertEqual(derive_group_key("block12_r0640_c1280", TILE_PATTERN), "block12")
+
+    def test_whole_match_used_when_regex_has_no_capture_group(self) -> None:
+        self.assertEqual(derive_group_key("tile_14N_604_5522_r01_c02", r"14N_\d+_\d+"), "14N_604_5522")
+
+    def test_non_matching_stem_keeps_its_own_key(self) -> None:
+        # Never collapse unmatched files into one shared group: that would silently
+        # force unrelated images into the same split.
+        self.assertEqual(derive_group_key("README_thumb", TILE_PATTERN), "README_thumb")
+
+
+class AssignGroupsToSplitsTest(unittest.TestCase):
+    def test_hits_target_ratios_with_uneven_group_sizes(self) -> None:
+        # Deliberately lopsided: one group holds 40% of the images.
+        sizes = {"a": 400, "b": 300, "c": 200, "d": 60, "e": 30, "f": 8, "g": 2}
+        total = sum(sizes.values())
+        assignment = assign_groups_to_splits(
+            sizes, SplitConfig(0.85, 0.10, 0.05), seed=42
+        )
+
+        counts = {"train": 0, "valid": 0, "test": 0}
+        for key, split in assignment.items():
+            counts[split] += sizes[key]
+
+        self.assertEqual(sum(counts.values()), total)
+        # Largest-first packing cannot beat the granularity of the biggest group it
+        # must place, so allow that much slack rather than an exact ratio.
+        slack = max(sizes.values()) / total
+        for split, ratio in (("train", 0.85), ("valid", 0.10), ("test", 0.05)):
+            self.assertAlmostEqual(counts[split] / total, ratio, delta=slack)
+
+    def test_zero_ratio_split_never_receives_a_group(self) -> None:
+        sizes = {chr(ord("a") + i): i + 1 for i in range(10)}
+        assignment = assign_groups_to_splits(
+            sizes, SplitConfig(0.80, 0.20, 0.0), seed=1
+        )
+        self.assertNotIn("test", set(assignment.values()))
+
+    def test_assignment_is_deterministic_for_a_given_seed(self) -> None:
+        sizes = {chr(ord("a") + i): (i % 4) + 1 for i in range(20)}
+        config = SplitConfig(0.70, 0.20, 0.10)
+        self.assertEqual(
+            assign_groups_to_splits(sizes, config, seed=5),
+            assign_groups_to_splits(sizes, config, seed=5),
+        )
+
+    def test_all_zero_ratios_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "greater than zero"):
+            assign_groups_to_splits({"a": 1}, SplitConfig(0.0, 0.0, 0.0), seed=0)
+
+
+class SplitGroupingAndTrainOnlyAugmentationTest(unittest.TestCase):
+    """End-to-end checks for the leakage controls on a tiled source dataset."""
+
+    def _build_tiled_dataset(self, root: Path, rasters: int, tiles_per_raster: int) -> None:
+        root.mkdir(parents=True)
+        (root / "data.yaml").write_text(
+            "task: segment\nnames: [item]\ntrain: images/train\nval: images/val\n",
+            encoding="utf-8",
+        )
+        for raster in range(rasters):
+            for tile in range(tiles_per_raster):
+                stem = f"block{raster:02d}_r{tile:04d}_c0000"
+                image_path = root / "images" / "train" / f"{stem}.jpg"
+                image_path.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(image_path), np.full((12, 12, 3), 120, dtype=np.uint8))
+                label_path = root / "labels" / "train" / f"{stem}.txt"
+                label_path.parent.mkdir(parents=True, exist_ok=True)
+                label_path.write_text(
+                    "0 0.100000 0.100000 0.900000 0.100000 0.900000 0.900000 0.100000 0.900000\n",
+                    encoding="utf-8",
+                )
+
+    def _profile(self, multiplier: int) -> SimpleNamespace:
+        return SimpleNamespace(
+            name="noop",
+            multiplier=multiplier,
+            include_originals=True,
+            seed=42,
+            transforms=[],
+        )
+
+    def test_group_pattern_keeps_every_tile_of_a_raster_in_one_split(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            self._build_tiled_dataset(root, rasters=10, tiles_per_raster=4)
+
+            run_augmentation(
+                root,
+                "augmented",
+                self._profile(multiplier=1),
+                SplitConfig(
+                    0.60, 0.20, 0.20,
+                    group_key_pattern=TILE_PATTERN,
+                    augment_splits=("train",),
+                ),
+                output_format="YOLO Segmentation",
+                max_workers=2,
+            )
+
+            report = json.loads(
+                (root.parent / "augmented" / "split_assignment.json").read_text(encoding="utf-8")
+            )
+            raster_splits: dict[str, set[str]] = {}
+            for entry in report["sources"].values():
+                raster_splits.setdefault(entry["group"], set()).add(entry["split"])
+            self.assertEqual(len(raster_splits), 10)
+            for raster, splits in raster_splits.items():
+                self.assertEqual(len(splits), 1, f"raster {raster} was split across {splits}")
+
+    def test_augment_splits_leaves_val_and_test_unmultiplied(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            self._build_tiled_dataset(root, rasters=10, tiles_per_raster=4)
+
+            stats = run_augmentation(
+                root,
+                "augmented",
+                self._profile(multiplier=3),
+                SplitConfig(
+                    0.60, 0.20, 0.20,
+                    group_key_pattern=TILE_PATTERN,
+                    augment_splits=("train",),
+                ),
+                output_format="YOLO Segmentation",
+                max_workers=2,
+            )
+
+            report = json.loads(
+                (root.parent / "augmented" / "split_assignment.json").read_text(encoding="utf-8")
+            )
+            source_per_split = {"train": 0, "valid": 0, "test": 0}
+            for entry in report["sources"].values():
+                source_per_split[entry["split"]] += 1
+
+            # Train is multiplied (originals + 3 variants); val/test pass through 1:1.
+            self.assertEqual(stats.split_counts["train"], source_per_split["train"] * 4)
+            self.assertEqual(stats.split_counts["valid"], source_per_split["valid"])
+            self.assertEqual(stats.split_counts["test"], source_per_split["test"])
+
+    def test_non_augmented_split_keeps_originals_even_without_include_originals(self) -> None:
+        # include_originals=False would otherwise leave val/test with nothing at all,
+        # since they produce no augmented variants either.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            self._build_tiled_dataset(root, rasters=8, tiles_per_raster=2)
+
+            profile = self._profile(multiplier=2)
+            profile.include_originals = False
+            stats = run_augmentation(
+                root,
+                "augmented",
+                profile,
+                SplitConfig(
+                    0.50, 0.25, 0.25,
+                    group_key_pattern=TILE_PATTERN,
+                    augment_splits=("train",),
+                ),
+                output_format="YOLO Segmentation",
+                max_workers=1,
+            )
+
+            self.assertGreater(stats.split_counts["valid"], 0)
+            self.assertGreater(stats.split_counts["test"], 0)
+
+    def test_semantic_polygon_output_writes_labels_and_omits_masks_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            self._build_tiled_dataset(root, rasters=4, tiles_per_raster=2)
+
+            run_augmentation(
+                root,
+                "augmented",
+                self._profile(multiplier=1),
+                SplitConfig(0.50, 0.25, 0.25, augment_splits=("train",)),
+                output_format="YOLO Semantic (Polygon)",
+                max_workers=1,
+            )
+
+            out_root = root.parent / "augmented"
+            labels = sorted((out_root / "train" / "labels").glob("*.txt"))
+            self.assertTrue(labels)
+            # Polygon rows, not boxes: class id followed by an even number of coords.
+            fields = labels[0].read_text(encoding="utf-8").split()
+            self.assertGreaterEqual(len(fields), 7)
+            self.assertEqual(len(fields) % 2, 1)
+            self.assertFalse((out_root / "train" / "masks").exists())
+
+            data_yaml = yaml.safe_load((out_root / "data.yaml").read_text(encoding="utf-8"))
+            self.assertEqual(data_yaml["task"], "semantic")
+            # Absence of masks_dir is what makes Ultralytics rasterize the polygons
+            # and add a background class instead of hunting for mask PNGs.
+            self.assertNotIn("masks_dir", data_yaml)
+
+    def test_default_split_config_reproduces_per_image_grouping(self) -> None:
+        # Regression guard: the defaults must behave exactly as they did before
+        # group keys and augment_splits existed.
+        config = SplitConfig()
+        self.assertIsNone(config.group_key_pattern)
+        self.assertIsNone(config.augment_splits)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "source"
+            self._build_tiled_dataset(root, rasters=4, tiles_per_raster=1)
+
+            stats = run_augmentation(
+                root,
+                "augmented",
+                self._profile(multiplier=1),
+                SplitConfig(0.50, 0.25, 0.25),
+                output_format="YOLO Segmentation",
+                max_workers=1,
+            )
+
+            # Every split is augmented, so all 4 sources yield 2 items each.
+            self.assertEqual(stats.total_output_images, 8)
+            self.assertEqual(sum(stats.split_counts.values()), 8)
+
+
+class StagedImageEncodingTest(unittest.TestCase):
+    def test_staged_jpeg_uses_444_chroma_sampling(self) -> None:
+        # Fused imagery carries independent measurements per channel, so the default
+        # 4:2:0 subsampling would blur two of the three bands.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            group_dir = Path(temp_dir)
+            image = np.zeros((32, 32, 3), dtype=np.uint8)
+            image[:, ::2, 0] = 255  # 1px-wide vertical stripes in channel 0 only
+            _write_staged_item(group_dir, "original", image, [], [], cv2)
+
+            with open(group_dir / "original.jpg", "rb") as handle:
+                data = handle.read()
+            # SOF0 marker: [id, precision, h(2), w(2), ncomp, (cid, sampling, qtable)*]
+            sof = data.index(b"\xff\xc0")
+            n_components = data[sof + 9]
+            self.assertEqual(n_components, 3)
+            sampling_factors = {data[sof + 10 + 3 * i + 1] for i in range(n_components)}
+            # 0x11 = 1x1 sampling on every component, i.e. no subsampling.
+            self.assertEqual(sampling_factors, {0x11})
 
 
 if __name__ == "__main__":

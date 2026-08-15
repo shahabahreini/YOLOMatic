@@ -1338,9 +1338,29 @@ def infer_finetune_profile_model(candidate: FineTuneCandidate) -> str:
             model_name = str(row.get("Model", ""))
             if model_name and model_name.lower() in normalized:
                 return model_name
+    if candidate.task == "semantic":
+        return "YOLO26n-sem"
     if candidate.task == "segmentation":
         return "YOLO11n-seg"
     return "YOLO11n"
+
+
+# Ultralytics task suffixes, longest-first so "-pose" is stripped before a shorter
+# accidental match. Mirrors generator.TASK_SUFFIXES.
+_MODEL_TASK_SUFFIXES = ("-pose", "-seg", "-sem", "-cls", "-obb")
+
+
+def _base_model_name(model_choice: str) -> str:
+    """Strip any task suffix, so a variant swap cannot stack two of them.
+
+    Without this, recommending "<model>-seg" for a "yolo26x-sem" model produces
+    "yolo26x-sem-seg", which does not exist.
+    """
+    lowered = model_choice.lower()
+    for suffix in _MODEL_TASK_SUFFIXES:
+        if lowered.endswith(suffix):
+            return model_choice[: -len(suffix)]
+    return model_choice
 
 
 # Removed print_model_info, now handled by src.utils.tui
@@ -1452,11 +1472,21 @@ def update_config(
     is_seg_model = (
         inferred_model_task == "segmentation" or "-seg" in model_choice.lower()
     )
+    # A "-sem" model consumes exactly the polygon labels a segmentation dataset
+    # carries — Ultralytics rasterizes them into dense targets — so it must not be
+    # flagged as needing a "-seg" variant. Note "-sem" is not a substring of "-seg".
+    is_semantic_model = (
+        inferred_model_task == "semantic" or "-sem" in model_choice.lower()
+    )
 
     # Determine if there's a mismatch
     mismatch_type = None
     if is_sam_model(model_choice):
         pass  # SAM handles any segmentation dataset natively; skip mismatch checks
+    elif is_semantic_model and dataset_type in ("segmentation", "semantic"):
+        pass  # Polygons and dense masks are both valid inputs for a semantic model.
+    elif dataset_type == "semantic" and not is_semantic_model:
+        mismatch_type = "sem_model_needed"
     elif (
         dataset_type == "segmentation"
         and not is_seg_model
@@ -1482,7 +1512,7 @@ def update_config(
             model_kind = "detection"
             detected_label_format = "Segmentation polygons (7+ odd values per line)"
             expected_by_model = "Bounding boxes (5 values per line)"
-            recommended_model = f"{model_choice}-seg"
+            recommended_model = f"{_base_model_name(model_choice)}-seg"
             summary = (
                 f"[yellow]Your model expects boxes, but your labels are polygons.[/yellow] "
                 f"[bold]{model_choice}[/bold] is a detection model — it only predicts "
@@ -1521,12 +1551,53 @@ def update_config(
                 "is safest — it keeps your polygon data intact and just swaps the "
                 "model head."
             )
+        elif mismatch_type == "sem_model_needed":
+            title = "Dataset / Model Mismatch"
+            model_kind = "semantic segmentation"
+            detected_label_format = "Semantic segmentation (data.yaml declares task: semantic)"
+            expected_by_model = f"Labels for a {inferred_model_task} model"
+            recommended_model = f"{_base_model_name(model_choice)}-sem"
+            summary = (
+                f"[yellow]This dataset is built for semantic segmentation.[/yellow] "
+                f"[cyan]{dataset_name}[/cyan] declares [bold]task: semantic[/bold], meaning its "
+                "labels describe a dense per-pixel class map rather than individual objects. "
+                f"[bold]{model_choice}[/bold] predicts discrete instances, so it would train "
+                "on a target that does not represent what the dataset encodes."
+            )
+            continue_detail = (
+                f"[bold yellow]Train {model_choice} on this dataset anyway.[/bold yellow]\n\n"
+                "• Polygon-backed semantic datasets still load, and each polygon is "
+                "treated as one instance.\n"
+                "• [red]Mask-backed semantic datasets have no .txt labels at all[/red] and "
+                "will fail at data loading.\n"
+                "• Semantic datasets frequently merge touching objects of one class into "
+                "a single region, so instance metrics on them are misleading."
+            )
+            change_model_detail = (
+                "[bold green]Go back and pick the semantic variant.[/bold green]  [dim](recommended)[/dim]\n\n"
+                f"• Recommended: [green]{recommended_model}[/green] — trains a dense "
+                "per-pixel head that matches this dataset exactly.\n"
+                "• Ultralytics rasterizes polygon labels automatically and adds a "
+                "background class; no dataset changes are needed.\n"
+                "• Reports mIoU and pixel accuracy instead of mAP."
+            )
+            fix_dataset_detail = (
+                "[bold cyan]Keep this model and rebuild the dataset for instances.[/bold cyan]\n\n"
+                "• Re-run Augment Dataset with output format "
+                "[bold]YOLO Segmentation[/bold] (or [bold]YOLO Detection[/bold]) so "
+                "data.yaml declares an instance task.\n"
+                "• Only worth it if you genuinely need per-object outputs."
+            )
+            tip = (
+                "[bold]Choose a Different Model[/bold] is almost always right here — the "
+                "dataset already carries exactly what a semantic model wants."
+            )
         elif mismatch_type == "det_model_needed":
             title = "Dataset / Model Mismatch"
             model_kind = "segmentation"
             detected_label_format = "Bounding boxes (5 values per line)"
             expected_by_model = "Segmentation polygons (7+ odd values per line)"
-            recommended_model = model_choice.replace("-seg", "")
+            recommended_model = _base_model_name(model_choice)
             summary = (
                 f"[yellow]Your model expects polygons, but your labels are boxes.[/yellow] "
                 f"[bold]{model_choice}[/bold] is a segmentation model — its mask head "
@@ -1687,10 +1758,15 @@ def update_config(
 
         # Handle fully customized mode
         if profile_selection.get("mode") == "fully_customized":
+            # Filter to the parameters this task actually consumes. A semantic run
+            # otherwise offers box/dfl/mask/NMS knobs that its head never reads.
             result = run_fully_customized_config_flow(
                 dataset_name,
                 model_choice,
                 profile_context,
+                parameters=parameters_for(
+                    "yolo", infer_ultralytics_task_from_name(model_choice)
+                ),
                 wizard_steps=wizard_steps,
                 wizard_current_step=wizard_current_step,
             )
@@ -2063,6 +2139,10 @@ def choose_regular_yolo_profiles(
         "minimum": "Essential training values only with almost no extra augmentation",
         "low": "Mild augmentation using flips, mosaic, and mixup",
         "medium": "Stronger generalization with color and geometric augmentation",
+        "aerial_fused": (
+            "Nadir aerial imagery with fused/false-colour channels - full rotation "
+            "and both flips, no HSV jitter"
+        ),
     }
     compute_options = {
         "conservative": "Safer memory usage and lower risk of instability",
@@ -2334,6 +2414,55 @@ def get_model_menu():
     return models
 
 
+# Two-row block capitals, 3 cells wide each. Cheap to render, legible in any
+# terminal that can show box-drawing characters, and it lines up without a font
+# dependency.
+_GOODBYE_ART = (
+    "█▀▀ █▀█ █▀█ █▀▄ █▄▄ █▄█ █▀▀",
+    "█▄█ █▄█ █▄█ █▄▀ █▄█ ░█░ █▄▄",
+)
+_GOODBYE_GRADIENT = ("bold #8FBCBB", "bold #81A1C1")
+
+
+def _render_goodbye() -> None:
+    """Sign-off banner, matching the main menu's Nord gradient."""
+    try:
+        width = console.size.width
+    except Exception:
+        width = 80
+    art_width = max(len(line) for line in _GOODBYE_ART)
+    console.print()
+    if width >= art_width + 4:
+        for line, style in zip(_GOODBYE_ART, _GOODBYE_GRADIENT):
+            console.print(Align.center(f"[{style}]{line}[/{style}]"))
+    else:
+        console.print(Align.center(f"[{_GOODBYE_GRADIENT[0]}]GOODBYE[/{_GOODBYE_GRADIENT[0]}]"))
+    try:
+        from src.__version__ import __version__
+
+        tagline = f"Thanks for using YOLOmatic v{__version__}"
+    except Exception:
+        tagline = "Thanks for using YOLOmatic"
+    console.print(Align.center(f"[dim]{tagline}[/dim]"))
+    console.print()
+
+
+def _exit_now(code: int = 0) -> None:
+    """Terminate immediately after flushing, skipping interpreter teardown.
+
+    A session that has touched training or augmentation leaves CUDA contexts,
+    multiprocessing pools and large tensor graphs behind, and finalizing all of that
+    can take seconds during which the TUI looks hung. Nothing in this project
+    registers an ``atexit`` handler, so there is no cleanup left to lose.
+    """
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(code)
+
+
 def main():
     while True:
         try:
@@ -2341,12 +2470,12 @@ def main():
         except KeyboardInterrupt:
             # Ctrl+C at the main menu exits cleanly instead of dumping a trace.
             clear_screen()
-            console.print("\n[bold cyan]\U0001f44b Goodbye![/bold cyan]", end="\n")
-            return
+            _render_goodbye()
+            _exit_now()
         except _ExitTUI:
             clear_screen()
-            console.print("Goodbye!", style="bold cyan", end="\n")
-            return
+            _render_goodbye()
+            _exit_now()
         except Exception as error:
             # Last-resort safety net — report and re-enter the menu rather than
             # crashing the whole TUI.

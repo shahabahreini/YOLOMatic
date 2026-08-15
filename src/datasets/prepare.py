@@ -33,7 +33,14 @@ from src.datasets.core import (
 )
 from src.datasets.ndjson import pose_metadata_from_rows
 
-OUTPUT_FORMATS = {"YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose"}
+OUTPUT_FORMATS = {
+    "YOLO Detection",
+    "YOLO Segmentation",
+    "YOLO Semantic",
+    "YOLO Pose",
+    "COCO",
+    "COCO Pose",
+}
 SPLIT_NAMES = ("train", "valid", "test")
 SPLIT_STRATEGIES = {"class_balanced", "smart_balanced"}
 OBJECT_SIZE_BUCKETS = ("small", "medium", "large")
@@ -1179,6 +1186,10 @@ def _write_yolo_dataset(
         data_yaml["test"] = "test/images"
     if output_format == "YOLO Pose":
         task = "pose"
+    elif output_format == "YOLO Semantic":
+        # Polygon labels declared as a dense task: Ultralytics rasterizes them and
+        # appends a background class. No masks_dir, so no mask files are needed.
+        task = "semantic"
     elif output_format == "YOLO Segmentation":
         task = "segment"
     else:
@@ -1353,8 +1364,11 @@ def prepare_dataset(
     if not classes:
         max_cls = max((ann.class_id for record in records for ann in record.annotations), default=-1)
         classes = [f"class_{idx}" for idx in range(max_cls + 1)]
-    if config.output_format == "YOLO Segmentation" and task == "detect":
-        warnings.append("Source is detection-only; YOLO segmentation output uses rectangle polygons from bounding boxes.")
+    if config.output_format in {"YOLO Segmentation", "YOLO Semantic"} and task == "detect":
+        warnings.append(
+            f"Source is detection-only; {config.output_format} output uses rectangle "
+            "polygons derived from bounding boxes."
+        )
 
     slug = slugify(config.output_slug or Path(config.source_path).stem)
     output, version = resolve_versioned_output(config.output_root, slug, overwrite=config.overwrite)
