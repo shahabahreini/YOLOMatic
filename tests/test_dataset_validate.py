@@ -217,3 +217,46 @@ class ValidateMalformedDatasetTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ValidateDatasetTaskOverrideTests(unittest.TestCase):
+    def _polygon_dataset(self, root: Path, path_value: str | None) -> Path:
+        """A polygon export with no `task:` key, laid out as images/<split>."""
+        dataset = root / "ds"
+        (dataset / "images" / "train").mkdir(parents=True)
+        (dataset / "labels" / "train").mkdir(parents=True)
+        cv2.imwrite(
+            str(dataset / "images" / "train" / "i0.jpg"),
+            np.zeros((32, 32, 3), np.uint8),
+        )
+        (dataset / "labels" / "train" / "i0.txt").write_text(POLYGON, encoding="utf-8")
+        meta = {"train": "images/train", "names": ["vegetation"], "nc": 1}
+        if path_value is not None:
+            meta["path"] = path_value
+        (dataset / "data.yaml").write_text(yaml.safe_dump(meta), encoding="utf-8")
+        return dataset
+
+    def test_polygon_rows_are_not_errors_when_the_run_trains_semantic(self) -> None:
+        """Without an override these rows read as malformed boxes.
+
+        A yaml with no `task:` key defaults to detection, so each polygon row
+        trips "expected 4 box values". That is noise, not a finding, when the
+        caller already knows a semantic run is starting.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = self._polygon_dataset(Path(temp_dir), None)
+
+            without = validate_dataset(dataset)
+            self.assertTrue(without.errors)
+
+            with_override = validate_dataset(dataset, task_override="semantic")
+            self.assertEqual(with_override.errors, [])
+            self.assertEqual(with_override.task, "semantic")
+            self.assertEqual(with_override.label_style, "polygon")
+
+    def test_relative_path_key_is_resolved_against_the_yaml_not_the_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = self._polygon_dataset(Path(temp_dir), ".")
+            report = validate_dataset(dataset, task_override="semantic")
+            self.assertEqual(report.errors, [])
+            self.assertEqual(report.splits[0].images, 1)

@@ -1,0 +1,191 @@
+schema_version: 1
+name: vegetation_semantic_aerial
+description: >-
+  Semantic (dense-mask) vegetation segmentation on 640x640 nadir aerial/satellite
+  tiles. Radiometric and sensor-noise emphasis; orientation is left to
+  Ultralytics' online D4/mosaic pipeline. Colour-destroying transforms are off on
+  purpose - the green response is the class signal, so removing it deletes the
+  feature rather than regularising it.
+multiplier: 2
+seed: 42
+include_originals: true
+created_at: '2026-09-03T16:30:00'
+modified_at: '2026-09-03T16:30:00'
+transforms:
+# Geometry. Nadir orthotiles have no canonical "up", so the full dihedral group
+# is free signal. Perspective/Affine stay off: they fabricate view geometry an
+# orthorectified sensor never produces.
+- name: D4
+  enabled: true
+  p: 1.0
+- name: Rotate
+  enabled: true
+  p: 0.35
+  limit_low: -20
+  limit_high: 20
+  border_mode: 4
+- name: ElasticTransform
+  enabled: true
+  p: 0.2
+  alpha: 1.0
+  sigma: 50.0
+- name: GridDistortion
+  enabled: true
+  p: 0.15
+  num_steps: 5
+  distort_low: -0.2
+  distort_high: 0.2
+# Radiometry: sun angle, season, and atmospheric-correction differences between
+# acquisitions. Hue is held near-fixed while brightness/contrast move freely.
+- name: RandomBrightnessContrast
+  enabled: true
+  p: 0.7
+  brightness_limit_low: -0.22
+  brightness_limit_high: 0.22
+  contrast_limit_low: -0.22
+  contrast_limit_high: 0.22
+- name: CLAHE
+  enabled: true
+  p: 0.35
+  clip_limit_low: 1.0
+  clip_limit_high: 4.0
+- name: HueSaturationValue
+  enabled: true
+  p: 0.25
+  hue_shift_limit: 6
+  sat_shift_limit: 18
+  val_shift_limit: 12
+- name: RandomShadow
+  enabled: true
+  p: 0.3
+  num_shadows_lower: 1
+  num_shadows_upper: 2
+  shadow_dimension: 5
+- name: RandomFog
+  enabled: true
+  p: 0.1
+  fog_coef_lower: 0.05
+  fog_coef_upper: 0.15
+# Sensor and pipeline artefacts: noise, resampling, compression.
+- name: GaussNoise
+  enabled: true
+  p: 0.3
+  std_range_low: 0.012
+  std_range_high: 0.03
+- name: ISONoise
+  enabled: true
+  p: 0.2
+  color_shift_low: 0.01
+  color_shift_high: 0.04
+  intensity_low: 0.1
+  intensity_high: 0.4
+- name: GaussianBlur
+  enabled: true
+  p: 0.2
+  blur_limit_low: 3
+  blur_limit_high: 7
+- name: MotionBlur
+  enabled: true
+  p: 0.1
+  blur_limit_low: 3
+  blur_limit_high: 5
+- name: Sharpen
+  enabled: true
+  p: 0.15
+  alpha_low: 0.2
+  alpha_high: 0.4
+  lightness_low: 0.5
+  lightness_high: 1.0
+- name: Downscale
+  enabled: true
+  p: 0.15
+  scale_range_low: 0.5
+  scale_range_high: 0.9
+- name: ImageCompression
+  enabled: true
+  p: 0.2
+  quality_low: 70
+  quality_high: 95
+# Occlusion. Kept small and rare: the mask keeps its label under a dropout hole,
+# so every hole is a little label noise. Cheap robustness, but not free.
+- name: CoarseDropout
+  enabled: true
+  p: 0.15
+  num_holes_low: 1
+  num_holes_high: 6
+  hole_height_low: 8
+  hole_height_high: 24
+  hole_width_low: 8
+  hole_width_high: 24
+# Off on purpose. The flips/rotate90/transpose are already covered by D4 at
+# p=1.0; enabling both double-applies orientation. The colour transforms below
+# destroy or invert the cue the class depends on.
+- name: HorizontalFlip
+  enabled: false
+  p: 0.5
+- name: VerticalFlip
+  enabled: false
+  p: 0.5
+- name: RandomRotate90
+  enabled: false
+  p: 0.5
+- name: Transpose
+  enabled: false
+  p: 0.5
+- name: ToGray
+  enabled: false
+  p: 0.1
+- name: Solarize
+  enabled: false
+  p: 0.1
+- name: Posterize
+  enabled: false
+  p: 0.1
+- name: Equalize
+  enabled: false
+  p: 0.1
+- name: ColorJitter
+  enabled: false
+  p: 0.3
+- name: RGBShift
+  enabled: false
+  p: 0.2
+- name: Perspective
+  enabled: false
+  p: 0.2
+- name: Affine
+  enabled: false
+  p: 0.3
+- name: RandomScale
+  enabled: false
+  p: 0.3
+- name: RandomCrop
+  enabled: false
+  p: 0.5
+- name: Pad
+  enabled: false
+  p: 0.5
+- name: OpticalDistortion
+  enabled: false
+  p: 0.2
+- name: RandomRain
+  enabled: false
+  p: 0.1
+- name: RandomSunFlare
+  enabled: false
+  p: 0.1
+- name: MedianBlur
+  enabled: false
+  p: 0.2
+- name: AdvancedBlur
+  enabled: false
+  p: 0.2
+- name: UnsharpMask
+  enabled: false
+  p: 0.2
+- name: MultiplicativeNoise
+  enabled: false
+  p: 0.2
+- name: ShotNoise
+  enabled: false
+  p: 0.2

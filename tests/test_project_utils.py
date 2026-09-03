@@ -7,12 +7,15 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+import yaml
 from torch.utils.tensorboard import SummaryWriter
 
 from src.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator
 from src.utils.ml_dependencies import MLDependencyError
 from src.utils.project import (
     find_finetune_candidates,
+    resolve_dataset_root,
+    write_resolved_data_yaml,
     find_available_weights,
     find_run_directories,
     format_size,
@@ -206,6 +209,80 @@ class ProjectUtilsTests(unittest.TestCase):
             self.assertEqual(dataset_config["train"], str(train_dir.resolve()))
             self.assertEqual(dataset_config["val"], str(valid_dir.resolve()))
             self.assertEqual(dataset_config["test"], str(test_dir.resolve()))
+
+    def _yolo_dataset(self, temp_dir: str, path_value: str | None) -> Path:
+        dataset_dir = Path(temp_dir) / "datasets" / "demo"
+        for split in ("train", "val", "test"):
+            (dataset_dir / "images" / split).mkdir(parents=True)
+            (dataset_dir / "labels" / split).mkdir(parents=True)
+        lines = []
+        if path_value is not None:
+            lines.append(f"path: {path_value}")
+        lines += [
+            "train: images/train",
+            "val: images/val",
+            "test: images/test",
+            "names: [demo]",
+        ]
+        (dataset_dir / "data.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return dataset_dir
+
+    def test_load_dataset_config_ignores_cwd_for_every_path_spelling(self) -> None:
+        """`path: .` must not follow the process CWD.
+
+        Ultralytics resolves a relative, existing `path:` against the CWD, which
+        silently retargets a healthy dataset at whatever directory the run
+        started in. Every spelling below has to name the same directories.
+        """
+        for path_value in (None, ".", "./", "../demo"):
+            with self.subTest(path=path_value), tempfile.TemporaryDirectory() as temp_dir:
+                dataset_dir = self._yolo_dataset(temp_dir, path_value)
+                with chdir(Path(temp_dir)):
+                    config, _, _ = load_dataset_config(str(dataset_dir))
+                self.assertEqual(
+                    config["val"], str((dataset_dir / "images" / "val").resolve())
+                )
+
+    def test_resolve_dataset_root_prefers_absolute_path_key(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            elsewhere = Path(temp_dir) / "elsewhere"
+            elsewhere.mkdir()
+            root = resolve_dataset_root({"path": str(elsewhere)}, Path(temp_dir))
+            self.assertEqual(root, elsewhere.resolve())
+
+    def test_write_resolved_data_yaml_is_absolute_and_cwd_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset_dir = self._yolo_dataset(temp_dir, ".")
+            with chdir(Path(temp_dir)):
+                resolved = write_resolved_data_yaml(
+                    dataset_dir, dataset_dir / "data.yaml"
+                )
+            written = yaml.safe_load(Path(resolved).read_text(encoding="utf-8"))
+            self.assertEqual(
+                Path(resolved).name, "data.resolved.yaml"
+            )
+            self.assertEqual(written["path"], str(dataset_dir.resolve()))
+            self.assertEqual(
+                written["val"], str((dataset_dir / "images" / "val").resolve())
+            )
+            self.assertEqual(written["names"], ["demo"])
+            # the user's own data.yaml is left untouched
+            original = yaml.safe_load(
+                (dataset_dir / "data.yaml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(original["path"], ".")
+
+    def test_write_resolved_data_yaml_falls_back_when_dataset_is_read_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset_dir = self._yolo_dataset(temp_dir, ".")
+            dataset_dir.chmod(0o500)
+            try:
+                resolved = write_resolved_data_yaml(
+                    dataset_dir, dataset_dir / "data.yaml"
+                )
+                self.assertTrue(Path(resolved).is_file())
+            finally:
+                dataset_dir.chmod(0o700)
 
     def test_verify_dataset_directories_reports_missing_paths(self) -> None:
         missing = verify_dataset_directories(

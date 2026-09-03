@@ -27,6 +27,7 @@ from src.utils.project import (
     list_config_files,
     resolve_config_path,
     verify_dataset_directories,
+    write_resolved_data_yaml,
 )
 from src.datasets.cache import clean_dataset_image_cache, normalize_yolo_cache_setting
 from src.utils.project import (
@@ -119,6 +120,84 @@ def verify_directories(dataset_config):
         raise FileNotFoundError(
             "The following directories are missing:\n" + "\n".join(missing_dirs)
         )
+
+
+def preflight_dataset(dataset_path, task):
+    """Report label/task problems before Ultralytics hits them.
+
+    ``validate_dataset`` already knows how to check label style against the
+    declared task, mask pixel ranges and split contents, but nothing on the
+    training path ever called it -- a broken dataset surfaced as an Ultralytics
+    traceback instead of a YOLOmatic message. Findings are advisory: only a
+    semantic run whose declared ``masks_dir`` has no masks is fatal, because
+    that one cannot produce a single usable batch.
+    """
+    from src.datasets.validate import validate_dataset
+
+    try:
+        report = validate_dataset(Path(dataset_path), task_override=task)
+    except Exception as error:  # never block a run on the checker itself
+        console.print(f"[yellow]Dataset pre-flight skipped: {error}[/yellow]")
+        return
+
+    for warning in report.warnings[:10]:
+        console.print(f"[yellow]Dataset warning:[/yellow] {warning}")
+
+    missing_masks = [error for error in report.errors if "no mask at" in error]
+    for error in report.errors[:10]:
+        console.print(f"[red]Dataset issue:[/red] {error}")
+    if len(report.errors) > 10:
+        console.print(f"[red]  ... and {len(report.errors) - 10} more.[/red]")
+
+    if task == "semantic" and missing_masks:
+        raise FileNotFoundError(
+            "This semantic dataset declares masks_dir but its mask files are missing; "
+            "training cannot build a single batch."
+        )
+
+
+def warn_on_split_leakage(dataset_config):
+    """Warn when val/test images share a source group with training images.
+
+    Tiled aerial datasets are usually cut from a handful of large scenes. When
+    the split is made per-tile, neighbouring (often overlapping) tiles land on
+    both sides of the split and validation scores stop measuring
+    generalization. Detection only -- re-splitting is the user's call.
+    """
+    import re
+
+    group = re.compile(r"^(.*?)(?:_r\d+_c\d+|_\d+_\d+)$")
+
+    def groups_of(key):
+        directory = dataset_config.get(key)
+        if not directory or isinstance(directory, (list, tuple)):
+            return set()
+        path = Path(directory)
+        if not path.is_dir():
+            return set()
+        found = set()
+        for entry in path.iterdir():
+            if entry.is_file():
+                match = group.match(entry.stem)
+                found.add(match.group(1) if match else entry.stem)
+        return found
+
+    train_groups = groups_of("train")
+    if not train_groups:
+        return
+    for key in ("val", "test"):
+        other = groups_of(key)
+        if not other:
+            continue
+        shared = len(other & train_groups)
+        ratio = shared / len(other)
+        if ratio > 0.2:
+            console.print(
+                f"[bold yellow]Split leakage warning:[/bold yellow] {shared}/{len(other)} "
+                f"{key} source groups ({ratio:.0%}) also appear in train. Tiles cut from "
+                "the same scene sit on both sides of the split, so reported metrics will "
+                "overstate real-world accuracy. Re-split by group to get an honest baseline."
+            )
 
 
 def select_config(config_path):
@@ -441,6 +520,11 @@ def main():
         )
         dataset_config, data_yaml_path, dataset_path = load_dataset_config(dataset_name_or_path)
         verify_directories(dataset_config)
+        preflight_dataset(dataset_path, settings.get("task"))
+        warn_on_split_leakage(dataset_config)
+        # Ultralytics re-reads the yaml with its own root rules, where a relative
+        # 'path:' resolves against the CWD. Hand it a fully-resolved copy instead.
+        resolved_data_yaml = write_resolved_data_yaml(dataset_path, data_yaml_path)
 
         normalized_cache, disk_cache_disabled = normalize_yolo_cache_setting(
             training_params.get("cache", False)
@@ -531,13 +615,13 @@ def main():
 
         # Start training
         console.print("\n[bold green]Starting training...[/bold green]")
-        model.train(data=data_yaml_path, **training_params)
+        model.train(data=resolved_data_yaml, **training_params)
         save_dir = getattr(getattr(model, "trainer", None), "save_dir", None)
         run_dir = Path(save_dir) if save_dir else None
 
         # Start validation
         console.print("\n[bold green]Starting validation...[/bold green]")
-        model.val(data=data_yaml_path)
+        model.val(data=resolved_data_yaml)
 
         # Export the model
         console.print("\n[bold green]Exporting model...[/bold green]")

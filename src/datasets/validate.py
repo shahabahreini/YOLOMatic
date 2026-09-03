@@ -15,6 +15,7 @@ from typing import Iterable
 
 import yaml
 
+from src.utils.project import resolve_split_paths
 from src.utils.semantic import IGNORE_INDEX, semantic_max_pixel_value
 
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"})
@@ -166,8 +167,42 @@ def _check_row(
     return None
 
 
-def validate_dataset(dataset_path: Path, expected_task: str | None = None) -> ValidationReport:
-    """Check that a dataset's labels match the task its data.yaml declares."""
+_TASK_ALIASES = {
+    "detect": TASK_DETECT,
+    "detection": TASK_DETECT,
+    "bbox": TASK_DETECT,
+    "segment": TASK_SEGMENT,
+    "segmentation": TASK_SEGMENT,
+    "instance_segmentation": TASK_SEGMENT,
+    "semantic": TASK_SEMANTIC,
+    "semantic_segmentation": TASK_SEMANTIC,
+    "semseg": TASK_SEMANTIC,
+    "sem": TASK_SEMANTIC,
+    "pose": TASK_POSE,
+    "keypoint": TASK_POSE,
+    "keypoints": TASK_POSE,
+}
+
+
+def normalize_task(task: str | None) -> str | None:
+    """Map any of YOLOmatic's task spellings onto this module's constants."""
+    value = str(task or "").strip().lower()
+    return _TASK_ALIASES.get(value, value or None)
+
+
+def validate_dataset(
+    dataset_path: Path,
+    expected_task: str | None = None,
+    task_override: str | None = None,
+) -> ValidationReport:
+    """Check that a dataset's labels match the task its data.yaml declares.
+
+    ``task_override`` validates against the task a run is actually about to
+    train instead of the one the yaml declares. A polygon dataset exported
+    without a ``task:`` key defaults to detection here and every polygon row
+    then reads as a malformed box -- which is noise, not a finding, when the
+    caller already knows it is starting a semantic run.
+    """
     dataset_path = Path(dataset_path)
     yaml_path = dataset_path / "data.yaml"
     if not yaml_path.is_file():
@@ -176,7 +211,7 @@ def validate_dataset(dataset_path: Path, expected_task: str | None = None) -> Va
         return report
 
     meta = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    task = str(meta.get("task") or "").lower() or TASK_DETECT
+    task = normalize_task(task_override) or str(meta.get("task") or "").lower() or TASK_DETECT
     names = meta.get("names") or []
     if isinstance(names, dict):
         names = [names[key] for key in sorted(names)]
@@ -225,11 +260,12 @@ def validate_dataset(dataset_path: Path, expected_task: str | None = None) -> Va
         max_value = 0
 
     found_any = False
+    resolved_splits = resolve_split_paths(meta, yaml_path.parent, dataset_path)
     for split, key in (("train", "train"), ("valid", "val"), ("test", "test")):
         rel = meta.get(key)
         if not rel:
             continue
-        img_dir = (dataset_path / str(rel)).resolve()
+        img_dir = Path(resolved_splits[key]).resolve()
         if not img_dir.is_dir():
             report.errors.append(f"data.yaml '{key}: {rel}' points at a missing directory.")
             continue

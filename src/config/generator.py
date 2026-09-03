@@ -15,6 +15,7 @@ try:
     from src.models.rfdetr import get_rfdetr_variant
     from src.models.data import model_data_dict
     from src.utils.ml_dependencies import MLDependencyError, import_torch
+    from src.utils.project import resolve_split_paths
 except ImportError:
     try:
         from datasets import prepare_dataset_for_family, prepared_format_for_family, summarize_dataset
@@ -23,6 +24,7 @@ except ImportError:
         from models.rfdetr import get_rfdetr_variant
         from models.data import model_data_dict
         from utils.ml_dependencies import MLDependencyError, import_torch
+        from utils.project import resolve_split_paths
     except ImportError:
         model_data_dict = {}
         MLDependencyError = RuntimeError
@@ -35,6 +37,18 @@ except ImportError:
 
         def import_torch() -> object:
             raise RuntimeError("torch is not available.")
+
+        def resolve_split_paths(meta, yaml_dir, dataset_dir=None):
+            base = Path(yaml_dir)
+            root = meta.get("path") or "."
+            root_path = Path(str(root).replace("\\", "/"))
+            if not root_path.is_absolute():
+                root_path = (base / root_path).resolve()
+            return {
+                key: str((root_path / str(meta[key]).replace("\\", "/")).resolve())
+                for key in ("train", "val", "test")
+                if meta.get(key)
+            }
 
 
 logging.basicConfig(level=logging.INFO)
@@ -183,17 +197,14 @@ class BaseConfigGenerator:
                     logger.info(f"Found classes: {classes}")
                     logger.info(f"Number of classes: {num_classes}")
 
-                    # Resolve relative paths
+                    # Resolve relative paths (honouring the yaml's `path:` root)
                     yaml_dir = data_yaml_path.parent
-                    train_path = self._resolve_path(
-                        yaml_dir, self.data_yaml.get("train", "")
+                    resolved_splits = resolve_split_paths(
+                        self.data_yaml, yaml_dir, self.dataset_path
                     )
-                    valid_path = self._resolve_path(
-                        yaml_dir, self.data_yaml.get("val", "")
-                    )
-                    test_path = self._resolve_path(
-                        yaml_dir, self.data_yaml.get("test", "")
-                    )
+                    train_path = Path(resolved_splits.get("train") or "")
+                    valid_path = Path(resolved_splits.get("val") or "")
+                    test_path = Path(resolved_splits.get("test") or "")
 
                     logger.info("Resolved paths:")
                     logger.info(f"Train: {train_path}")
@@ -281,11 +292,9 @@ class BaseConfigGenerator:
         if path.is_absolute():
             return path
 
-        normalized_path = str(path).replace("\\", "/")
-        if normalized_path.startswith("../"):
-            resolved_path = (self.dataset_path / normalized_path[3:]).resolve()
-        else:
-            resolved_path = (base_path / path).resolve()
+        resolved_path = Path(
+            resolve_split_paths({"train": str(path)}, base_path, self.dataset_path)["train"]
+        )
         logger.info(
             f"Resolving {relative_path} relative to {base_path} -> {resolved_path}"
         )
@@ -309,6 +318,14 @@ class BaseConfigGenerator:
 
         if train_path and str(train_path).strip():
             train = Path(train_path)
+            # Ultralytics' own mapping (img2label_paths): swap the last "images"
+            # segment for "labels". This is the only candidate that handles the
+            # images/<split> + labels/<split> layout without guessing at the root.
+            marker = f"{os.sep}images{os.sep}"
+            text = str(train) + os.sep
+            if marker in text:
+                head, _, tail = text.rpartition(marker)
+                _add(Path(f"{head}{os.sep}labels{os.sep}{tail}".rstrip(os.sep)))
             # Standard YOLO layout: sibling "labels" next to "images".
             _add(train.parent / "labels")
             # Some datasets nest labels directly under the split folder.

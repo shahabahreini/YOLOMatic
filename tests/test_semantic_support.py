@@ -1,4 +1,5 @@
 """Semantic segmentation must not fall through the gaps left by detect/segment/pose."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -164,3 +165,63 @@ class BenchmarkSemanticGroundTruthTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SemanticDatasetDiscoveryTests(unittest.TestCase):
+    """The images/<split> + labels/<split> layout many exporters emit."""
+
+    def _dataset(self, root: Path) -> Path:
+        dataset = root / "ds"
+        (dataset / "images" / "train").mkdir(parents=True)
+        (dataset / "labels" / "train").mkdir(parents=True)
+        (dataset / "images" / "val").mkdir(parents=True)
+        (dataset / "images" / "train" / "i0.png").write_bytes(b"")
+        (dataset / "labels" / "train" / "i0.txt").write_text(
+            "0 0.10 0.10 0.90 0.10 0.90 0.90 0.10 0.90\n", encoding="utf-8"
+        )
+        (dataset / "data.yaml").write_text(
+            "path: .\ntrain: images/train\nval: images/val\nnames:\n  0: vegetation\n",
+            encoding="utf-8",
+        )
+        return dataset
+
+    def test_label_dir_is_found_via_the_images_to_labels_swap(self) -> None:
+        from src.config.generator import YOLOConfigGenerator
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = self._dataset(Path(temp_dir))
+            generator = YOLOConfigGenerator(str(dataset))
+            generator.extract_dataset_info()
+            candidates = generator._candidate_label_dirs(
+                Path(generator.dataset_info["train_path"])
+            )
+            self.assertEqual(
+                candidates[0].resolve(), (dataset / "labels" / "train").resolve()
+            )
+
+    def test_polygon_export_without_a_task_key_sniffs_as_segmentation(self) -> None:
+        """`-sem` models accept exactly this: run.py whitelists sem + segmentation."""
+        from src.config.generator import YOLOConfigGenerator
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = self._dataset(Path(temp_dir))
+            generator = YOLOConfigGenerator(str(dataset))
+            generator.extract_dataset_info()
+            self.assertEqual(generator.dataset_info["task_type"], "segmentation")
+
+    def test_relative_path_key_does_not_follow_the_cwd(self) -> None:
+        from src.config.generator import YOLOConfigGenerator
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = self._dataset(Path(temp_dir))
+            previous = os.getcwd()
+            os.chdir(temp_dir)
+            try:
+                generator = YOLOConfigGenerator(str(dataset))
+                generator.extract_dataset_info()
+            finally:
+                os.chdir(previous)
+            self.assertEqual(
+                Path(generator.dataset_info["train_path"]).resolve(),
+                (dataset / "images" / "train").resolve(),
+            )

@@ -1678,11 +1678,23 @@ def update_config(
                 "labels in another with mismatched names."
             )
 
+        # Say what the detector actually concluded and where it looked. Without
+        # this the panel is unfalsifiable: a stale summary cache and a genuinely
+        # mislabelled dataset produce the same screen.
+        scanned_label_dirs = []
+        try:
+            train_path = Path(generator.dataset_info.get("train_path") or "")
+            scanned_label_dirs = [str(path) for path in generator._candidate_label_dirs(train_path)]
+        except Exception:
+            pass
+
         status_fields: dict[str, str] = {
             "Selected Model": f"{model_choice} ({model_kind})",
             "Dataset": f"{dataset_name} ({num_classes} classes)",
             "Labels Found": detected_label_format,
             "Model Expects": expected_by_model,
+            "Detected As": f"{dataset_type} (model task: {inferred_model_task})",
+            "Labels Scanned": scanned_label_dirs[0] if scanned_label_dirs else "no label directory found",
         }
         if recommended_model != "—":
             status_fields["Suggested Model"] = recommended_model

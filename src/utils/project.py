@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -217,6 +218,88 @@ def load_yaml_file(file_path: str | Path) -> dict[str, Any]:
     return loaded
 
 
+DATASET_SPLIT_KEYS = ("train", "val", "test")
+DATASET_MASK_KEYS = ("train_masks", "val_masks", "test_masks")
+RESOLVED_DATA_YAML_NAME = "data.resolved.yaml"
+
+
+def resolve_dataset_root(meta: dict[str, Any], yaml_dir: str | Path) -> Path:
+    """Return the directory a data.yaml's relative split values hang off.
+
+    Ultralytics reads ``path:`` as the dataset root but resolves a *relative*
+    one against the process CWD (``check_det_dataset`` only falls back to
+    ``DATASETS_DIR`` when the path does not exist, and ``path: .`` always
+    exists). That silently points a perfectly good dataset at whatever
+    directory the run started in, so YOLOmatic anchors a relative root at the
+    yaml's own directory instead -- the only interpretation that travels with
+    the dataset.
+    """
+    yaml_directory = Path(yaml_dir).resolve()
+    raw = meta.get("path")
+    if raw is None or not str(raw).strip():
+        return yaml_directory
+    candidate = Path(str(raw).replace("\\", "/"))
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (yaml_directory / candidate).resolve()
+
+
+def _resolve_split_entry(entry: Any, root: Path, dataset_dir: Path) -> str | None:
+    if not isinstance(entry, (str, Path)) or not str(entry).strip():
+        return None
+    normalized = str(entry).replace("\\", "/")
+    path = Path(normalized)
+    if path.is_absolute():
+        return str(path.resolve())
+
+    literal = (root / path).resolve()
+    if literal.exists():
+        return str(literal)
+
+    # Roboflow exports write "../train/images" but mean "./train/images".
+    stripped = normalized
+    while stripped.startswith("../"):
+        stripped = stripped[3:]
+    if stripped and stripped != normalized:
+        rerooted = (dataset_dir / stripped).resolve()
+        if rerooted.exists():
+            return str(rerooted)
+
+    return str(literal)
+
+
+def resolve_split_paths(
+    meta: dict[str, Any],
+    yaml_dir: str | Path,
+    dataset_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Resolve every split (and mask) value in ``meta`` to an absolute path.
+
+    Mirrors ``src.datasets.core._resolve_dataset_paths`` so the two resolvers
+    cannot disagree. List values (multi-directory splits) are preserved as
+    lists.
+    """
+    yaml_directory = Path(yaml_dir).resolve()
+    root = resolve_dataset_root(meta, yaml_directory)
+    base = Path(dataset_dir).resolve() if dataset_dir is not None else yaml_directory
+
+    resolved: dict[str, Any] = {}
+    for key in (*DATASET_SPLIT_KEYS, *DATASET_MASK_KEYS):
+        raw = meta.get(key)
+        if raw is None:
+            continue
+        if isinstance(raw, (list, tuple)):
+            entries = [_resolve_split_entry(item, root, base) for item in raw]
+            values = [item for item in entries if item is not None]
+            if values:
+                resolved[key] = values
+            continue
+        value = _resolve_split_entry(raw, root, base)
+        if value is not None:
+            resolved[key] = value
+    return resolved
+
+
 def load_dataset_config(dataset_name: str, datasets_root: str | Path = "datasets") -> tuple[dict[str, Any], str, str]:
     requested_path = Path(dataset_name)
     if requested_path.exists() or requested_path.is_absolute() or "/" in str(dataset_name):
@@ -234,23 +317,51 @@ def load_dataset_config(dataset_name: str, datasets_root: str | Path = "datasets
     if "val" not in dataset_config and "valid" in dataset_config:
         dataset_config["val"] = dataset_config.pop("valid")
 
-    for key in ("train", "val", "test"):
-        raw = dataset_config.get(key)
-        if raw is None:
-            continue
-        configured_path = str(raw)
-        normalized_configured_path = configured_path.replace("\\", "/")
-
-        if Path(configured_path).is_absolute():
-            resolved_path = Path(configured_path)
-        elif normalized_configured_path.startswith("../"):
-            resolved_path = dataset_path / normalized_configured_path[3:]
-        else:
-            resolved_path = yaml_directory / configured_path
-
-        dataset_config[key] = str(resolved_path.resolve())
+    dataset_config.update(resolve_split_paths(dataset_config, yaml_directory, dataset_path))
 
     return dataset_config, str(data_yaml_path), str(dataset_path)
+
+
+def write_resolved_data_yaml(dataset_path: str | Path, data_yaml_path: str | Path) -> str:
+    """Write a CWD-independent copy of ``data_yaml_path`` and return its path.
+
+    Ultralytics re-reads the yaml itself and applies its own root rules, so
+    handing it the user's file re-introduces the ``path:``-relative bug that
+    :func:`resolve_dataset_root` exists to avoid. Every path in the copy is
+    absolute, which is unambiguous under any rule. The copy is regenerated per
+    run and lives inside the dataset's cache directory, so the user's own
+    data.yaml stays portable and untouched.
+
+    Never raises: an unwritable dataset directory falls back to a temp file,
+    and a failure there returns the original path.
+    """
+    dataset_dir = Path(dataset_path).resolve()
+    source = Path(data_yaml_path).resolve()
+    try:
+        meta = load_yaml_file(source)
+    except Exception:
+        return str(source)
+
+    if "val" not in meta and "valid" in meta:
+        meta["val"] = meta.pop("valid")
+
+    resolved = dict(meta)
+    resolved.update(resolve_split_paths(meta, source.parent, dataset_dir))
+    resolved["path"] = str(resolve_dataset_root(meta, source.parent))
+    resolved.pop("yaml_file", None)
+
+    payload = yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True)
+    for destination in (
+        dataset_dir / ".yolomatic_cache" / RESOLVED_DATA_YAML_NAME,
+        Path(tempfile.gettempdir()) / f"yolomatic-{dataset_dir.name}-{RESOLVED_DATA_YAML_NAME}",
+    ):
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(payload, encoding="utf-8")
+            return str(destination)
+        except OSError:
+            continue
+    return str(source)
 
 
 def verify_dataset_directories(dataset_config: dict[str, Any]) -> list[str]:
