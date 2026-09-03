@@ -3631,9 +3631,9 @@ def _main_loop_iteration():
                     "at user-specified ratios. Output format: YOLO Detection, YOLO Segmentation, or COCO."
                 ),
                 "Upload to Roboflow": (
-                    "Publish a trained checkpoint to Roboflow. Reads ROBOFLOW_API_KEY / "
-                    "WORKSPACE / PROJECT_IDS from .env and stages the weight correctly for "
-                    "Roboflow's deploy API."
+                    "Validate and upload datasets or publish trained model checkpoints to Roboflow. "
+                    "Supports pre-flight structural validation, fast batch chunking for slow connections, "
+                    "and automatic credential resolution from .env."
                 ),
                 "Ultralytics Platform": (
                     "Use ULTRALYTICS_API_KEY from .env to list/download Platform datasets, "

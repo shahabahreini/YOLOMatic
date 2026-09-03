@@ -71,8 +71,27 @@ class EnvConfig:
     project_ids: list[str]
 
 
+def _dataset_delegate_argv(args: argparse.Namespace) -> list[str]:
+    """Translate this CLI's flags into the dataset uploader's own flag vocabulary.
+
+    The two parsers do not share options, so the dataset uploader must never be
+    left to re-parse sys.argv: a weight-side flag such as --project-ids would
+    abort it with SystemExit(2).
+    """
+    argv: list[str] = []
+    if args.dataset:
+        argv += ["--dataset", args.dataset]
+    if args.workspace:
+        argv += ["--workspace", args.workspace]
+    return argv
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="yolomatic-upload")
+    parser.add_argument(
+        "--dataset",
+        help="Path to a dataset directory to validate and upload to Roboflow.",
+    )
     parser.add_argument(
         "--weight",
         help="Path to a trained weight file. If omitted, an interactive selector is shown.",
@@ -767,6 +786,40 @@ def resolve_workspace(
 def main() -> None:
     args = parse_args()
     root = project_root()
+
+    if args.dataset:
+        from src.cli.upload_dataset import main as upload_dataset_main
+        upload_dataset_main(_dataset_delegate_argv(args))
+        return
+
+    # If invoked interactively without --weight or other weight args, prompt choice
+    if not args.weight and not args.model_name and not args.model_type and not args.version:
+        clear_screen()
+        print_stylized_header("Roboflow Upload")
+        mode_options = [
+            "Upload Dataset",
+            "Upload Trained Model Weight",
+            "Back",
+        ]
+        mode_descriptions = {
+            "Upload Dataset": "Validate and upload a local YOLO or COCO dataset to your Roboflow account.",
+            "Upload Trained Model Weight": "Deploy a trained YOLO or RF-DETR weight checkpoint (.pt / .pth) to Roboflow.",
+            "Back": "Return to the main menu.",
+        }
+        mode_choice = get_user_choice(
+            mode_options,
+            allow_back=True,
+            title="Roboflow Upload Target",
+            text="Choose what you would like to upload to Roboflow:",
+            descriptions=mode_descriptions,
+            breadcrumbs=["YOLOmatic", "Roboflow Upload"],
+        )
+        if mode_choice in (NAV_BACK, "Back"):
+            return
+        if mode_choice == "Upload Dataset":
+            from src.cli.upload_dataset import main as upload_dataset_main
+            upload_dataset_main(_dataset_delegate_argv(args))
+            return
 
     # Shared state for the wizard
     context = {
