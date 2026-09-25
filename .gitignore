@@ -147,3 +147,6 @@ output/*
 .DS_Store
 .worktrees/
 .antigravitycli
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/

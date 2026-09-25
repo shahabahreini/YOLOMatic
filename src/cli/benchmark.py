@@ -224,8 +224,8 @@ def _select_weights() -> list[Path] | str:
     if not available:
         console.print(
             expected_error_panel(
-                "No Weights Found",
                 "No benchmark-compatible Ultralytics model artifacts found in the project root, runs/, or weights/ directories.",
+                title="No Weights Found",
                 next_step="Train a model first, then run the benchmark.",
             )
         )

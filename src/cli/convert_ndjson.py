@@ -74,9 +74,20 @@ def _display_path(path: Path, root: Path = Path(".")) -> str:
 
 def _ndjson_description(path: Path) -> str:
     try:
-        rows = [json.loads(line) for line in path.read_text("utf-8").splitlines() if line.strip()]
-        row_count = len(rows)
-        first = rows[0] if rows else {}
+        first = {}
+        row_count = 0
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                if row_count == 0:
+                    try:
+                        first = json.loads(line_str)
+                    except Exception:
+                        first = {}
+                row_count += 1
+
         if first.get("type") == "dataset":
             source_type = "Ultralytics Platform NDJSON"
             classes = first.get("class_names") or first.get("names") or {}

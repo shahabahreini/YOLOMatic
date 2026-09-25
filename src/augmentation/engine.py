@@ -31,6 +31,7 @@ import numpy as np
 import yaml
 
 from src.datasets.cache import clean_dataset_image_cache
+from src.utils.fs import safe_directory_swap
 from src.utils.ml_dependencies import import_cv2
 from src.utils.semantic import (
     semantic_background_index,
@@ -1244,7 +1245,7 @@ def run_augmentation(
     total_out = sum(len(items) for items in split_data.values())
 
     if progress_callback:
-        progress_callback(total_source, total_source, "Writing output dataset...")
+        progress_callback(0, total_out, "Writing output dataset...")
 
     # Read source class info
     data_yaml_path = source_dataset_path / "data.yaml"
@@ -1271,6 +1272,8 @@ def run_augmentation(
 
     # Write files
     split_counts: dict[str, int] = {}
+    written_count = 0
+    update_interval = max(1, total_out // 100) if total_out > 0 else 1
     for split_name, items in split_data.items():
         if split_name == "test" and not items:
             split_counts[split_name] = 0
@@ -1286,8 +1289,8 @@ def run_augmentation(
         for idx, staged_image_path in enumerate(items):
             stem = f"aug_{split_name}_{idx:06d}"
             img_path = img_dir / f"{stem}.jpg"
-            shutil.copy2(staged_image_path, img_path)
-            staged_metadata = json.loads(staged_image_path.with_suffix(".json").read_text(encoding="utf-8"))
+            json_path = staged_image_path.with_suffix(".json")
+            staged_metadata = json.loads(json_path.read_text(encoding="utf-8"))
             anns = staged_metadata["annotations"]
             cls_ids = staged_metadata["class_ids"]
 
@@ -1303,37 +1306,53 @@ def run_augmentation(
                 else:
                     polys = [bbox_to_polygon(bb) for bb in anns]
                 cv2 = _get_cv2()
-                decoded = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                decoded = cv2.imread(str(staged_image_path), cv2.IMREAD_COLOR)
                 if decoded is None:
-                    raise RuntimeError(f"Could not read staged image {img_path.name}.")
+                    raise RuntimeError(f"Could not read staged image {staged_image_path.name}.")
                 h, w = decoded.shape[:2]
                 mask = polygons_to_semantic_mask(polys, cls_ids, w, h, len(class_names))
                 write_semantic_mask(mask_dir / f"{stem}.png", mask)
-                continue
-
-            lbl_path = lbl_dir / f"{stem}.txt"
-            if ann_format == "yolo_pose":
-                bboxes, keypoints = anns
-                if write_as_pose:
-                    write_yolo_pose(lbl_path, bboxes, keypoints, cls_ids)
-                elif write_as_seg:
-                    write_yolo_seg(lbl_path, [bbox_to_polygon(bb) for bb in bboxes], cls_ids)
-                else:
-                    write_yolo_bbox(lbl_path, bboxes, cls_ids)
-            elif write_as_seg:
-                # Output wants polygons
-                if ann_format == "yolo_bbox":
-                    polys = [bbox_to_polygon(bb) for bb in anns]
-                else:
-                    polys = anns
-                write_yolo_seg(lbl_path, polys, cls_ids)
             else:
-                # Output wants bboxes
-                if ann_format == "yolo_seg":
-                    bboxes = [polygon_to_bbox(poly) for poly in anns]
+                lbl_path = lbl_dir / f"{stem}.txt"
+                if ann_format == "yolo_pose":
+                    bboxes, keypoints = anns
+                    if write_as_pose:
+                        write_yolo_pose(lbl_path, bboxes, keypoints, cls_ids)
+                    elif write_as_seg:
+                        write_yolo_seg(lbl_path, [bbox_to_polygon(bb) for bb in bboxes], cls_ids)
+                    else:
+                        write_yolo_bbox(lbl_path, bboxes, cls_ids)
+                elif write_as_seg:
+                    # Output wants polygons
+                    if ann_format == "yolo_bbox":
+                        polys = [bbox_to_polygon(bb) for bb in anns]
+                    else:
+                        polys = anns
+                    write_yolo_seg(lbl_path, polys, cls_ids)
                 else:
-                    bboxes = anns
-                write_yolo_bbox(lbl_path, bboxes, cls_ids)
+                    # Output wants bboxes
+                    if ann_format == "yolo_seg":
+                        bboxes = [polygon_to_bbox(poly) for poly in anns]
+                    else:
+                        bboxes = anns
+                    write_yolo_bbox(lbl_path, bboxes, cls_ids)
+
+            # Move staged image into output split directory (instant in-tree move)
+            try:
+                os.replace(staged_image_path, img_path)
+            except OSError:
+                shutil.copy2(staged_image_path, img_path)
+                staged_image_path.unlink(missing_ok=True)
+            json_path.unlink(missing_ok=True)
+
+            written_count += 1
+            if progress_callback and (written_count % update_interval == 0 or written_count == total_out):
+                progress_callback(
+                    written_count,
+                    total_out,
+                    f"Writing {split_name}: {idx + 1}/{len(items)} ({img_path.name})",
+                )
+
         split_counts[split_name] = len(items)
 
     # Write data.yaml (include task field so future detection is instant)
@@ -1373,6 +1392,8 @@ def run_augmentation(
         data_yaml_content["val_masks"] = "valid/masks"
         if split_data["test"]:
             data_yaml_content["test_masks"] = "test/masks"
+    if progress_callback:
+        progress_callback(total_out, total_out, "Writing data.yaml & split manifest...")
     with open(tmp_root / "data.yaml", "w", encoding="utf-8") as f:
         yaml.dump(data_yaml_content, f, default_flow_style=False, allow_unicode=True)
 
@@ -1401,24 +1422,31 @@ def run_augmentation(
             json.dumps(assignment_report, indent=2, sort_keys=True), encoding="utf-8"
         )
 
-        # COCO conversion writes its final dataset inside the staging directory.
+    # COCO conversion writes its final dataset inside the staging directory.
     if output_format == "COCO":
+        if progress_callback:
+            progress_callback(total_out, total_out, "Converting YOLO dataset to COCO format...")
         convert_yolo_to_coco(tmp_root, build_root)
 
-        # Swap only a fully written dataset into the user-visible location. Directory
-        # replacement is recoverable on all supported platforms.
-    backup_root: Path | None = None
-    if out_root.exists():
-        backup_root = source_dataset_path.parent / f".{output_name}.backup-{uuid.uuid4().hex}"
-        out_root.rename(backup_root)
+    # Swap only a fully written dataset into the user-visible location.
+    # Uses resilient atomic swap with exponential backoff on Windows to survive
+    # real-time antivirus (MsMpEng) and search indexer locks without [WinError 5].
+    if progress_callback:
+        progress_callback(total_out, total_out, "Finalizing output dataset...")
+
     try:
-        build_root.rename(out_root)
-    except Exception:
-        if backup_root is not None and backup_root.exists():
-            backup_root.rename(out_root)
-        raise
-    if backup_root is not None:
-        shutil.rmtree(backup_root)
+        safe_directory_swap(build_root, out_root)
+    except Exception as exc:
+        logger.critical(
+            "Augmentation finalization failed: %s. Staged dataset is preserved at %s",
+            exc,
+            build_root,
+        )
+        raise RuntimeError(
+            f"Augmentation completed successfully, but moving dataset to destination failed: {exc}\n"
+            f"Your augmented files are safely preserved at: {build_root}"
+        ) from exc
+
     shutil.rmtree(stage_root, ignore_errors=True)
 
     return AugmentationStats(

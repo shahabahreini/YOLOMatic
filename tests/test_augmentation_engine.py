@@ -55,7 +55,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
 
     def test_collects_standard_split_images_and_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             self._touch(root / "train" / "images" / "a.jpg")
             self._write_label(root / "train" / "labels" / "a.txt")
 
@@ -67,7 +67,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
 
     def test_collects_root_images_split_and_labels_split_layout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             (root / "data.yaml").write_text(
                 "train: images/train\nval: images/val\ntest: images/test\n",
                 encoding="utf-8",
@@ -93,7 +93,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
 
     def test_collects_missing_label_as_none_without_skipping_image(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             self._touch(root / "images" / "val" / "background.jpg")
 
             pairs = collect_all_images(root)
@@ -104,7 +104,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
 
     def test_collects_yaml_path_base_without_duplicate_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "source"
+            root = (Path(temp_dir) / "source").resolve()
             root.mkdir()
             (root / "data.yaml").write_text(
                 "path: assets\n"
@@ -124,7 +124,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
 
     def test_collects_split_root_as_nested_images_dir_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             (root / "data.yaml").write_text(
                 "task: detect\n"
                 "names: [item]\n"
@@ -142,7 +142,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
 
     def test_collects_valid_alias_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
+            root = Path(temp_dir).resolve()
             (root / "data.yaml").write_text(
                 "task: detect\n"
                 "names: [item]\n"

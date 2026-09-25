@@ -266,9 +266,15 @@ def _read_yolo_annotations(
             warnings.append(f"Skipped invalid YOLO row {label_path}:{line_no}")
             continue
         if kpt_shape and len(values) == 4 + expected_kpt_len:
+            if values[2] <= 0 or values[3] <= 0:
+                warnings.append(f"Skipped degenerate YOLO bbox {label_path}:{line_no}")
+                continue
             pose_hits += 1
             annotations.append(Annotation(cls, bbox=values[:4], keypoints=values[4:]))
         elif len(values) == 4:
+            if values[2] <= 0 or values[3] <= 0:
+                warnings.append(f"Skipped degenerate YOLO bbox {label_path}:{line_no}")
+                continue
             bbox_hits += 1
             annotations.append(Annotation(cls, bbox=values))
         elif len(values) >= 6 and len(values) % 2 == 0:
@@ -529,6 +535,11 @@ def _read_coco_records(
                     ]
                     has_seg = True
                 coco_bbox = [float(v) for v in bbox] if isinstance(bbox, list) and len(bbox) == 4 else None
+                if coco_bbox and (coco_bbox[2] <= 0 or coco_bbox[3] <= 0):
+                    warnings.append(
+                        f"Skipped degenerate COCO bbox ({coco_bbox[2]}x{coco_bbox[3]}) in {ann_path}"
+                    )
+                    coco_bbox = None
                 yolo_bbox = _yolo_bbox_from_coco(coco_bbox, width, height) if coco_bbox else None
                 normalized_kpts: list[float] | None = None
                 raw_kpts = ann.get("keypoints")
@@ -539,6 +550,8 @@ def _read_coco_records(
                         normalized_kpts.append(max(0.0, min(1.0, float(raw_kpts[i + 1]) / height)))
                         normalized_kpts.append(float(raw_kpts[i + 2]))
                     kpt_count = max(kpt_count, len(raw_kpts) // 3)
+                if yolo_bbox is None and normalized_seg is None and normalized_kpts is None:
+                    continue
                 record_annotations.append(
                     Annotation(cls, bbox=yolo_bbox, segmentation=normalized_seg, keypoints=normalized_kpts)
                 )
@@ -610,6 +623,8 @@ def _parse_ultralytics_annotation_payload(
             bbox = [max(0.0, min(1.0, float(value))) for value in raw_box[1:5]]
         except (TypeError, ValueError):
             continue
+        if bbox[2] <= 0 or bbox[3] <= 0:
+            continue
         annotations.append(Annotation(class_id, bbox=bbox))
         max_class_id = max(max_class_id, class_id)
 
@@ -624,6 +639,9 @@ def _parse_ultralytics_annotation_payload(
                 bbox = [max(0.0, min(1.0, float(value))) for value in raw_pose[1:5]]
                 keypoints = [float(value) for value in raw_pose[5:]]
             except (TypeError, ValueError):
+                invalid_pose += 1
+                continue
+            if bbox[2] <= 0 or bbox[3] <= 0:
                 invalid_pose += 1
                 continue
             annotations.append(Annotation(class_id, bbox=bbox, keypoints=keypoints))
@@ -828,6 +846,8 @@ def _read_ndjson_records(
                     left = float(bbox["left"])
                     h = float(bbox["height"])
                     w = float(bbox["width"])
+                    if w <= 0 or h <= 0:
+                        continue
                     annotations.append(
                         Annotation(cls, bbox=[(left + w / 2) / width, (top + h / 2) / height, w / width, h / height])
                     )
@@ -879,6 +899,12 @@ def _target_counts(total: int, split_config: PrepareSplitConfig) -> dict[str, in
     if test_ratio == 0:
         train += test
         test = 0
+    if val_ratio > 0 and total >= 2 and val == 0:
+        val = 1
+        if train > 1:
+            train -= 1
+        elif test > 0:
+            test -= 1
     return {"train": train, "valid": val, "test": test}
 
 
@@ -1145,7 +1171,7 @@ def _write_yolo_label(path: Path, record: ImageRecord, output_format: str) -> in
             if bbox is None and ann.segmentation is not None:
                 coco_bbox = _segmentation_to_bbox(ann.segmentation, record.width, record.height)
                 bbox = _yolo_bbox_from_coco(coco_bbox, record.width, record.height)
-            if bbox is not None:
+            if bbox is not None and len(bbox) == 4 and bbox[2] > 0 and bbox[3] > 0:
                 lines.append(f"{ann.class_id} " + " ".join(f"{value:.6f}" for value in bbox))
         else:
             segmentation = ann.segmentation

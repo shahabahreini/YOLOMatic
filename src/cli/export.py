@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
 from typing import Sequence, Any
 
@@ -873,7 +874,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         else:
                             renamed_path.unlink()
 
-                    exported_path.rename(renamed_path)
+                    shutil.move(exported_path, renamed_path)
                     console.print("\n[bold green]Success![/bold green] Exported model saved to:")
                     console.print(f"[bold white]{renamed_path}[/bold white]")
 

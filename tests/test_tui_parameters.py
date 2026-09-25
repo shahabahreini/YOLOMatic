@@ -403,6 +403,10 @@ class TUIParameterValidationTest(unittest.TestCase):
             with patch.object(run, "display_configuration_summary"), patch.object(
                 run,
                 "display_paths_info",
+            ), patch.object(
+                run,
+                "run_fully_customized_config_flow",
+                return_value={"sections": {"training": {}}},
             ), patch.object(run.console, "print"):
                 self.assertTrue(run.update_config("RF-DETR-Seg-Small", str(dataset)))
 

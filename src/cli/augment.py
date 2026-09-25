@@ -12,6 +12,7 @@ from typing import Any
 
 import yaml
 from rich.panel import Panel
+from rich.table import Column
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -1017,47 +1018,99 @@ def _run_with_progress(
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
 
-    with Progress(
+    width = console.width
+    columns: list = [
         SpinnerColumn(),
-        TextColumn("[cyan]Augmenting[/cyan]"),
-        BarColumn(),
+        TextColumn("[cyan]{task.description}[/cyan]"),
+        BarColumn(bar_width=15 if width < 100 else 30),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         MofNCompleteColumn(),
-        TextColumn("[dim]{task.fields[current]}[/dim]"),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
+    ]
+    if width >= 100:
+        columns.append(TimeRemainingColumn())
+    if width >= 120:
+        columns.append(TimeElapsedColumn())
+        columns.append(TextColumn("[dim]{task.fields[current]}[/dim]", table_column=Column(overflow="ellipsis", no_wrap=True)))
+    elif width >= 90:
+        columns.append(TextColumn("[dim]{task.fields[current]}[/dim]", table_column=Column(overflow="ellipsis", no_wrap=True)))
+
+    with Progress(*columns, console=console) as progress:
         # total=None → indeterminate spinner until the first callback arrives.
-        task = progress.add_task("aug", total=None, current="starting…")
+        task = progress.add_task("Augmenting", total=None, current="starting…")
         while not done_event.is_set():
             total = progress_state["total"]
+            current_msg = progress_state["current"]
+            if "Writing" in current_msg:
+                desc = "Writing Dataset"
+            elif "Finalizing" in current_msg:
+                desc = "Finalizing"
+            elif "Converting" in current_msg:
+                desc = "Converting COCO"
+            else:
+                desc = "Augmenting"
+
             if total > 0:
                 progress.update(
                     task,
+                    description=desc,
                     total=total,
                     completed=progress_state["done"],
-                    current=progress_state["current"][:48],
+                    current=current_msg[:54],
                 )
             time.sleep(0.1)
         # Final frame: snap the bar to 100% if any work was tracked.
         total = progress_state["total"]
         if total > 0:
-            progress.update(task, total=total, completed=total, current="done")
+            progress.update(task, description="Done", total=total, completed=total, current="done")
 
     thread.join()
 
     if error_holder:
-        error_text = str(error_holder[0])
-        opencv_error = (
+        exc = error_holder[0]
+        error_text = str(exc)
+        is_permission_error = (
+            isinstance(exc, PermissionError)
+            or "[WinError 5]" in error_text
+            or "[WinError 32]" in error_text
+            or "[WinError 183]" in error_text
+            or "Access is denied" in error_text
+            or "Permission denied" in error_text
+        )
+        is_disk_full = (
+            "[WinError 112]" in error_text
+            or "No space left on device" in error_text
+        )
+        is_opencv_error = (
             "Conflicting OpenCV wheels" in error_text
             or "missing core attributes" in error_text
         )
+        is_albumentations_error = (
+            "albumentations is required" in error_text
+            or isinstance(exc, ImportError)
+        )
+
         panel_text = f"[bold red]Augmentation failed:[/bold red] {error_text}"
-        if not opencv_error:
+        if is_permission_error:
             panel_text += (
-                "\n\n[dim]Check that albumentations is installed and the "
-                "dataset path is valid.[/dim]"
+                "\n\n[bold yellow]Windows File Locking / Permission Notice:[/bold yellow]\n"
+                "A process (such as Windows Explorer, Command Prompt, VS Code, or Antivirus) "
+                "is holding an open lock on the destination or staged directory.\n"
+                "• Please close any Explorer windows or terminals open to the dataset folder.\n"
+                "• Your augmented files are safely preserved in the hidden staging folder.\n"
+                "• You can finalize and recover them directly using the [bold green]Recover Staged Augmentation[/bold green] menu option."
+            )
+        elif is_disk_full:
+            panel_text += (
+                "\n\n[bold yellow]Disk Space Warning:[/bold yellow]\n"
+                "The target drive has run out of free disk space. Please free up space and try again."
+            )
+        elif is_albumentations_error:
+            panel_text += (
+                "\n\n[dim]Check that albumentations is installed: uv add 'albumentations>=1.4'[/dim]"
+            )
+        elif not is_opencv_error:
+            panel_text += (
+                "\n\n[dim]Please inspect the error message above or check the logs for details.[/dim]"
             )
         console.print(Panel(panel_text, border_style="red", padding=(1, 2)))
         return
@@ -1274,7 +1327,113 @@ def _configure_leakage_controls(
     return pattern, ("train",)
 
 
+def _recover_staged_augmentations_flow() -> None:
+    from src.augmentation.recovery import find_recoverable_augmentations, recover_augmentation
+
+    datasets_dir = Path("datasets").resolve()
+    recoverable = find_recoverable_augmentations(datasets_dir)
+    if not recoverable:
+        console.print(Panel(
+            "[bold yellow]No recoverable staged augmentations found in datasets/.[/bold yellow]\n\n"
+            "Staged augmentations are temporary folders named '.<target>.augmenting-<uuid>'.",
+            border_style="yellow",
+            padding=(1, 2),
+        ))
+        input("\nPress Enter to continue...")
+        return
+
+    options = [
+        f"{rec.target_name} ({rec.image_count:,} images in {rec.stage_path.name})"
+        for rec in recoverable
+    ] + ["Back"]
+
+    choice = get_user_choice(
+        options,
+        title="Recover Staged Augmentation",
+        text=(
+            "Found completed or partially completed augmentation runs that were interrupted\n"
+            "or blocked during the final directory swap (e.g. by Windows file locking).\n\n"
+            "Select a run to finalize and move into datasets/:"
+        ),
+        breadcrumbs=["YOLOmatic", "Augment Dataset", "Recovery"],
+    )
+    if choice in (NAV_BACK, "Back"):
+        return
+
+    chosen_rec = next((r for r in recoverable if f"{r.target_name} (" in choice), None)
+    if chosen_rec is None:
+        return
+
+    confirm = get_user_choice(
+        [
+            f"Finalize into datasets/{chosen_rec.target_name}",
+            "Discard Staged Files",
+            "Cancel",
+        ],
+        title="Confirm Recovery Action",
+        text=(
+            f"Staged folder: [cyan]{chosen_rec.stage_path.name}[/cyan]\n"
+            f"Output images: [bold green]{chosen_rec.image_count:,}[/bold green]\n"
+            f"Target path:   [cyan]datasets/{chosen_rec.target_name}/[/cyan]"
+        ),
+        breadcrumbs=["YOLOmatic", "Augment Dataset", "Recovery", "Confirm"],
+    )
+    if confirm == f"Finalize into datasets/{chosen_rec.target_name}":
+        try:
+            recover_augmentation(chosen_rec)
+            console.print(Panel(
+                f"[bold green]Successfully finalized and recovered dataset![/bold green]\n\n"
+                f"Output location: [bold white]datasets/{chosen_rec.target_name}/[/bold white]\n"
+                f"Total images:    [bold white]{chosen_rec.image_count:,}[/bold white]\n\n"
+                f"You can now use this dataset in Configure Model, Training, or Benchmarking.",
+                border_style="green",
+                padding=(1, 2),
+            ))
+        except Exception as exc:
+            console.print(Panel(
+                f"[bold red]Failed to recover dataset:[/bold red] {exc}",
+                border_style="red",
+                padding=(1, 2),
+            ))
+        input("\nPress Enter to continue...")
+    elif confirm == "Discard Staged Files":
+        shutil.rmtree(chosen_rec.stage_path, ignore_errors=True)
+        console.print(Panel(
+            f"[bold yellow]Removed staged folder:[/bold yellow] {chosen_rec.stage_path.name}",
+            border_style="yellow",
+            padding=(1, 2),
+        ))
+        input("\nPress Enter to continue...")
+
+
 def _run_augmentation_flow() -> None:
+    # Check for unfinalized augmentation runs from earlier sessions
+    from src.augmentation.recovery import find_recoverable_augmentations
+    datasets_dir = Path("datasets").resolve()
+    recoverable = find_recoverable_augmentations(datasets_dir)
+    if recoverable:
+        rec = recoverable[0]
+        rec_choice = get_user_choice(
+            [
+                f"Recover and finalize {rec.target_name} ({rec.image_count:,} images)",
+                "Start new augmentation",
+                "Back",
+            ],
+            title="Unfinalized Augmentation Detected",
+            text=(
+                f"An unfinalized augmentation run was detected from a previous session:\n\n"
+                f"• Target: [cyan]{rec.target_name}[/cyan] ([bold green]{rec.image_count:,}[/bold green] images ready)\n"
+                f"• Staged in: [dim]{rec.stage_path.name}[/dim]\n\n"
+                "Would you like to finalize and recover this dataset now instead of starting over?"
+            ),
+            breadcrumbs=["YOLOmatic", "Augment Dataset", "Recovery Notice"],
+        )
+        if rec_choice in (NAV_BACK, "Back"):
+            return
+        if rec_choice.startswith("Recover and finalize"):
+            _recover_staged_augmentations_flow()
+            return
+
     # Step 1: Dataset
     dataset_path = _select_dataset()
     if dataset_path is None:
@@ -1473,44 +1632,63 @@ def main() -> None:
         clear_screen()
         print_stylized_header("Dataset Augmentation")
 
+        from src.augmentation.recovery import find_recoverable_augmentations
+        recoverable = find_recoverable_augmentations(Path("datasets").resolve())
+
+        menu_items = [
+            "[Profile Management]",
+            "Manage Augmentation Profiles",
+            "[Run Augmentation]",
+            "Augment Dataset",
+        ]
+        recovery_choice = f"Recover Staged Augmentation ({len(recoverable)} ready)" if recoverable else None
+        if recovery_choice:
+            menu_items.extend([
+                "[Recovery]",
+                recovery_choice,
+            ])
+        menu_items.append("Back")
+
+        descriptions = {
+            "Manage Augmentation Profiles": (
+                "[bold cyan]Profile Manager[/bold cyan]\n\n"
+                "Create, edit, clone, and delete named augmentation profiles.\n\n"
+                "Each profile stores:\n"
+                "  • A curated set of Albumentations transforms with parameters\n"
+                "  • Multiplier — how many augmented copies per source image\n"
+                "  • Whether to include original images alongside augmented ones\n\n"
+                "Three built-in profiles are pre-loaded:\n"
+                "  • [bold]vegetation_aerial_optimal[/bold] — tuned for QGIS NIR aerial imagery\n"
+                "  • [bold]general_detection[/bold] — conservative baseline for any dataset\n"
+                "  • [bold]minimal[/bold] — D4 symmetry only, zero annotation risk"
+            ),
+            "Augment Dataset": (
+                "[bold cyan]Run Augmentation[/bold cyan]\n\n"
+                "Select a source dataset and an augmentation profile, then:\n\n"
+                "  1. Choose output format: YOLO Detection (box), YOLO Segmentation (instance),\n"
+                "     YOLO Segmentation (Semantic), or COCO\n"
+                "  2. Set train / val / test split ratios\n"
+                "  3. Confirm and run\n\n"
+                "Supports [bold]YOLO bbox[/bold] and [bold]YOLO seg[/bold] formats "
+                "(auto-detected from source).\n"
+                "Output is a new independent dataset folder — originals are never modified."
+            ),
+        }
+        if recovery_choice:
+            descriptions[recovery_choice] = (
+                "[bold green]Recover Staged Run[/bold green]\n\n"
+                f"Found {len(recoverable)} unfinalized run(s) with completed outputs.\n"
+                "Move and finalize them directly into datasets/ without re-running."
+            )
+
         choice = get_user_choice(
-            [
-                "[Profile Management]",
-                "Manage Augmentation Profiles",
-                "[Run Augmentation]",
-                "Augment Dataset",
-                "Back",
-            ],
+            menu_items,
             title="Dataset Augmentation",
             text=(
                 "Expand and diversify YOLO or COCO datasets using Albumentations transforms.\n"
                 "Profiles store your transform configuration and can be reused across datasets."
             ),
-            descriptions={
-                "Manage Augmentation Profiles": (
-                    "[bold cyan]Profile Manager[/bold cyan]\n\n"
-                    "Create, edit, clone, and delete named augmentation profiles.\n\n"
-                    "Each profile stores:\n"
-                    "  • A curated set of Albumentations transforms with parameters\n"
-                    "  • Multiplier — how many augmented copies per source image\n"
-                    "  • Whether to include original images alongside augmented ones\n\n"
-                    "Three built-in profiles are pre-loaded:\n"
-                    "  • [bold]vegetation_aerial_optimal[/bold] — tuned for QGIS NIR aerial imagery\n"
-                    "  • [bold]general_detection[/bold] — conservative baseline for any dataset\n"
-                    "  • [bold]minimal[/bold] — D4 symmetry only, zero annotation risk"
-                ),
-                "Augment Dataset": (
-                    "[bold cyan]Run Augmentation[/bold cyan]\n\n"
-                    "Select a source dataset and an augmentation profile, then:\n\n"
-                    "  1. Choose output format: YOLO Detection (box), YOLO Segmentation (instance),\n"
-                    "     YOLO Segmentation (Semantic), or COCO\n"
-                    "  2. Set train / val / test split ratios\n"
-                    "  3. Confirm and run\n\n"
-                    "Supports [bold]YOLO bbox[/bold] and [bold]YOLO seg[/bold] formats "
-                    "(auto-detected from source).\n"
-                    "Output is a new independent dataset folder — originals are never modified."
-                ),
-            },
+            descriptions=descriptions,
             breadcrumbs=["YOLOmatic", "Augment Dataset"],
         )
 
@@ -1520,3 +1698,5 @@ def main() -> None:
             _profile_manager_menu()
         elif choice == "Augment Dataset":
             _run_augmentation_flow()
+        elif recovery_choice and choice == recovery_choice:
+            _recover_staged_augmentations_flow()

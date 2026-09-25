@@ -32,7 +32,15 @@ jobs:
         run: uv run ruff check src tests
 
   test:
-    runs-on: ubuntu-latest
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-15
+          - windows-latest
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout code

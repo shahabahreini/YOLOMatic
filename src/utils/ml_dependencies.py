@@ -54,18 +54,6 @@ def _installed_opencv_distributions() -> list[str]:
     return sorted(set(installed))
 
 
-def _opencv_conflict_error(installed: list[str]) -> MLDependencyError:
-    packages = ", ".join(installed)
-    return MLDependencyError(
-        "Conflicting OpenCV wheels are installed in this environment: "
-        f"{packages}. They all provide the same 'cv2' module.\n"
-        "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python-headless\n"
-        "If the conflict remains, run: uv pip uninstall opencv-python "
-        "opencv-python-headless opencv-contrib-python opencv-contrib-python-headless\n"
-        "Then run: uv sync"
-    )
-
-
 # Attributes that only exist once OpenCV's native extension module has loaded
 # successfully. When two OpenCV wheels were ever installed side by side, one
 # uninstall can silently delete files the other wheel also owns (they share the
@@ -74,13 +62,20 @@ def _opencv_conflict_error(installed: list[str]) -> MLDependencyError:
 _CV2_REQUIRED_ATTRS = ("imwrite", "imread", "imdecode", "CV_8U")
 
 
-def _opencv_corrupted_error(missing: list[str]) -> MLDependencyError:
+def _opencv_corrupted_error(
+    missing: list[str], installed: list[str] | None = None
+) -> MLDependencyError:
     attrs = ", ".join(missing)
+    conflict_detail = ""
+    if installed and len(installed) > 1:
+        conflict_detail = (
+            " Multiple OpenCV wheels are installed ("
+            f"{', '.join(installed)}); their shared files may have been overwritten."
+        )
     return MLDependencyError(
         "The installed OpenCV package is missing core attributes "
-        f"({attrs}), which usually means two OpenCV wheels (e.g. opencv-python and "
-        "opencv-python-headless) were installed at some point and one uninstall "
-        "deleted files the other still needs.\n"
+        f"({attrs}).{conflict_detail} This usually means one OpenCV uninstall "
+        "deleted files another OpenCV distribution still needs.\n"
         "Close YOLOmatic, then run: uv sync --reinstall-package opencv-python-headless\n"
         "If the problem remains, run: uv pip uninstall opencv-python "
         "opencv-python-headless opencv-contrib-python opencv-contrib-python-headless\n"
@@ -308,8 +303,6 @@ def import_cv2() -> _T:
     prepare_ml_runtime()
     with _CV2_IMPORT_LOCK:
         installed = _installed_opencv_distributions()
-        if len(installed) > 1:
-            raise _opencv_conflict_error(installed)
         try:
             module = importlib.import_module("cv2")
         except AttributeError as error:
@@ -330,7 +323,7 @@ def import_cv2() -> _T:
 
         missing = [attr for attr in _CV2_REQUIRED_ATTRS if not hasattr(module, attr)]
         if missing:
-            raise _opencv_corrupted_error(missing)
+            raise _opencv_corrupted_error(missing, installed)
         return module
 
 

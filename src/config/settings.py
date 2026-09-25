@@ -148,17 +148,38 @@ def _decrypt_value(cipher_text: str, secret_key: str) -> str:
         return ""
 
 
+_SETTINGS_CACHE: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
+
+
+def clear_settings_cache() -> None:
+    """Clear the in-memory settings cache."""
+    _SETTINGS_CACHE.clear()
+
+
 def load_settings(path: Path | str = SETTINGS_PATH) -> dict[str, Any]:
     settings_path = Path(path)
     if not settings_path.exists():
         return copy.deepcopy(DEFAULT_SETTINGS)
+
+    secret_key = _get_machine_secret()
+    try:
+        mtime_ns = settings_path.stat().st_mtime_ns
+    except OSError:
+        mtime_ns = -1
+
+    resolved_path = str(settings_path.resolve()) if mtime_ns != -1 else str(settings_path)
+    cache_key = (resolved_path, secret_key)
+    if mtime_ns != -1 and cache_key in _SETTINGS_CACHE:
+        cached_mtime, cached_data = _SETTINGS_CACHE[cache_key]
+        if cached_mtime == mtime_ns:
+            return copy.deepcopy(cached_data)
+
     with settings_path.open("r", encoding="utf-8") as file:
         data = yaml.safe_load(file) or {}
     if not isinstance(data, dict):
         data = {}
     
     # Decrypt keys
-    secret_key = _get_machine_secret()
     if "ai" in data and isinstance(data["ai"], dict):
         ai_cfg = data["ai"]
         if "gemini_api_key" in ai_cfg and isinstance(ai_cfg["gemini_api_key"], str):
@@ -166,7 +187,10 @@ def load_settings(path: Path | str = SETTINGS_PATH) -> dict[str, Any]:
         if "openai_api_key" in ai_cfg and isinstance(ai_cfg["openai_api_key"], str):
             ai_cfg["openai_api_key"] = _decrypt_value(ai_cfg["openai_api_key"], secret_key)
 
-    return validate_settings(data)
+    validated = validate_settings(data)
+    if mtime_ns != -1:
+        _SETTINGS_CACHE[cache_key] = (mtime_ns, copy.deepcopy(validated))
+    return validated
 
 
 def save_settings(settings: dict[str, Any], path: Path | str = SETTINGS_PATH) -> None:
@@ -186,6 +210,13 @@ def save_settings(settings: dict[str, Any], path: Path | str = SETTINGS_PATH) ->
             
     with settings_path.open("w", encoding="utf-8") as file:
         yaml.safe_dump(to_save, file, sort_keys=False)
+
+    try:
+        mtime_ns = settings_path.stat().st_mtime_ns
+        cache_key = (str(settings_path.resolve()), secret_key)
+        _SETTINGS_CACHE[cache_key] = (mtime_ns, copy.deepcopy(validated))
+    except OSError:
+        pass
 
 
 def reset_settings(path: Path | str = SETTINGS_PATH) -> dict[str, Any]:

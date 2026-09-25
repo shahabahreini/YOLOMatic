@@ -69,6 +69,16 @@ class RFDETRTrainerTests(unittest.TestCase):
         mock_import.assert_called_once_with("RFDETRMedium")
         self.assertEqual(model.kwargs, {"pretrain_weights": "checkpoint.pth"})
 
+    @patch("src.trainers.rfdetr_trainer.train_from_config")
+    def test_main_raises_system_exit_on_failure(self, mock_train) -> None:
+        from src.trainers.rfdetr_trainer import main
+        mock_train.side_effect = RuntimeError("Training failed")
+
+        with self.assertRaises(SystemExit) as cm:
+            main("dummy_config.yaml")
+
+        self.assertEqual(cm.exception.code, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

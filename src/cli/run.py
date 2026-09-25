@@ -355,9 +355,12 @@ def _safe_subcommand(
     """
     clear_screen()
     entrypoint_name = prog or label.lower().replace(" ", "-")
+    pause_needed = False
     try:
         with _scoped_argv(entrypoint_name):
-            target()
+            result = target()
+            if isinstance(result, int) and result not in (0, None):
+                pause_needed = True
     except SystemExit as error:
         code = error.code
         if code not in (None, 0):
@@ -368,6 +371,7 @@ def _safe_subcommand(
                     padding=(1, 2),
                 )
             )
+            pause_needed = True
     except KeyboardInterrupt:
         console.print(f"\n[bold yellow]{label} cancelled by user.[/bold yellow]")
     except MLDependencyError as error:
@@ -379,6 +383,7 @@ def _safe_subcommand(
                 padding=(1, 2),
             )
         )
+        pause_needed = True
     except FileNotFoundError as error:
         console.print(
             Panel(
@@ -387,6 +392,7 @@ def _safe_subcommand(
                 padding=(1, 2),
             )
         )
+        pause_needed = True
     except Exception as error:
         console.print(
             Panel(
@@ -396,13 +402,14 @@ def _safe_subcommand(
             )
         )
         console.print(traceback.format_exc(), style="dim")
+        pause_needed = True
     finally:
-        console.print()
-        try:
-            input("Press Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            # User hit Ctrl+D/Ctrl+C at the pause prompt — just return.
+        if pause_needed:
             console.print()
+            try:
+                input("Press Enter to return to the main menu...")
+            except (EOFError, KeyboardInterrupt):
+                console.print()
         global _CACHED_DATASETS, _CACHED_DATASET_DESCRIPTIONS
         _CACHED_DATASETS = None
         _CACHED_DATASET_DESCRIPTIONS = None
@@ -722,15 +729,6 @@ def display_configuration_summary(
                 ),
             }
         )
-    elif "nas" in model_choice.lower():
-        training = config.get("training", {})
-        fields.update(
-            {
-                "Batch Size": training.get("batch_size", "N/A"),
-                "Max Epochs": training.get("max_epochs", "N/A"),
-                "Workers": training.get("num_workers", "N/A"),
-            }
-        )
     else:
         training = config.get("training", {})
         fields.update(
@@ -852,6 +850,7 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             f"✨ '{datasets_folder}' folder created. Please add COCO or any other compatible dataset into it.",
             style="bold yellow",
         )
+        input("\nPress Enter to return...")
         return None
 
     def _build_description(d: dict[str, Any]) -> tuple[str, str]:
@@ -900,9 +899,9 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
                 datasets = list_dataset_directories(datasets_folder)
                 dataset_descriptions: dict[str, str] = {}
                 if datasets:
-                    with ThreadPoolExecutor() as executor:
-                        for name, desc in executor.map(_build_description, datasets):
-                            dataset_descriptions[name] = desc
+                    for d in datasets:
+                        name, desc = _build_description(d)
+                        dataset_descriptions[name] = desc
             _CACHED_DATASETS = datasets
             _CACHED_DATASET_DESCRIPTIONS = dataset_descriptions
         else:
@@ -913,16 +912,8 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             console.print(
                 f"❌ No datasets found in '{datasets_folder}' folder.", style="bold red"
             )
+            input("\nPress Enter to return...")
             return None
-
-        table = Table(title="Available Datasets", title_style="bold green")
-        table.add_column("Dataset Name", justify="center", style="cyan")
-        table.add_column("Size", justify="center", style="cyan")
-
-        for dataset in datasets:
-            table.add_row(dataset["name"], dataset["size"])
-
-        console.print(table)
 
         dataset_names = [Path(d["path"]) for d in datasets]
         name_to_path = {path.name: str(path) for path in dataset_names}

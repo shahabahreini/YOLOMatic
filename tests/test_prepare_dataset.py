@@ -947,6 +947,76 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertEqual(split_dirs["train"], [(root / "train" / "images").resolve()])
         self.assertEqual(warnings, [])
 
+    def test_target_counts_prevents_val_starvation_on_small_datasets(self) -> None:
+        from src.datasets.prepare import _target_counts
+        # 3 items with 80/20 train/val:
+        counts = _target_counts(3, PrepareSplitConfig(train_ratio=0.8, val_ratio=0.2, test_ratio=0.0))
+        self.assertEqual(counts["valid"], 1)
+        self.assertEqual(counts["train"], 2)
+        self.assertEqual(counts["test"], 0)
+
+        # 4 items with 80/20 train/val:
+        counts4 = _target_counts(4, PrepareSplitConfig(train_ratio=0.8, val_ratio=0.2, test_ratio=0.0))
+        self.assertEqual(counts4["valid"], 1)
+        self.assertEqual(counts4["train"], 3)
+
+        # 2 items with 80/20 train/val:
+        counts2 = _target_counts(2, PrepareSplitConfig(train_ratio=0.8, val_ratio=0.2, test_ratio=0.0))
+        self.assertEqual(counts2["valid"], 1)
+        self.assertEqual(counts2["train"], 1)
+
+    def test_read_yolo_annotations_filters_degenerate_bboxes(self) -> None:
+        from src.datasets.prepare import _read_yolo_annotations
+        img_dir = self.tmp / "images"
+        lbl_dir = self.tmp / "labels"
+        img_dir.mkdir(parents=True)
+        lbl_dir.mkdir(parents=True)
+
+        img_path = img_dir / "test.jpg"
+        img_path.write_bytes(b"dummy")
+        lbl_path = lbl_dir / "test.txt"
+        # 1st: valid, 2nd: w <= 0, 3rd: h <= 0, 4th: valid
+        lbl_path.write_text(
+            "0 0.5 0.5 0.2 0.2\n"
+            "0 0.5 0.5 0.0 0.2\n"
+            "0 0.5 0.5 0.2 -0.1\n"
+            "1 0.4 0.4 0.3 0.3\n",
+            encoding="utf-8",
+        )
+
+        warnings: list[str] = []
+        anns, b_hits, s_hits, p_hits = _read_yolo_annotations(img_path, img_dir, lbl_dir, warnings)
+        self.assertEqual(len(anns), 2)
+        self.assertEqual(b_hits, 2)
+        self.assertEqual(anns[0].class_id, 0)
+        self.assertEqual(anns[1].class_id, 1)
+        self.assertTrue(any("degenerate YOLO bbox" in w for w in warnings))
+
+    def test_read_coco_records_filters_degenerate_bboxes(self) -> None:
+        from src.datasets.prepare import _read_coco_records
+        coco_dir = self.tmp / "coco_source"
+        coco_dir.mkdir(parents=True)
+        img_path = coco_dir / "sample.jpg"
+        self._write_image(img_path)
+
+        coco_data = {
+            "categories": [{"id": 1, "name": "cat"}],
+            "images": [{"id": 10, "file_name": "sample.jpg", "width": 100, "height": 100}],
+            "annotations": [
+                {"id": 1, "image_id": 10, "category_id": 1, "bbox": [10, 10, 20, 20]},
+                {"id": 2, "image_id": 10, "category_id": 1, "bbox": [10, 10, 0, 20]},
+                {"id": 3, "image_id": 10, "category_id": 1, "bbox": [10, 10, 20, -5]},
+            ],
+        }
+        (coco_dir / "_annotations.coco.json").write_text(json.dumps(coco_data), encoding="utf-8")
+
+        warnings: list[str] = []
+        records, classes, task, _ = _read_coco_records(coco_dir, warnings)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(len(records[0].annotations), 1)
+        self.assertEqual(records[0].annotations[0].bbox, [0.2, 0.2, 0.2, 0.2])
+        self.assertTrue(any("degenerate COCO bbox" in w for w in warnings))
+
 
 if __name__ == "__main__":
     unittest.main()

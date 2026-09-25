@@ -15,8 +15,9 @@ from rich.table import Table
 
 from src.cli.upload import build_candidate, stage_upload_candidate, upload_model
 from src.config.settings import DEFAULT_SETTINGS, deep_merge, load_settings
+from src.trainers.common import effective_clearml_settings
 
-from src.utils.cli import get_user_choice
+from src.utils.cli import NAV_BACK, get_user_choice
 from src.utils.ml_dependencies import (
     MLDependencyError,
     import_ultralytics_settings,
@@ -215,7 +216,7 @@ def select_config(config_path):
         title="Select Configuration",
         text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
     )
-    if selection == "Exit":
+    if selection in ("Exit", NAV_BACK, "Back") or not selection:
         return None
 
     selected_file = os.path.abspath(os.path.join(config_folder, selection))
@@ -283,11 +284,6 @@ def verify_model_file(model_name):
             f"[bold red]Error loading model {model_name}: {str(e)}[/bold red]"
         )
         return None
-
-
-def effective_clearml_settings(config_clearml: dict | None) -> dict:
-    global_clearml = load_settings().get("clearml", {})
-    return deep_merge(global_clearml, config_clearml or {})
 
 
 def initialize_clearml_task(project_name, task_name, tags, clearml_settings=None):
@@ -648,13 +644,29 @@ def main():
             emit_tensorboard_report(console, validate_tensorboard_run(run_dir))
 
         console.print("\n[bold green]Training completed successfully![/bold green]")
+        try:
+            input("\nPress Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            pass
 
     except FileNotFoundError as e:
         console.print(f"[bold red]Error: {str(e)}[/bold red]")
+        try:
+            input("\nPress Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            pass
     except yaml.YAMLError as e:
         console.print(f"[bold red]Invalid YAML configuration: {str(e)}[/bold red]")
+        try:
+            input("\nPress Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            pass
     except MLDependencyError as e:
         console.print(f"[bold red]{str(e)}[/bold red]")
+        try:
+            input("\nPress Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            pass
     except ValueError as e:
         if "Invalid CUDA 'device" in str(e):
             console.print(f"[bold red]{str(e)}[/bold red]")
@@ -663,11 +675,19 @@ def main():
             )
         else:
             console.print(f"[bold red]Error: {str(e)}[/bold red]")
+        try:
+            input("\nPress Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            pass
     except Exception as e:
         console.print(f"[bold red]An unexpected error occurred: {str(e)}[/bold red]")
         import traceback
 
         console.print(traceback.format_exc())
+        try:
+            input("\nPress Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            pass
     finally:
         if task not in (None, False):
             task.close()

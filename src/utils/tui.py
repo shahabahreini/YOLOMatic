@@ -756,8 +756,6 @@ class MenuRenderer:
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         global _term_h, _term_w
-        old_h = _term_h
-        old_w = _term_w
 
         h = options.height or console.height
         w = options.max_width or console.width
@@ -774,14 +772,10 @@ class MenuRenderer:
             self._last_gpu_status = current_gpu
             self._layout_dirty = True
 
-        try:
-            if self._cached_layout is None or self._layout_dirty:
-                self._layout_dirty = False
-                self._cached_layout = self._build_layout()
-            yield self._cached_layout
-        finally:
-            _term_h = old_h
-            _term_w = old_w
+        if self._cached_layout is None or self._layout_dirty:
+            self._layout_dirty = False
+            self._cached_layout = self._build_layout()
+        yield self._cached_layout
 
 
 def get_user_choice(
@@ -1429,8 +1423,6 @@ class MultiSelectRenderer:
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         global _term_h, _term_w
-        old_h = _term_h
-        old_w = _term_w
 
         h = options.height or console.height
         w = options.max_width or console.width
@@ -1447,14 +1439,10 @@ class MultiSelectRenderer:
             self._last_gpu_status = current_gpu
             self._layout_dirty = True
 
-        try:
-            if self._cached_layout is None or self._layout_dirty:
-                self._layout_dirty = False
-                self._cached_layout = self._build_layout()
-            yield self._cached_layout
-        finally:
-            _term_h = old_h
-            _term_w = old_w
+        if self._cached_layout is None or self._layout_dirty:
+            self._layout_dirty = False
+            self._cached_layout = self._build_layout()
+        yield self._cached_layout
 
 
 def get_user_multi_select(
@@ -1683,8 +1671,14 @@ def get_user_multi_select(
 
 
 def get_parameter_value_input(
-    param: ParameterDefinition,
+    param: ParameterDefinition | None = None,
     current_value: Any | None = None,
+    *,
+    name: str | None = None,
+    value_type: str = "str",
+    description: str = "",
+    default: Any = "",
+    help_text: str = "",
 ) -> Any | None:
     """
     Interactive input for a parameter value with validation.
@@ -1694,6 +1688,19 @@ def get_parameter_value_input(
         - NAV_BACK if the user wants to go back to the previous parameter
         - NAV_LIST if the user wants to return to the selection list
     """
+    if param is None:
+        if name is None:
+            raise ValueError("Either param or name must be provided to get_parameter_value_input")
+        from src.config.parameters import ParameterDefinition
+        param = ParameterDefinition(
+            name=name,
+            category="general",
+            default=default if default != "" else (current_value if current_value is not None else ""),
+            value_type=value_type,
+            description=description,
+            help_text=help_text or description,
+        )
+
     value_to_edit = current_value if current_value is not None else param.default
 
     # 1. Specialized handling for Boolean values (Fast Path)

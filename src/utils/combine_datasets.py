@@ -5,9 +5,10 @@ from pathlib import Path
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
 from rich.panel import Panel
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from src.utils.cli import NAV_BACK, get_user_choice, get_parameter_value_input
 
 console = Console()
 
@@ -283,30 +284,86 @@ def main():
         )
         return
 
-    # Show available datasets
-    table = Table(title="Detected YOLO Datasets")
-    table.add_column("ID", justify="right")
-    table.add_column("Name")
-    table.add_column("Classes", style="green")
-    for i, ds in enumerate(datasets):
-        table.add_row(str(i + 1), ds["name"], ", ".join(ds["classes"][:5]) + ("..." if len(ds["classes"]) > 5 else ""))
-    console.print(table)
+    _CHECK = "✓"
+    _EMPTY = " "
+    selected_indices: set[int] = set(range(len(datasets)))
+    last_choice: str | None = None
 
-    selection = Prompt.ask("\nDatasets to merge (e.g. 1,3 or 'all')", default="all")
-    if selection.lower() == "all":
-        selected = datasets
-    else:
-        try:
-            indices = [int(x.strip()) - 1 for x in selection.split(",")]
-            selected = [datasets[i] for i in indices]
-        except Exception:
-            console.print("[red]Invalid selection.[/red]")
+    while True:
+        options: list[str] = []
+        descriptions: dict[str, str] = {}
+        idx_by_label: dict[str, int] = {}
+
+        for i, ds in enumerate(datasets):
+            sel = i in selected_indices
+            mark = _CHECK if sel else _EMPTY
+            label = f"[{mark}] {ds['name']}"
+            options.append(label)
+            cls_preview = ", ".join(ds["classes"][:8]) + ("..." if len(ds["classes"]) > 8 else "")
+            descriptions[label] = (
+                f"[bold cyan]{ds['name']}[/bold cyan]\n\n"
+                f"Path: [dim]{ds['path']}[/dim]\n"
+                f"Classes ({len(ds['classes'])}): [yellow]{cls_preview}[/yellow]\n\n"
+                f"Status: [{'green' if sel else 'dim'}]{'Selected' if sel else 'Unselected'}[/]"
+            )
+            idx_by_label[label] = i
+
+        confirm_label = f"Confirm Selection ({len(selected_indices)} selected)" if selected_indices else "(Select at least one dataset)"
+        options.append(confirm_label)
+        descriptions[confirm_label] = "Proceed to merge the selected datasets." if selected_indices else "Please select at least one dataset to proceed."
+
+        choice = get_user_choice(
+            options,
+            allow_back=True,
+            title="Select Datasets to Merge",
+            text="Toggle datasets with Enter, then choose Confirm Selection:",
+            descriptions=descriptions,
+            breadcrumbs=["YOLOmatic", "Dataset Combiner"],
+            initial_selection=last_choice,
+        )
+        if choice in (NAV_BACK, "Back"):
             return
+        if choice == confirm_label:
+            if selected_indices:
+                break
+            continue
 
-    normalize = Confirm.ask("Normalize class names (strip + lower-case)? [Recommended for merging different sources]", default=True)
-    output_name = Prompt.ask("Output folder name", default="combined_yolo_dataset")
+        if choice in idx_by_label:
+            idx = idx_by_label[choice]
+            if idx in selected_indices:
+                selected_indices.remove(idx)
+            else:
+                selected_indices.add(idx)
+            last_choice = choice
+
+    selected = [datasets[i] for i in sorted(selected_indices)]
+
+    normalize_choice = get_user_choice(
+        ["Yes (Recommended)", "No"],
+        allow_back=True,
+        title="Normalize Class Names",
+        text="Strip whitespace and lower-case class names to prevent duplicate casing?",
+        breadcrumbs=["YOLOmatic", "Dataset Combiner", "Normalize"],
+    )
+    if normalize_choice in (NAV_BACK, "Back"):
+        return
+    normalize = normalize_choice.startswith("Yes")
+
+    output_raw = get_parameter_value_input(
+        name="output_name",
+        current_value="combined_yolo_dataset",
+        value_type="str",
+        description="Name of the output dataset folder in datasets/",
+    )
+    if output_raw in (NAV_BACK, None):
+        return
+    output_name = str(output_raw).strip() or "combined_yolo_dataset"
 
     merge_datasets(selected, output_name, normalize_classes=normalize)
+    try:
+        input("\nPress Enter to return to main menu...")
+    except (EOFError, KeyboardInterrupt):
+        pass
 
 
 if __name__ == "__main__":

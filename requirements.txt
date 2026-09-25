@@ -6,7 +6,7 @@ numpy>=1.24.4
 torch
 torchvision
 tensorboard
-tensorflow>=2.16,<2.21; sys_platform != "win32"
+tensorflow>=2.16,<2.22; sys_platform != "win32"
 onnx
 onnxslim>=0.1.71
 onnxruntime
@@ -22,8 +22,13 @@ rfdetr[train,onnx,loggers,plus]>=1.6.5.post0
 packaging
 psutil
 pycocotools>=2.0.11
-transformers>=5.1,<6
+transformers>=5.8,<6
+accelerate>=0.26
+plotly>=5.0
+umap-learn>=0.5
+Pillow>=9.0
+albumentations>=1.4
 openvino>=2024.0.0
 coremltools>=7.1.0; sys_platform != "win32"
 ncnn>=1.0.3
-tensorrt-cu12>=7.0.0,!=10.2.0; sys_platform != "darwin"
+tensorrt-cu12==11.1.0.106; sys_platform != "darwin"

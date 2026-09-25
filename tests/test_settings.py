@@ -106,6 +106,37 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("ultralytics", settings)
         self.assertNotIn("api_key", settings["ultralytics"])
 
+    def test_settings_mtime_caching(self) -> None:
+        import time
+        from unittest.mock import patch
+        from src.config.settings import clear_settings_cache
+
+        clear_settings_cache()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "test_cache_settings.yaml"
+            settings = load_settings(path)
+            settings["narratives"]["mode"] = "quiet"
+            save_settings(settings, path)
+
+            # First load should hit cache populated by save_settings
+            with patch("yaml.safe_load", wraps=yaml.safe_load) as mock_yaml:
+                loaded1 = load_settings(path)
+                self.assertEqual(loaded1["narratives"]["mode"], "quiet")
+                self.assertEqual(mock_yaml.call_count, 0)
+
+            # Mutate loaded copy, verify cached copy is not mutated
+            loaded1["narratives"]["mode"] = "guided"
+            loaded2 = load_settings(path)
+            self.assertEqual(loaded2["narratives"]["mode"], "quiet")
+
+            # Touch file with new content and modified mtime
+            time.sleep(0.01)
+            path.write_text("narratives:\n  mode: concise\n", encoding="utf-8")
+            with patch("yaml.safe_load", wraps=yaml.safe_load) as mock_yaml:
+                loaded3 = load_settings(path)
+                self.assertEqual(loaded3["narratives"]["mode"], "concise")
+                self.assertEqual(mock_yaml.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

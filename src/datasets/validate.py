@@ -289,7 +289,11 @@ def validate_dataset(
                 errors.add("missing-label", f"{image_path.name}: no label file at {label_path}")
                 continue
             split_report.labels += 1
-            rows = [r for r in label_path.read_text(encoding="utf-8").splitlines() if r.strip()]
+            rows = [
+                r
+                for r in label_path.read_text(encoding="utf-8", errors="replace").splitlines()
+                if r.strip()
+            ]
             if not rows:
                 split_report.empty_labels += 1
                 continue

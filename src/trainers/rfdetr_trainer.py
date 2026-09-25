@@ -206,8 +206,10 @@ def main(config_file: str | Path) -> None:
         train_from_config(config_file)
     except MLDependencyError as error:
         console.print(f"[bold red]{error}[/bold red]")
+        raise SystemExit(1)
     except Exception as error:
         console.print(f"[bold red]RF-DETR training failed: {error}[/bold red]")
         import traceback
 
         console.print(traceback.format_exc())
+        raise SystemExit(1)

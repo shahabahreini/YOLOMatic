@@ -36,6 +36,7 @@ from src.utils.project import (
     format_size,
     list_dataset_directories,
 )
+from src.cli.convert_ndjson import _discover_ndjson_files
 
 
 WIZARD_STEPS = ["Source", "Format", "Split", "Strategy", "Output", "Confirm"]
@@ -72,19 +73,6 @@ def _safe_size(path: Path) -> str:
         return "unknown"
 
 
-def _discover_ndjson_files(root: Path = Path(".")) -> list[Path]:
-    candidates: list[Path] = []
-    search_roots = [root, root / "datasets"]
-    for search_root in search_roots:
-        if not search_root.exists():
-            continue
-        pattern = "*.ndjson" if search_root == root else "**/*.ndjson"
-        for path in search_root.glob(pattern):
-            if path.is_file() and not path.name.startswith("."):
-                candidates.append(path)
-    return sorted(set(candidates), key=lambda path: str(path.resolve()).lower())
-
-
 def _ndjson_label(path: Path, root: Path = Path(".")) -> str:
     try:
         display = path.relative_to(root)
@@ -96,7 +84,11 @@ def _ndjson_label(path: Path, root: Path = Path(".")) -> str:
 def _quick_source_description(path: Path) -> str:
     if path.is_file() and path.suffix.lower() == ".ndjson":
         try:
-            line_count = sum(1 for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip())
+            line_count = 0
+            with path.open("r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.strip():
+                        line_count += 1
         except (OSError, UnicodeError):
             line_count = 0
         return (
@@ -112,7 +104,7 @@ def _quick_source_description(path: Path) -> str:
         class_preview = ", ".join(summary.classes[:8])
         if len(summary.classes) > 8:
             class_preview += "..."
-        size_text = _safe_size(path)
+        size_text = format_size(summary.total_size_bytes) if summary.total_size_bytes else _safe_size(path)
         return (
             f"[bold cyan]{path.name}[/bold cyan]\n\n"
             f"Format: [yellow]{summary.format}[/yellow]  |  "

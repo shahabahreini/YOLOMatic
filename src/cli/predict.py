@@ -19,7 +19,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from rich.panel import Panel
-from rich.table import Table
+from rich.table import Column, Table
 
 from src.utils.cli import (
     console,
@@ -455,18 +455,24 @@ def render_batch_summary(
     console.print(table)
 
 
-def make_prediction_progress() -> Progress:
-    return Progress(
+def make_prediction_progress(target_console: Console | None = None) -> Progress:
+    c = target_console or console
+    width = c.width
+    columns: list = [
         SpinnerColumn(),
         TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
+        BarColumn(bar_width=15 if width < 100 else 30),
         TaskProgressColumn(),
         MofNCompleteColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-        TextColumn("[dim]{task.fields[current]}"),
-        console=console,
-    )
+    ]
+    if width >= 100:
+        columns.append(TimeRemainingColumn())
+    if width >= 120:
+        columns.append(TimeElapsedColumn())
+        columns.append(TextColumn("[dim]{task.fields[current]}", table_column=Column(overflow="ellipsis", no_wrap=True)))
+    elif width >= 90:
+        columns.append(TextColumn("[dim]{task.fields[current]}", table_column=Column(overflow="ellipsis", no_wrap=True)))
+    return Progress(*columns, console=c)
 
 
 def run_folder_prediction(
@@ -586,6 +592,10 @@ def main() -> None:
         raise SystemExit(1) from error
 
     if mode == "folder":
+        try:
+            input("\nPress Enter to return to the main menu...")
+        except (EOFError, KeyboardInterrupt):
+            pass
         return
 
     if output_dir is None:
@@ -599,6 +609,10 @@ def main() -> None:
                 border_style="green",
             )
         )
+    try:
+        input("\nPress Enter to return to the main menu...")
+    except (EOFError, KeyboardInterrupt):
+        pass
 
 
 if __name__ == "__main__":

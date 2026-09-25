@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import dataclass
 from typing import Any
+from unittest.mock import patch
 
 from src.utils.export_config import build_export_kwargs
 from src.utils.export_config import (
@@ -158,6 +159,40 @@ class ExportCliTests(unittest.TestCase):
 
         self.assertTrue(kwargs.get("trt_dynamic_batch"))
         self.assertEqual(kwargs.get("batch"), 1)
+
+    @patch("builtins.input", return_value="")
+    @patch("src.cli.export.shutil.move")
+    @patch("src.cli.export.load_model_details")
+    @patch("src.cli.export.get_user_choice")
+    @patch("src.cli.export.get_user_multi_select")
+    @patch("src.cli.export.import_ultralytics_yolo")
+    def test_export_relocation_calls_shutil_move(
+        self, mock_yolo_import, mock_select, mock_choice, mock_details, mock_move, mock_input
+    ) -> None:
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock
+        from src.cli.export import main, ExportModelDetails
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_weight = Path(tmp) / "best.pt"
+            fake_weight.touch()
+            fake_exported = Path(tmp) / "best.onnx"
+            fake_exported.touch()
+
+            mock_details.return_value = ExportModelDetails(path=str(fake_weight), task="detect")
+            mock_choice.return_value = "ONNX"
+            mock_select.return_value = (set(), {})
+
+            with patch("ultralytics.YOLO") as mock_yolo_cls:
+                mock_model = MagicMock()
+                mock_model.export.return_value = str(fake_exported)
+                mock_yolo_cls.return_value = mock_model
+
+                main(["--weight", str(fake_weight)])
+
+            mock_move.assert_called_once()
+            self.assertEqual(mock_move.call_args[0][0], fake_exported)
 
 
 if __name__ == "__main__":

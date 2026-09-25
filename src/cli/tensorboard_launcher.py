@@ -5,7 +5,7 @@ import sys
 
 from rich.panel import Panel
 
-from src.utils.cli import console, get_user_choice, print_stylized_header
+from src.utils.cli import NAV_BACK, console, get_user_choice, print_stylized_header
 from src.utils.project import find_run_directories
 
 
@@ -137,7 +137,7 @@ def main(port: int = DEFAULT_PORT) -> int:
         breadcrumbs=["YOLOmatic", "TensorBoard"],
     )
 
-    if choice in ("Back", "Exit"):
+    if choice in ("Back", "Exit", NAV_BACK):
         return 0
 
     selected_logdir = base_log_dir if choice == "Monitor All (logdir=runs)" else choice

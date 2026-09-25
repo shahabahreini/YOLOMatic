@@ -214,6 +214,15 @@ class ValidateMalformedDatasetTest(unittest.TestCase):
             self.assertFalse(report.ok)
             self.assertIn("no label file", report.errors[0])
 
+    def test_handles_non_utf8_label_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dataset = _build(Path(temp_dir), "detect", [BOX])
+            label_file = next((dataset / "train" / "labels").glob("*.txt"))
+            label_file.write_bytes(b"\xff\xfe\x80\x00 0.5 0.5 0.25 0.25\n")
+            report = validate_dataset(dataset)
+            self.assertFalse(report.ok)
+            self.assertTrue(any("i0.txt" in e for e in report.errors))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -68,12 +68,6 @@ CRITICAL_PACKAGES: tuple[CriticalPackage, ...] = (
         "important",
     ),
     CriticalPackage(
-        "tensorflow",
-        "TensorFlow",
-        "Optional TensorBoard/event tooling backend on Linux and macOS.",
-        "optional",
-    ),
-    CriticalPackage(
         "roboflow",
         "Roboflow",
         "Client for dataset downloads and Roboflow model uploads.",
