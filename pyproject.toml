@@ -101,7 +101,7 @@ license = "Apache-2.0"
 name = "yolomatic"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-version = "6.3.0"
+version = "6.4.0"
 
 [project.urls]
 Changelog = "https://github.com/shahabahreini/YOLOMatic/blob/main/CHANGELOG.md"
@@ -160,13 +160,32 @@ torchvision = [
   { index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
 ]
 tensorrt-cu12 = [
-  { index = "nvidia", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+  { index = "nvidia" },
 ]
 tensorrt-cu12-libs = [
-  { index = "nvidia", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
+  { index = "nvidia" },
+]
+tensorrt-cu12-bindings = [
+  { index = "nvidia" },
 ]
 
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12"
+version = "11.1.0.106"
+requires-dist = ["tensorrt-cu12-libs==11.1.0.106", "tensorrt-cu12-bindings==11.1.0.106"]
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-bindings"
+version = "11.1.0.106"
+requires-dist = []
+
+[[tool.uv.dependency-metadata]]
+name = "tensorrt-cu12-libs"
+version = "11.1.0.106"
+requires-dist = []
+
 [tool.uv]
+required-version = ">=0.8.0"
 # Albumentations and Roboflow request the headless wheel while Ultralytics and
 # NCNN request the desktop wheel. Both publish the same ``cv2`` namespace, so
 # the application must install exactly one variant. The project depends on
