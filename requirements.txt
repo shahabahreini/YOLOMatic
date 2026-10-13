@@ -31,4 +31,4 @@ albumentations>=1.4
 openvino>=2024.0.0
 coremltools>=7.1.0; sys_platform != "win32"
 ncnn>=1.0.3
-tensorrt-cu12==11.1.0.106; sys_platform != "darwin"
+tensorrt-cu12==11.4.0.106; sys_platform != "darwin"
