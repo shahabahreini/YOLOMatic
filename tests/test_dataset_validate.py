@@ -6,8 +6,8 @@ import cv2
 import numpy as np
 import yaml
 
-from src.datasets.validate import validate_dataset
-from src.utils.semantic import (
+from yolomatic.datasets.validate import validate_dataset
+from yolomatic.utils.semantic import (
     semantic_background_index,
     semantic_class_names,
     semantic_max_pixel_value,

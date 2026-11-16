@@ -4,7 +4,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from src.datasets.archive import (
+from yolomatic.datasets.archive import (
     ArchiveMember,
     collect_members,
     package_dataset_archives,

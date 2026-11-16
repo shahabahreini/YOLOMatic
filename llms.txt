@@ -44,7 +44,7 @@ Detectron2 training.
 - `uv run yolomatic-benchmark` — benchmark trained checkpoints with interactive reports.
 - `uv run yolomatic-upload` — upload or deploy trained checkpoints to Roboflow.
 - `uv run yolomatic-tensorboard` — launch TensorBoard for discovered runs.
-- `uv run bump patch|minor|major|VERSION` — update the package version.
+- `uv version --bump patch|minor|major` (or `uv version X.Y.Z`) — update the package version.
 
 ## Documentation Map
 
@@ -71,14 +71,14 @@ Detectron2 training.
 
 ## Repository Structure
 
-- `src/cli/` — TUI, prediction, SAM inference, upload, benchmark, augmentation, TensorBoard launcher, and version bump commands.
-- `src/config/` — config generation and global settings.
-- `src/datasets/` — dataset analysis, format detection, conversion, and preparation.
-- `src/models/` — model-family metadata for YOLO, RF-DETR, SAM 3.1, and Detectron2.
-- `src/trainers/` — YOLO, RF-DETR, SAM 3.1, Detectron2, and shared trainer helpers.
-- `src/benchmark/` — benchmark engine, metrics, vector analysis, and interactive HTML report generation.
-- `src/augmentation/` — Albumentations offline augmentation engine, profiles, and transforms.
-- `src/utils/` — project discovery, TUI rendering, TensorBoard logging, dependency checks, and training preflight logic.
+- `src/yolomatic/cli/` — TUI, prediction, SAM inference, upload, benchmark, augmentation, and TensorBoard launcher commands.
+- `src/yolomatic/config/` — config generation and global settings.
+- `src/yolomatic/datasets/` — dataset analysis, format detection, conversion, and preparation.
+- `src/yolomatic/models/` — model-family metadata for YOLO, RF-DETR, SAM 3.1, and Detectron2.
+- `src/yolomatic/trainers/` — YOLO, RF-DETR, SAM 3.1, Detectron2, and shared trainer helpers.
+- `src/yolomatic/benchmark/` — benchmark engine, metrics, vector analysis, and interactive HTML report generation.
+- `src/yolomatic/augmentation/` — Albumentations offline augmentation engine, profiles, and transforms.
+- `src/yolomatic/utils/` — project discovery, TUI rendering, TensorBoard logging, dependency checks, and training preflight logic.
 
 ## Current Non-Goals
 

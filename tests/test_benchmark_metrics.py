@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.benchmark.metrics import (
+from yolomatic.benchmark.metrics import (
     _safe_div,
     box_iou,
     compute_ap,
@@ -17,7 +17,7 @@ from src.benchmark.metrics import (
     polygon_to_mask,
     size_bucket,
 )
-from src.benchmark.engine import GTObject, ImageResult, PredObject
+from yolomatic.benchmark.engine import GTObject, ImageResult, PredObject
 
 _HAS_CV2 = importlib.util.find_spec("cv2") is not None
 
@@ -269,7 +269,7 @@ class TestAggregateMetricsBuckets(unittest.TestCase):
                 dominant_bucket=bucket,
             )
 
-        from src.benchmark.metrics import aggregate_metrics
+        from yolomatic.benchmark.metrics import aggregate_metrics
         results = [_r(3, 1, 0, "small"), _r(2, 0, 1, "large"), _r(1, 2, 1, "medium")]
         agg = aggregate_metrics(results, "detection")
         self.assertEqual(agg["small"].count, 3)   # gt_count = tp + fn = 3 + 0

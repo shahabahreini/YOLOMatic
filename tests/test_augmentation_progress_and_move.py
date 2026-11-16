@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import cv2
 import numpy as np
 
-from src.augmentation.engine import SplitConfig, run_augmentation
+from yolomatic.augmentation.engine import SplitConfig, run_augmentation
 
 
 class AugmentationProgressAndMoveTest(unittest.TestCase):
@@ -23,7 +23,7 @@ class AugmentationProgressAndMoveTest(unittest.TestCase):
         for i in range(5):
             img = np.full((20, 20, 3), 100 + i * 10, dtype=np.uint8)
             cv2.imwrite(str(train_img_dir / f"img_{i:02d}.jpg"), img)
-            (train_lbl_dir / f"img_{i:02d}.txt").write_text(f"0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+            (train_lbl_dir / f"img_{i:02d}.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
 
     def test_run_augmentation_reports_granular_writing_progress_and_moves_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -59,8 +59,8 @@ class AugmentationProgressAndMoveTest(unittest.TestCase):
 
             from concurrent.futures import Future
 
-            with patch("src.augmentation.engine._process_augmentation_job", side_effect=mock_process_job):
-                with patch("src.augmentation.engine.ProcessPoolExecutor") as mock_executor_cls:
+            with patch("yolomatic.augmentation.engine._process_augmentation_job", side_effect=mock_process_job):
+                with patch("yolomatic.augmentation.engine.ProcessPoolExecutor") as mock_executor_cls:
                     # Make executor run synchronously in test using real completed Future
                     mock_executor = MagicMock()
                     mock_executor.__enter__.return_value = mock_executor

@@ -6,14 +6,14 @@ from pathlib import Path
 
 import yaml
 
-from src.cli.run import _base_model_name
-from src.config.parameters import parameters_for
-from src.utils.export_config import (
+from yolomatic.cli.run import _base_model_name
+from yolomatic.config.parameters import parameters_for
+from yolomatic.utils.export_config import (
     ExportModelDetails,
     TASK_LIMITED_FORMATS,
     supported_formats_for_model,
 )
-from src.utils.project import infer_ultralytics_task_from_name
+from yolomatic.utils.project import infer_ultralytics_task_from_name
 
 
 class ModelNameTaskTest(unittest.TestCase):
@@ -40,7 +40,7 @@ class ModelNameTaskTest(unittest.TestCase):
 
 class ShortNameTest(unittest.TestCase):
     def test_sem_models_keep_their_size_letter_in_compact_labels(self) -> None:
-        from src.utils.tui import model_chart_short_name as short_name
+        from yolomatic.utils.tui import model_chart_short_name as short_name
 
         for name, expected_size in (
             ("YOLO26X-sem", "X"),
@@ -89,7 +89,7 @@ class SemanticExportTest(unittest.TestCase):
 
 class SemanticDatasetDetectionTest(unittest.TestCase):
     def _generator_for(self, dataset: Path):
-        from src.config.generator import YOLOConfigGenerator
+        from yolomatic.config.generator import YOLOConfigGenerator
 
         generator = YOLOConfigGenerator(str(dataset))
         # Loads data.yaml and only then classifies the dataset, which is the order
@@ -138,7 +138,7 @@ class SemanticDatasetDetectionTest(unittest.TestCase):
 
 class SemanticPrepareOutputTest(unittest.TestCase):
     def test_yolo_semantic_is_an_offered_output_format(self) -> None:
-        from src.datasets.prepare import OUTPUT_FORMATS
+        from yolomatic.datasets.prepare import OUTPUT_FORMATS
 
         self.assertIn("YOLO Semantic", OUTPUT_FORMATS)
 
@@ -147,7 +147,7 @@ class BenchmarkSemanticGroundTruthTest(unittest.TestCase):
     def test_ground_truth_uses_the_models_class_indexing(self) -> None:
         import numpy as np
 
-        from src.benchmark.engine import GTObject, _semantic_ground_truth
+        from yolomatic.benchmark.engine import GTObject, _semantic_ground_truth
 
         mask = np.zeros((8, 8), dtype=bool)
         mask[2:5, 2:5] = True
@@ -186,7 +186,7 @@ class SemanticDatasetDiscoveryTests(unittest.TestCase):
         return dataset
 
     def test_label_dir_is_found_via_the_images_to_labels_swap(self) -> None:
-        from src.config.generator import YOLOConfigGenerator
+        from yolomatic.config.generator import YOLOConfigGenerator
 
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset = self._dataset(Path(temp_dir))
@@ -201,7 +201,7 @@ class SemanticDatasetDiscoveryTests(unittest.TestCase):
 
     def test_polygon_export_without_a_task_key_sniffs_as_segmentation(self) -> None:
         """`-sem` models accept exactly this: run.py whitelists sem + segmentation."""
-        from src.config.generator import YOLOConfigGenerator
+        from yolomatic.config.generator import YOLOConfigGenerator
 
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset = self._dataset(Path(temp_dir))
@@ -210,7 +210,7 @@ class SemanticDatasetDiscoveryTests(unittest.TestCase):
             self.assertEqual(generator.dataset_info["task_type"], "segmentation")
 
     def test_relative_path_key_does_not_follow_the_cwd(self) -> None:
-        from src.config.generator import YOLOConfigGenerator
+        from yolomatic.config.generator import YOLOConfigGenerator
 
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset = self._dataset(Path(temp_dir))

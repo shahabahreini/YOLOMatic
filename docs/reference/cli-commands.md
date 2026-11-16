@@ -18,7 +18,8 @@ description: Reference for all YOLOmatic command-line entrypoints, flags, and us
 | `yolomatic-upload` | Upload or deploy checkpoints to Roboflow |
 | `yolomatic-tensorboard` | Launch TensorBoard for discovered runs |
 | `yolomatic-ultralytics` | Ultralytics Platform helper workflows |
-| `bump patch\|minor\|major\|VERSION` | Update the package version |
+| `yolomatic-export` | Export a trained model (`--weight`) to deployment formats |
+| `yolomatic-augment` | Offline Albumentations augmentation wizard |
 
 All commands are available as `uv run <command>` from the repository root, or directly after `uv tool install --python 3.12 yolomatic`.
 
@@ -226,15 +227,16 @@ Wizard-only.
 
 ---
 
-## `bump`
+## Versioning a release
 
-Update the project version in `src/__version__.py` and `pyproject.toml`.
+The version lives only in `pyproject.toml` (`[project].version`); the package reads it
+from the installed metadata. Use uv's built-in command, which also updates `uv.lock`:
 
 ```sh
-uv run bump patch        # 5.0.0 → 5.0.1
-uv run bump minor        # 5.0.0 → 5.1.0
-uv run bump major        # 5.0.0 → 6.0.0
-uv run bump 5.2.0        # explicit version
+uv version --bump patch  # 6.4.0 → 6.4.1
+uv version --bump minor  # 6.4.0 → 6.5.0
+uv version --bump major  # 6.4.0 → 7.0.0
+uv version 7.1.0         # explicit version
 ```
 
 Related pages: [Quickstart](../getting-started/quickstart.md), [Configuration](configuration.md), [Cloud upload](../guides/cloud-upload.md).

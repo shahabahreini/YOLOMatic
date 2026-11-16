@@ -80,7 +80,7 @@ All three runs appear as separate series in the Scalars view with legend entries
 On Windows, `uv run` can fail with an access-denied error when `torch` DLLs are locked by another process. If this happens, launch TensorBoard using the environment Python directly:
 
 ```powershell
-.\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
+.\.venv\Scripts\python.exe -m yolomatic.cli.tensorboard_launcher
 ```
 
 ---

@@ -1,0 +1,1054 @@
+"""Interactive benchmark wizard for YOLOMatic."""
+
+from __future__ import annotations
+
+import threading
+import webbrowser
+from datetime import datetime
+from pathlib import Path
+
+from rich.console import Group
+from rich.layout import Layout
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.jobs import CancelToken, JobCancelled
+from yolomatic.utils.logging_setup import log_exception
+from yolomatic.utils.cli import (
+    NAV_BACK,
+    TUI_TERM,
+    ParameterDefinition,
+    clear_screen,
+    console,
+    expected_error_panel,
+    get_parameter_value_input,
+    get_user_choice,
+    print_stylized_header,
+    build_summary_panel,
+)
+from yolomatic.utils.project import (
+    format_size,
+    format_weight_label,
+    infer_ultralytics_task_from_name,
+    is_rfdetr_source,
+    project_root,
+)
+
+_DEFAULT_VAL_DIR = "output/nir/valid"
+_DEFAULT_OUT_DIR = "output/benchmark_reports"
+
+# Prefix characters kept plain; the shared TUI renderer applies color.
+_CHECK = "✓"
+_EMPTY = " "
+_BENCHMARK_FILE_SUFFIXES = {
+    ".pt",
+    ".onnx",
+    ".engine",
+    ".torchscript",
+    ".mlpackage",
+    ".pb",
+    ".tflite",
+    ".mnn",
+    ".rknn",
+}
+_BENCHMARK_DIR_SUFFIXES = (
+    "_openvino_model",
+    "_saved_model",
+    "_web_model",
+    "_paddle_model",
+    "_ncnn_model",
+    "_imx_model",
+    "_executorch_model",
+    "_axelera_model",
+)
+
+
+# ---------------------------------------------------------------------------
+# Weight metadata helpers
+# ---------------------------------------------------------------------------
+
+
+def _infer_task(path: Path) -> str:
+    if is_rfdetr_source(path):
+        return "detection (RF-DETR)"
+    task = infer_ultralytics_task_from_name(path)
+    return task
+
+
+def _infer_family(path: Path) -> str:
+    name = path.name.lower()
+    families = [
+        ("yolo26", "YOLO26"),
+        ("yolo12", "YOLO12"),
+        ("yolov12", "YOLOv12"),
+        ("yolov11", "YOLOv11"),
+        ("yolo11", "YOLO11"),
+        ("yolov10", "YOLOv10"),
+        ("yolov9", "YOLOv9"),
+        ("yolov8", "YOLOv8"),
+        ("yolox", "YOLOX"),
+        ("rfdetr", "RF-DETR"),
+        ("rf-detr", "RF-DETR"),
+    ]
+    for key, label in families:
+        if key in name:
+            return label
+    if "-sem" in name:
+        return "YOLO-Sem"
+    if "-seg" in name:
+        return "YOLO-Seg"
+    if "best" in name or "last" in name:
+        return "YOLO (best/last)"
+    return "Unknown"
+
+
+def _is_benchmark_model(path: Path) -> bool:
+    """Return True for Ultralytics artifacts the benchmark engine can load."""
+    if path.is_file():
+        is_supported_file = path.suffix.lower() in _BENCHMARK_FILE_SUFFIXES
+    elif path.is_dir():
+        is_supported_file = path.name.lower().endswith(_BENCHMARK_DIR_SUFFIXES)
+    else:
+        is_supported_file = False
+
+    return is_supported_file and infer_ultralytics_task_from_name(path) != "unsupported"
+
+
+def _collect_benchmark_weights(root: Path) -> list[Path]:
+    """Find benchmark-compatible Ultralytics model artifacts.
+
+    The generic weight finder includes RF-DETR `.pth` files and SAM checkpoint
+    directories for training/upload flows. Benchmarking currently loads models
+    through `ultralytics.YOLO`, so the selector should expose runnable
+    Ultralytics checkpoints/exports while still scanning all common YOLO
+    storage locations.
+    """
+    discovered: dict[Path, Path] = {}
+
+    for base_dir in (root, root / "runs", root / "weights"):
+        if not base_dir.exists():
+            continue
+        candidates = base_dir.iterdir() if base_dir == root else base_dir.rglob("*")
+        for model_path in candidates:
+            if _is_benchmark_model(model_path):
+                discovered[model_path.resolve()] = model_path
+
+    return sorted(
+        discovered.values(),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def _find_run_context(path: Path) -> tuple[str, str]:
+    """Return (run_name, config_name) from parent directory names."""
+    parts = path.parts
+    run_name = ""
+    config_name = ""
+    for i, part in enumerate(parts):
+        if part == "weights" and i > 0:
+            run_name = parts[i - 1]
+        if part in ("runs", "segment", "semantic", "detect", "classify", "pose", "obb"):
+            if i + 1 < len(parts):
+                config_name = parts[i + 1]
+    return run_name, config_name
+
+
+def _weight_description(path: Path, root: Path, selected: bool) -> str:
+    """Rich markup for the right panel: full metadata for one weight file."""
+    try:
+        stat = path.stat()
+        size_str = format_size(stat.st_size)
+        mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+    except OSError:
+        size_str = "unknown"
+        mtime = "unknown"
+
+    try:
+        rel_path = str(path.relative_to(root))
+    except ValueError:
+        rel_path = str(path)
+
+    task = _infer_task(path)
+    family = _infer_family(path)
+    run_name, config_name = _find_run_context(path)
+
+    status_line = (
+        "[bold green]● SELECTED[/bold green]"
+        if selected
+        else "[dim]○ not selected[/dim]"
+    )
+
+    lines = [
+        f"{status_line}\n",
+        f"[bold cyan]{path.name}[/bold cyan]\n",
+        f"[dim]Path:[/dim]  {rel_path}",
+        f"[dim]Size:[/dim]  {size_str}   [dim]Modified:[/dim]  {mtime}",
+        "",
+        f"[dim]Family:[/dim]  [bold]{family}[/bold]",
+        f"[dim]Task:[/dim]    [bold]{task}[/bold]",
+    ]
+
+    if run_name:
+        lines.append(f"[dim]Run:[/dim]     {run_name}")
+    if config_name and config_name != run_name:
+        lines.append(f"[dim]Config:[/dim]  {config_name}")
+
+    lines += [
+        "",
+        "[dim]Press [bold yellow]Enter[/bold yellow] to toggle selection.[/dim]",
+        "[dim]Navigate with [bold yellow]↑↓[/bold yellow] arrows.[/dim]",
+        "[dim]Choose [bold yellow]Confirm[/bold yellow] when ready.[/dim]",
+    ]
+
+    return "\n".join(lines)
+
+
+def _confirm_description(count: int, names: list[str]) -> str:
+    bullet_list = "\n".join(f"  [green]✓[/green]  {n}" for n in names)
+    return (
+        f"[bold green]{count} weight{'s' if count != 1 else ''} selected:[/bold green]\n\n"
+        + bullet_list
+        + "\n\n[bold yellow]Press Enter to proceed to the next step.[/bold yellow]"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Multi-select weight picker
+# ---------------------------------------------------------------------------
+
+
+def _select_weights() -> list[Path] | str:
+    root = project_root()
+    available = _collect_benchmark_weights(root)
+
+    if not available:
+        console.print(
+            expected_error_panel(
+                "No benchmark-compatible Ultralytics model artifacts found in the project root, runs/, or weights/ directories.",
+                title="No Weights Found",
+                next_step="Train a model first, then run the benchmark.",
+            )
+        )
+        input("\nPress Enter to return...")
+        return NAV_BACK
+
+    selected_indices: set[int] = set()
+    last_choice: str | None = None
+    while True:
+        options: list[str] = []
+        descriptions: dict[str, str] = {}
+        idx_by_label: dict[str, int] = {}
+
+        for i, path in enumerate(available):
+            sel = i in selected_indices
+            mark = _CHECK if sel else _EMPTY
+            label = f"{mark} {format_weight_label(root, path)}"
+            options.append(label)
+            descriptions[label] = _weight_description(path, root, sel)
+            idx_by_label[label] = i
+
+        # Separator + confirm/back
+        if selected_indices:
+            confirm_label = (
+                f"  Confirm Selection  ({len(selected_indices)} "
+                f"weight{'s' if len(selected_indices) != 1 else ''} selected)"
+            )
+            selected_names = [
+                format_weight_label(root, available[i])
+                for i in sorted(selected_indices)
+            ]
+            descriptions[confirm_label] = _confirm_description(
+                len(selected_indices), selected_names
+            )
+        else:
+            confirm_label = "  (Select at least one weight above, then Confirm)"
+            descriptions[confirm_label] = (
+                "[dim]No weights selected yet.\n\n"
+                "Navigate with [bold yellow]↑↓[/bold yellow] and press "
+                "[bold yellow]Enter[/bold yellow] to toggle each weight.[/dim]"
+            )
+
+        options.append("[──────────────]")
+        options.append(confirm_label)
+
+        tip = (
+            "[bold yellow]↑↓[/bold yellow] navigate  "
+            "[bold yellow]Enter[/bold yellow] toggle  "
+            "[bold yellow]F[/bold yellow] continue when ready  "
+            "[bold yellow]B[/bold yellow] back"
+        )
+
+        choice = get_user_choice(
+            options,
+            allow_back=True,
+            title="Select Weights for Benchmark",
+            text="Toggle each weight file to include. Confirm when ready.",
+            descriptions=descriptions,
+            breadcrumbs=["YOLOmatic", "Benchmark", "Weight Selection"],
+            tip=tip,
+            finish_options={confirm_label} if selected_indices else set(),
+            initial_selection=last_choice,
+        )
+        last_choice = choice
+
+        if choice in (NAV_BACK, "Back"):
+            return NAV_BACK
+
+        # Confirm action
+        if choice == confirm_label:
+            if selected_indices:
+                return [available[i] for i in sorted(selected_indices)]
+            # nothing selected — stay in loop
+            continue
+
+        # Toggle weight
+        if choice in idx_by_label:
+            idx = idx_by_label[choice]
+            if idx in selected_indices:
+                selected_indices.remove(idx)
+            else:
+                selected_indices.add(idx)
+
+
+# ---------------------------------------------------------------------------
+# Validation directory selection
+# ---------------------------------------------------------------------------
+
+
+def _val_dir_description(path: Path, root: Path) -> str:
+    from yolomatic.benchmark.engine import _find_yolo_labels_dir, detect_annotation_format
+
+    img_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
+    img_count = sum(1 for _ in path.rglob("*") if _.suffix.lower() in img_exts)
+    ann_fmt = detect_annotation_format(path)
+    if ann_fmt == "coco":
+        ann = list(path.glob("_annotations.coco.json")) + list(path.glob("*.json"))
+        ann_note = (
+            f"[green]✓ COCO JSON:[/green]  {ann[0].name}"
+            if ann
+            else "[green]✓ COCO format[/green]"
+        )
+    elif ann_fmt == "yolo":
+        labels_dir = _find_yolo_labels_dir(path)
+        label_count = sum(1 for _ in labels_dir.glob("*.txt")) if labels_dir else 0
+        ann_note = f"[green]✓ YOLO labels:[/green]  {label_count} files"
+    else:
+        ann_note = "[yellow]⚠ No annotations detected[/yellow]"
+    return (
+        f"[bold cyan]{path.name}[/bold cyan]\n\n"
+        f"[dim]Full path:[/dim]  {path}\n"
+        f"[dim]Images:[/dim]    {img_count} found\n"
+        f"{ann_note}"
+    )
+
+
+def _collect_val_candidates(root: Path) -> list[Path]:
+    """Return candidate validation directories, including dataset roots."""
+    seen: set[Path] = set()
+    candidates: list[Path] = []
+
+    def _add(p: Path) -> None:
+        if p not in seen and p.exists() and p.is_dir():
+            seen.add(p)
+            candidates.append(p)
+
+    # Explicit default first
+    _add(root / _DEFAULT_VAL_DIR)
+
+    # output/**/valid  and  output/**/train  and output/**/test
+    for split in ("valid", "val", "train", "test"):
+        for p in sorted((root / "output").glob(f"**/{split}"), key=str)[:6]:
+            _add(p)
+
+    # datasets: look for split dirs (valid/val/train) AND dataset roots
+    datasets_root = root / "datasets"
+    if datasets_root.exists():
+        for split in ("valid", "val", "train", "test"):
+            for p in sorted(datasets_root.glob(f"**/{split}"), key=str)[:10]:
+                _add(p)
+        # Dataset root dirs that have an images/ subdir or YOLO labels
+        for ds_dir in sorted(datasets_root.iterdir()):
+            if not ds_dir.is_dir():
+                continue
+            # Include root if it directly contains images
+            img_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+            has_images = any(ds_dir.glob("images/*")) or any(
+                f for f in ds_dir.iterdir() if f.suffix.lower() in img_exts
+            )
+            if has_images:
+                _add(ds_dir)
+            # Include each split subdir
+            for split_dir in ds_dir.iterdir():
+                if split_dir.is_dir() and split_dir.name.lower() in (
+                    "train",
+                    "valid",
+                    "val",
+                    "test",
+                ):
+                    _add(split_dir)
+
+    return candidates
+
+
+def _select_validation_dir() -> Path | str:
+    root = project_root()
+
+    candidates = _collect_val_candidates(root)
+
+    labels = [
+        str(p.relative_to(root)) if p.is_relative_to(root) else str(p)
+        for p in candidates
+    ]
+    labels.append("Enter custom path...")
+
+    descriptions: dict[str, str] = {}
+    for label, path in zip(labels[:-1], candidates):
+        descriptions[label] = _val_dir_description(path, root)
+    descriptions["Enter custom path..."] = (
+        "Type a custom path to a validation directory.\n"
+        "It must contain images and a COCO annotation JSON file."
+    )
+
+    choice = get_user_choice(
+        labels,
+        allow_back=True,
+        title="Select Validation Dataset Directory",
+        text="Choose the directory containing validation images and annotations:",
+        descriptions=descriptions,
+        breadcrumbs=["YOLOmatic", "Benchmark", "Validation Dir"],
+    )
+    if choice in (NAV_BACK, "Back"):
+        return NAV_BACK
+
+    if choice == "Enter custom path...":
+        raw = get_parameter_value_input(
+            ParameterDefinition(
+                name="validation_dir",
+                category="benchmark",
+                default=str(root / _DEFAULT_VAL_DIR),
+                value_type="str",
+                description="Path to validation images + annotation JSON",
+                help_text="Use an absolute path or a path relative to the project root.",
+            ),
+            current_value=str(root / _DEFAULT_VAL_DIR),
+        )
+        if raw is None or raw == NAV_BACK:
+            return NAV_BACK
+        path = Path(str(raw))
+    else:
+        idx = labels.index(choice)
+        path = candidates[idx]
+
+    if not path.exists():
+        console.print(
+            Panel(
+                f"[bold red]Directory not found:[/bold red] {path}",
+                border_style="red",
+                padding=(1, 2),
+            )
+        )
+        input("\nPress Enter to return...")
+        return NAV_BACK
+
+    from yolomatic.benchmark.engine import detect_annotation_format
+
+    ann_fmt = detect_annotation_format(path)
+    if ann_fmt == "coco":
+        ann_candidates = list(path.glob("_annotations.coco.json")) + list(
+            path.glob("*.json")
+        )
+        console.print(
+            f"[dim]  Auto-detected COCO annotation file: {ann_candidates[0].name}[/dim]\n"
+        )
+    elif ann_fmt == "yolo":
+        console.print("[dim]  Auto-detected YOLO label format.[/dim]\n")
+    else:
+        console.print(
+            "[yellow]  Warning: No annotations detected in this directory. "
+            "You will be asked to provide a COCO annotation path.[/yellow]\n"
+        )
+
+    return path
+
+
+def _select_dataset_splits(task: str) -> dict[str, Path] | str:
+    """Choose a dataset root and compatible group(s) for a verified model task."""
+    from yolomatic.benchmark.planning import BenchmarkCompatibilityError, resolve_dataset_splits
+
+    root = project_root()
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in _collect_val_candidates(root):
+        dataset_root = candidate.parent if candidate.name.lower() in {"train", "valid", "val", "test"} else candidate
+        if dataset_root not in seen:
+            seen.add(dataset_root)
+            candidates.append(dataset_root)
+
+    compatible: list[Path] = []
+    descriptions: dict[str, str] = {}
+    for candidate in candidates:
+        try:
+            splits = resolve_dataset_splits(candidate, task, "all")
+        except BenchmarkCompatibilityError:
+            continue
+        compatible.append(candidate)
+        groups = ", ".join(split.name for split in splits)
+        descriptions[str(candidate)] = f"[green]✓ {task}[/green]\nAvailable groups: {groups}"
+
+    labels = [str(path) for path in compatible] + ["Enter custom dataset root..."]
+    descriptions["Enter custom dataset root..."] = (
+        "Provide a dataset root containing data.yaml and train, valid, or test splits."
+    )
+    choice = get_user_choice(
+        labels,
+        allow_back=True,
+        title="Select Compatible Benchmark Dataset",
+        text=f"Only datasets compatible with the verified {task} model are shown.",
+        descriptions=descriptions,
+        breadcrumbs=["YOLOmatic", "Benchmark", "Dataset"],
+    )
+    if choice in (NAV_BACK, "Back"):
+        return NAV_BACK
+    if choice == "Enter custom dataset root...":
+        raw = get_parameter_value_input(
+            ParameterDefinition(
+                name="dataset_dir",
+                category="benchmark",
+                default=str(root / "datasets"),
+                value_type="str",
+                description="Dataset root containing data.yaml",
+            ),
+            current_value=str(root / "datasets"),
+        )
+        if raw is None or raw == NAV_BACK:
+            return NAV_BACK
+        dataset_dir = Path(str(raw))
+        if not dataset_dir.exists():
+            dataset_dir = root / str(raw)
+    else:
+        dataset_dir = Path(choice)
+
+    try:
+        available = resolve_dataset_splits(dataset_dir, task, "all")
+    except BenchmarkCompatibilityError as exc:
+        console.print(Panel(str(exc), border_style="red", padding=(1, 2)))
+        input("\nPress Enter to return...")
+        return NAV_BACK
+    choices = [split.name for split in available]
+    if len(available) > 1:
+        choices.append("all")
+    group = get_user_choice(
+        choices,
+        allow_back=True,
+        title="Select Benchmark Group",
+        text="Choose which labeled dataset group to evaluate.",
+        descriptions={
+            split.name: f"{split.image_count} images, {split.annotation_count} annotations"
+            for split in available
+        } | {"all": "Evaluate every compatible group and show aggregate plus per-group results."},
+        breadcrumbs=["YOLOmatic", "Benchmark", "Dataset Group"],
+    )
+    if group in (NAV_BACK, "Back"):
+        return NAV_BACK
+    return {split.name: split.directory for split in resolve_dataset_splits(dataset_dir, task, group)}
+
+
+# ---------------------------------------------------------------------------
+# Options configuration
+# ---------------------------------------------------------------------------
+
+
+def _configure_options(val_dir: Path) -> dict | str:
+    from yolomatic.benchmark.engine import detect_annotation_format
+
+    root = project_root()
+
+    ann_fmt = detect_annotation_format(val_dir)
+    ann_file: Path | None = None
+
+    if ann_fmt == "coco":
+        ann_candidates = list(val_dir.glob("_annotations.coco.json")) + list(
+            val_dir.glob("*.json")
+        )
+        ann_file = ann_candidates[0] if ann_candidates else None
+
+    if ann_fmt not in ("coco", "yolo") or (ann_fmt == "coco" and ann_file is None):
+        raw = get_parameter_value_input(
+            ParameterDefinition(
+                name="annotations_file",
+                category="benchmark",
+                default="",
+                value_type="str",
+                description="Path to COCO annotation JSON (absolute or relative to project root)",
+                help_text="Use the COCO JSON file that matches the selected validation images.",
+            ),
+            current_value="",
+        )
+        if raw is None or raw == NAV_BACK:
+            return NAV_BACK
+        ann_file = Path(str(raw))
+        if not ann_file.exists():
+            ann_file = root / str(raw)
+        if not ann_file.exists():
+            console.print(
+                Panel(
+                    f"[bold red]Annotation file not found:[/bold red] {ann_file}",
+                    border_style="red",
+                    padding=(1, 2),
+                )
+            )
+            input("\nPress Enter to return...")
+            return NAV_BACK
+
+    conf_raw = get_parameter_value_input(
+        ParameterDefinition(
+            name="conf_threshold",
+            category="benchmark",
+            default=0.25,
+            value_type="float",
+            description="Minimum confidence to count a prediction (0.01-0.99)",
+            help_text="Lower values keep more detections; higher values count only more confident predictions.",
+            min_value=0.01,
+            max_value=0.99,
+        ),
+        current_value=0.25,
+    )
+    if conf_raw is None or conf_raw == NAV_BACK:
+        return NAV_BACK
+    conf = float(conf_raw)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    default_out = root / _DEFAULT_OUT_DIR / ts
+    out_raw = get_parameter_value_input(
+        ParameterDefinition(
+            name="output_dir",
+            category="benchmark",
+            default=str(default_out),
+            value_type="str",
+            description="Directory where the HTML report will be saved",
+            help_text="A timestamped directory under output/benchmark_reports is used by default.",
+        ),
+        current_value=str(default_out),
+    )
+    if out_raw is None or out_raw == NAV_BACK:
+        return NAV_BACK
+
+    workers_raw = get_parameter_value_input(
+        ParameterDefinition(
+            name="max_workers",
+            category="benchmark",
+            default=0,
+            value_type="int",
+            description="Parallel models (0 = Auto)",
+            help_text="How many models to evaluate at once. [bold]0[/bold] uses an optimized heuristic based on your CPU/GPU. Increase if you have lots of VRAM; set to 1 if you face memory errors.",
+            min_value=0,
+            max_value=32,
+        ),
+        current_value=0,
+    )
+    if workers_raw is None or workers_raw == NAV_BACK:
+        return NAV_BACK
+
+    return {
+        "annotations_file": ann_file,
+        "conf_threshold": conf,
+        "output_dir": Path(str(out_raw)),
+        "max_workers": int(workers_raw),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Confirmation summary
+# ---------------------------------------------------------------------------
+
+
+def _confirm(
+    weights: list[Path], val_dir: Path, options: dict, split_dirs: dict[str, Path]
+) -> bool:
+    root = project_root()
+    ann_val = (
+        str(options["annotations_file"])
+        if options.get("annotations_file")
+        else "YOLO labels (auto)"
+    )
+    rows = {
+        "Weights": ", ".join(format_weight_label(root, w) for w in weights),
+        "Validation Dir": str(val_dir),
+        "Dataset Group(s)": ", ".join(split_dirs),
+        "Annotations": ann_val,
+        "Confidence Threshold": str(options["conf_threshold"]),
+        "Output Directory": str(options["output_dir"]),
+    }
+    clear_screen()
+    print_stylized_header("Benchmark Configuration")
+    _summary_panel = build_summary_panel("Ready to Run", rows)
+
+    choice = get_user_choice(
+        ["Start Benchmark", "Cancel"],
+        title="Confirm",
+        text="Review the settings in the details pane and confirm to begin:",
+        descriptions={
+            "Start Benchmark": (
+                "[bold green]All settings look good.[/bold green]\n\n"
+                "Benchmark will:\n"
+                f"  • Load [bold]{len(weights)}[/bold] weight file(s)\n"
+                "  • Run inference on all validation images\n"
+                "  • Compute mAP@50, mAP@50:95, F1, P, R per model\n"
+                "  • Generate interactive Plotly HTML report with UMAP scatter\n\n"
+                "[dim]This may take several minutes depending on dataset size.[/dim]"
+            ),
+            "Cancel": "Return to the main menu without running the benchmark.",
+        },
+        breadcrumbs=["YOLOmatic", "Benchmark", "Confirm"],
+        finish_options={"Start Benchmark"},
+        back_option="Cancel",
+        body=_summary_panel,
+    )
+    return choice == "Start Benchmark"
+
+
+# ---------------------------------------------------------------------------
+# Running with live log
+# ---------------------------------------------------------------------------
+
+
+def _parse_completed_metric_line(line: str) -> dict[str, str] | None:
+    parts = line.strip().split()
+    metrics: dict[str, str] = {}
+    for part in parts:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        if key in {"mAP@50", "mAP@50:95", "F1", "P", "R"}:
+            metrics[key] = value
+    return metrics or None
+
+
+def _progress_weight_label(weight: Path) -> str:
+    if (
+        weight.name in {"best.pt", "last.pt", "best.pth", "last.pth"}
+        and weight.parent.name == "weights"
+    ):
+        return f"{weight.parent.parent.name} / {weight.name}"
+    if weight.name in {"best.pt", "last.pt", "best.pth", "last.pth"}:
+        return f"{weight.parent.name} / {weight.name}"
+    return weight.name
+
+
+def _benchmark_progress_rows(
+    weights: list[Path], log_lines: list[str]
+) -> list[dict[str, str]]:
+    rows = [
+        {
+            "name": _progress_weight_label(weight),
+            "file_name": weight.name,
+            "status": "Pending",
+            "map50": "-",
+            "map50_95": "-",
+            "f1": "-",
+            "p": "-",
+            "r": "-",
+        }
+        for weight in weights
+    ]
+    current_idx: int | None = None
+
+    for line in log_lines:
+        stripped = line.strip()
+        if stripped.startswith("Loading model:"):
+            model_name = stripped.split("Loading model:", 1)[1].strip()
+            logged_name = Path(model_name).name
+            current_idx = next(
+                (
+                    idx
+                    for idx, row in enumerate(rows)
+                    if row["file_name"] == logged_name
+                    and row["status"] in {"Pending", "Next"}
+                ),
+                None,
+            )
+            if current_idx is not None and rows[current_idx]["status"] != "Done":
+                rows[current_idx]["status"] = "Running"
+        elif stripped.startswith("[ERROR] Failed to load"):
+            if current_idx is not None:
+                rows[current_idx]["status"] = "Failed"
+        else:
+            metrics = _parse_completed_metric_line(stripped)
+            if metrics and current_idx is not None:
+                rows[current_idx].update(
+                    {
+                        "status": "Done",
+                        "map50": metrics.get("mAP@50", "-"),
+                        "map50_95": metrics.get("mAP@50:95", "-"),
+                        "f1": metrics.get("F1", "-"),
+                        "p": metrics.get("P", "-"),
+                        "r": metrics.get("R", "-"),
+                    }
+                )
+                next_idx = current_idx + 1
+                if next_idx < len(rows) and rows[next_idx]["status"] == "Pending":
+                    rows[next_idx]["status"] = "Next"
+                current_idx = None
+
+    return rows
+
+
+def _render_benchmark_progress(
+    weights: list[Path],
+    log_lines: list[str],
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> Table:
+    rows = _benchmark_progress_rows(weights, log_lines)
+    done_count = sum(1 for row in rows if row["status"] == "Done")
+    term_width = max(80, width or TUI_TERM.width or 80)
+    term_height = max(24, height or TUI_TERM.height or 24)
+    two_column = term_width >= 112
+    compact = term_width < 140
+    log_limit = max(8, min(28, term_height - 10 if two_column else term_height // 3))
+
+    log_panel = Panel(
+        "\n".join(log_lines[-log_limit:]) or "[dim]Starting...[/dim]",
+        title="Live Log",
+        border_style="cyan",
+        padding=(0, 1),
+    )
+
+    summary = Table(
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim",
+        expand=True,
+        pad_edge=False,
+    )
+    summary.add_column("Model", overflow="fold", ratio=3)
+    summary.add_column("State", justify="center", no_wrap=True, ratio=1)
+    summary.add_column("mAP50", justify="right", no_wrap=True, ratio=1)
+    if not compact:
+        summary.add_column("mAP50:95", justify="right", no_wrap=True, ratio=1)
+    summary.add_column("F1", justify="right", no_wrap=True)
+
+    status_styles = {
+        "Done": "green",
+        "Running": "bold yellow",
+        "Next": "cyan",
+        "Failed": "red",
+        "Pending": "dim",
+    }
+    for row in rows:
+        status = row["status"]
+        summary.add_row(
+            row["name"] if not compact else row["name"].replace(" / ", "/"),
+            status,
+            row["map50"],
+            *([] if compact else [row["map50_95"]]),
+            row["f1"],
+            style=status_styles.get(status, "white"),
+        )
+
+    summary_panel = Panel(
+        Group(
+            f"[bold]Completed:[/bold] {done_count}/{len(rows)}",
+            summary,
+        ),
+        title="Evaluation Summary",
+        border_style="green" if done_count == len(rows) else "yellow",
+        padding=(0, 1),
+    )
+
+    dashboard = Table.grid(expand=True)
+    if two_column:
+        dashboard.add_column(ratio=1)
+        dashboard.add_column(ratio=1)
+        dashboard.add_row(log_panel, summary_panel)
+    else:
+        dashboard.add_column(ratio=1)
+        dashboard.add_row(summary_panel)
+        dashboard.add_row(log_panel)
+    return dashboard
+
+
+def _render_benchmark_live_screen(
+    weights: list[Path],
+    log_lines: list[str],
+    *,
+    width: int | None = None,
+    height: int | None = None,
+) -> Layout:
+    layout = Layout()
+    layout.split_column(
+        Layout(name="header", size=3),
+        Layout(name="body"),
+    )
+    layout["header"].update(
+        Panel(
+            Text("Running Benchmark", style="bold cyan", justify="center"),
+            border_style="cyan",
+            padding=(0, 1),
+        )
+    )
+    layout["body"].update(
+        _render_benchmark_progress(weights, log_lines, width=width, height=height)
+    )
+    return layout
+
+
+def _run_with_live_log(
+    weights: list[Path], val_dir: Path, options: dict, split_dirs: dict[str, Path]
+) -> CommandResult | Path:
+    from rich.live import Live
+
+    from yolomatic.benchmark import BenchmarkConfig, run_benchmark, write_benchmark_report
+
+    log_lines: list[str] = []
+    result_holder: dict = {}
+    error_holder: dict = {}
+    token = CancelToken()
+
+    def _logger(msg: str) -> None:
+        log_lines.append(msg)
+        # Cancellation point: the engine reports progress through this logger.
+        token.raise_if_cancelled()
+
+    def _worker():
+        try:
+            config = BenchmarkConfig(
+                weights=weights,
+                validation_dir=val_dir,
+                dataset_dir=val_dir.parent,
+                split_selection="all" if len(split_dirs) > 1 else next(iter(split_dirs)),
+                split_dirs=split_dirs,
+                expected_task=options.get("task"),
+                annotations_file=options["annotations_file"],
+                output_dir=options["output_dir"],
+                conf_threshold=options["conf_threshold"],
+                max_workers=options.get("max_workers", 0),
+            )
+            result = run_benchmark(config, logger_fn=_logger)
+            token.raise_if_cancelled()
+            report_path = write_benchmark_report(result, options["output_dir"])
+            result_holder["path"] = report_path
+        except JobCancelled:
+            result_holder["cancelled"] = True
+        except Exception as exc:  # noqa: BLE001 - reported through CommandResult
+            error_holder["error"] = exc
+
+    thread = threading.Thread(target=_worker, daemon=True)
+    thread.start()
+
+    with Live(
+        _render_benchmark_live_screen(weights, log_lines),
+        console=console,
+        refresh_per_second=4,
+        screen=True,
+        transient=True,
+        vertical_overflow="ellipsis",
+    ) as live:
+        while thread.is_alive():
+            try:
+                thread.join(timeout=0.25)
+            except KeyboardInterrupt:
+                if token.cancelled:
+                    raise
+                # Stop the GPU work instead of abandoning it in the background.
+                token.cancel()
+                log_lines.append("[yellow]Stopping... waiting for the current model step to finish.[/yellow]")
+            live.update(_render_benchmark_live_screen(weights, log_lines))
+        live.update(
+            _render_benchmark_live_screen(weights, log_lines or ["[dim]Done.[/dim]"])
+        )
+
+    if result_holder.get("cancelled") or token.cancelled:
+        return CommandResult.cancelled("Benchmark cancelled. No report was written.")
+    if "error" in error_holder:
+        error = error_holder["error"]
+        log_path = log_exception(error, "Benchmark")
+        return CommandResult.failed(
+            f"Benchmark failed: {error}",
+            hint=f"Full traceback in {log_path}" if log_path else None,
+        )
+    return result_holder["path"]
+
+
+# ---------------------------------------------------------------------------
+# Completion
+# ---------------------------------------------------------------------------
+
+
+def _handle_completion(report_path: Path) -> None:
+    console.print(
+        Panel(
+            f"[bold green]Report saved:[/bold green] {report_path}",
+            border_style="green",
+            padding=(1, 2),
+        )
+    )
+    choice = get_user_choice(
+        ["Open in Browser", "Continue"],
+        title="Report Ready",
+        text="Would you like to open the report in your browser?",
+        descriptions={
+            "Open in Browser": (
+                f"[bold]Open:[/bold]  {report_path}\n\n"
+                "Opens the interactive Plotly report in your default browser.\n"
+                "The report includes summary cards, model comparison, object-size "
+                "charts, per-image rankings, and UMAP vector scatter."
+            ),
+            "Continue": "Return to the main menu. You can open the report manually later.",
+        },
+        breadcrumbs=["YOLOmatic", "Benchmark", "Complete"],
+    )
+    if choice == "Open in Browser":
+        try:
+            webbrowser.open(report_path.as_uri())
+        except Exception as exc:
+            console.print(
+                f"[yellow]Could not open browser automatically: {exc}[/yellow]"
+            )
+            console.print(f"Open manually: [cyan]{report_path}[/cyan]")
+            input("\nPress Enter to continue...")
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+
+def main() -> CommandResult:
+    clear_screen()
+    print_stylized_header("YOLOmatic — Benchmark & Evaluate")
+
+    weights = _select_weights()
+    if weights == NAV_BACK or not isinstance(weights, list):
+        return CommandResult.cancelled()
+
+    from yolomatic.benchmark.planning import BenchmarkCompatibilityError, resolve_selected_model_task
+
+    try:
+        task = resolve_selected_model_task(weights)
+    except BenchmarkCompatibilityError as exc:
+        return CommandResult.failed(str(exc))
+
+    split_dirs = _select_dataset_splits(task)
+    if split_dirs == NAV_BACK or not isinstance(split_dirs, dict):
+        return CommandResult.cancelled()
+    val_dir = next(iter(split_dirs.values()))
+
+    options = _configure_options(val_dir)
+    if options == NAV_BACK:
+        return CommandResult.cancelled()
+    options["task"] = task
+
+    if not _confirm(weights, val_dir, options, split_dirs):
+        return CommandResult.cancelled()
+
+    outcome = _run_with_live_log(weights, val_dir, options, split_dirs)
+    if isinstance(outcome, CommandResult):
+        return outcome
+
+    _handle_completion(outcome)
+    return CommandResult.ok("Benchmark complete.", outputs={"Report": outcome})

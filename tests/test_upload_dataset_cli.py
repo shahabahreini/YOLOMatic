@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
-from src.cli import upload_dataset
-from src.cli.upload_dataset import parse_args
+from yolomatic.cli import upload_dataset
+from yolomatic.cli.upload_dataset import parse_args
 
 
 def test_upload_dataset_cli_defaults():
@@ -17,7 +17,8 @@ def test_upload_dataset_cli_defaults():
     with patch.object(sys, "argv", test_args):
         args = parse_args()
         assert args.zip is True
-        assert args.type == "instance-segmentation"
+        # No default: the task is detected from the dataset unless --type is given.
+        assert args.type is None
         assert args.license == "private"
         assert args.batch_name == "dataset-upload"
         assert args.workers == 10

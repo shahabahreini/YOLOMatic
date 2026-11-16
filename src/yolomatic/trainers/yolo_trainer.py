@@ -1,0 +1,762 @@
+import argparse
+from collections.abc import Callable
+from typing import Any
+import os
+from datetime import datetime
+from pathlib import Path
+
+# Ultralytics snapshots this environment variable when its utils module is first
+# imported. Keep package installation under YOLOmatic's dependency manager
+# instead of letting post-training export mutate the active environment.
+os.environ["YOLO_AUTOINSTALL"] = "false"
+
+import yaml
+from rich.panel import Panel
+from rich.table import Table
+from yolomatic.ui.theme import CONSOLE, safe
+from yolomatic.cli.result import CommandResult, coerce_result
+from yolomatic.utils.logging_setup import log_exception
+
+from yolomatic.cli.upload import (
+    build_candidate,
+    infer_model_type_from_text,
+    is_rfdetr_upload,
+    load_env_config,
+    parse_project_ids,
+    suggest_model_name,
+    upload_model,
+)
+from yolomatic.config.settings import DEFAULT_SETTINGS
+from yolomatic.trainers.common import effective_clearml_settings
+
+from yolomatic.utils.cli import NAV_BACK, get_user_choice
+from yolomatic.utils.ml_dependencies import (
+    MLDependencyError,
+    import_ultralytics_settings,
+    import_ultralytics_yolo,
+)
+from yolomatic.utils.project import (
+    format_size,
+    list_config_files,
+    project_root,
+    resolve_config_path,
+    verify_dataset_directories,
+    write_resolved_data_yaml,
+)
+from yolomatic.datasets.cache import clean_dataset_image_cache, normalize_yolo_cache_setting
+from yolomatic.utils.project import (
+    load_dataset_config as load_project_dataset_config,
+)
+from yolomatic.utils.tensorboard import (
+    backfill_ultralytics_tensorboard,
+    build_tensorboard_metadata,
+    emit_tensorboard_report,
+    validate_tensorboard_run,
+)
+from yolomatic.utils.training_preflight import resolve_training_device, validate_export_config
+from yolomatic.models.rfdetr import is_rfdetr_model
+
+# Initialize Rich console
+console = CONSOLE
+
+
+def configure_ultralytics_runtime():
+    os.environ.setdefault("MPLBACKEND", "Agg")
+
+    ultra_settings = import_ultralytics_settings()
+    ultra_settings.update(
+        {
+            "tensorboard": True,
+            # YOLOmatic owns the ClearML task lifecycle. Ultralytics' built-in
+            # ClearML callback logs plots through matplotlib/Tk at train end,
+            # and those optional plots must never abort checkpoint/export flow.
+            "clearml": False,
+            # MLflow is also optional here. Importing Ultralytics' MLflow
+            # callback can fail before training starts when MLflow's protobuf
+            # stack is incompatible with the active protobuf runtime.
+            "mlflow": False,
+        }
+    )
+
+
+def disable_ultralytics_clearml_callbacks(model):
+    callbacks = getattr(model, "callbacks", None)
+    if not isinstance(callbacks, dict):
+        return
+
+    removed_callbacks = 0
+    for event_name, event_callbacks in callbacks.items():
+        if not isinstance(event_callbacks, list):
+            continue
+        retained_callbacks = [
+            callback
+            for callback in event_callbacks
+            if not getattr(callback, "__module__", "").endswith(".clearml")
+        ]
+        removed_callbacks += len(event_callbacks) - len(retained_callbacks)
+        callbacks[event_name] = retained_callbacks
+
+    if removed_callbacks:
+        console.print(
+            f"[bold yellow]Disabled {removed_callbacks} optional Ultralytics ClearML plot callbacks so checkpoint/export steps remain non-fatal.[/bold yellow]"
+        )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Train a YOLO or RF-DETR model from a YAML configuration file."
+    )
+    parser.add_argument(
+        "--config",
+        help="Path to a training config YAML file, or a filename inside the configs directory.",
+    )
+    return parser.parse_args()
+
+
+def load_dataset_config(dataset_name):
+    """Load dataset configuration from data.yaml file."""
+    try:
+        return load_project_dataset_config(dataset_name, datasets_root="datasets")
+    except FileNotFoundError as error:
+        console.print(f"[bold red]Error: {error}[/bold red]")
+        raise
+
+
+def verify_directories(dataset_config):
+    """Verify that all required directories exist."""
+    missing_dirs = verify_dataset_directories(dataset_config)
+    if missing_dirs:
+        console.print(
+            "[bold red]Error: The following directories are missing:[/bold red]"
+        )
+        for dir in missing_dirs:
+            console.print(f" - {dir}")
+        raise FileNotFoundError(
+            "The following directories are missing:\n" + "\n".join(missing_dirs)
+        )
+
+
+def preflight_dataset(dataset_path, task):
+    """Report label/task problems before Ultralytics hits them.
+
+    ``validate_dataset`` already knows how to check label style against the
+    declared task, mask pixel ranges and split contents, but nothing on the
+    training path ever called it -- a broken dataset surfaced as an Ultralytics
+    traceback instead of a YOLOmatic message. Findings are advisory: only a
+    semantic run whose declared ``masks_dir`` has no masks is fatal, because
+    that one cannot produce a single usable batch.
+    """
+    from yolomatic.datasets.validate import validate_dataset
+
+    try:
+        report = validate_dataset(Path(dataset_path), task_override=task)
+    except Exception as error:  # never block a run on the checker itself
+        console.print(f"[yellow]Dataset pre-flight skipped: {error}[/yellow]")
+        return
+
+    for warning in report.warnings[:10]:
+        console.print(f"[yellow]Dataset warning:[/yellow] {warning}")
+
+    missing_masks = [error for error in report.errors if "no mask at" in error]
+    for error in report.errors[:10]:
+        console.print(f"[red]Dataset issue:[/red] {error}")
+    if len(report.errors) > 10:
+        console.print(f"[red]  ... and {len(report.errors) - 10} more.[/red]")
+
+    if task == "semantic" and missing_masks:
+        raise FileNotFoundError(
+            "This semantic dataset declares masks_dir but its mask files are missing; "
+            "training cannot build a single batch."
+        )
+
+
+def warn_on_split_leakage(dataset_config):
+    """Warn when val/test images share a source group with training images.
+
+    Tiled aerial datasets are usually cut from a handful of large scenes. When
+    the split is made per-tile, neighbouring (often overlapping) tiles land on
+    both sides of the split and validation scores stop measuring
+    generalization. Detection only -- re-splitting is the user's call.
+    """
+    import re
+
+    group = re.compile(r"^(.*?)(?:_r\d+_c\d+|_\d+_\d+)$")
+
+    def groups_of(key):
+        directory = dataset_config.get(key)
+        if not directory or isinstance(directory, (list, tuple)):
+            return set()
+        path = Path(directory)
+        if not path.is_dir():
+            return set()
+        found = set()
+        for entry in path.iterdir():
+            if entry.is_file():
+                match = group.match(entry.stem)
+                found.add(match.group(1) if match else entry.stem)
+        return found
+
+    train_groups = groups_of("train")
+    if not train_groups:
+        return
+    for key in ("val", "test"):
+        other = groups_of(key)
+        if not other:
+            continue
+        shared = len(other & train_groups)
+        ratio = shared / len(other)
+        if ratio > 0.2:
+            console.print(
+                f"[bold yellow]Split leakage warning:[/bold yellow] {shared}/{len(other)} "
+                f"{key} source groups ({ratio:.0%}) also appear in train. Tiles cut from "
+                "the same scene sit on both sides of the split, so reported metrics will "
+                "overstate real-world accuracy. Re-split by group to get an honest baseline."
+            )
+
+
+def select_config(config_path):
+    config_folder = "configs"
+    resolved_path = resolve_config_path(config_path, config_folder)
+    if resolved_path is not None:
+        console.print(
+            f"\n[bold green]Selected configuration: {Path(resolved_path).name}[/bold green]"
+        )
+        return resolved_path
+
+    yaml_files = list_config_files(config_folder)
+    selection = get_user_choice(
+        yaml_files + ["Exit"],
+        title="Select Configuration",
+        text="Use ↑↓ keys to navigate, Enter to select, 'q' to exit:",
+    )
+    if selection in ("Exit", NAV_BACK, "Back") or not selection:
+        return None
+
+    selected_file = os.path.abspath(os.path.join(config_folder, selection))
+    console.print(f"\n[bold green]Selected configuration: {selection}[/bold green]")
+    return selected_file
+
+
+def verify_model_file(model_name):
+    """Verify if the model file exists and load it, or download if it's a YOLO model."""
+    try:
+        yolo_class = import_ultralytics_yolo()
+
+        if "nas" in model_name.lower():
+            raise MLDependencyError(
+                "YOLO-NAS support is deprecated in this build because SuperGradients "
+                "conflicts with RF-DETR training dependencies."
+            )
+
+        # A local checkpoint path (e.g. "yolo_runs/best.pt" or "yolov8n_ft.pt")
+        # must be loaded as-is, never rewritten into a hub model name.
+        looks_like_path = (
+            os.path.exists(model_name)
+            or model_name.lower().endswith((".pt", ".pth", ".yaml", ".yml", ".onnx", ".engine"))
+            or "/" in model_name
+            or "\\" in model_name
+        )
+        if model_name.lower().startswith("yolo") and not looks_like_path:
+            # Extract version and size from model name (e.g., YOLO26n -> version="26", size="n")
+            # Handle both 1-digit (v8, v9) and 2-digit (v10, v11, v12, v26) versions
+            remaining = model_name[4:]  # Remove "YOLO" prefix
+
+            # Extract version (can be 1 or 2 digits followed by optional letters)
+            version = ""
+            size = ""
+
+            for i, char in enumerate(remaining):
+                if char.isalpha():
+                    # Found the first letter - this is where size starts
+                    version = remaining[:i]
+                    size = remaining[i:].lower()
+                    break
+
+            if not version:
+                # If no letters found, use the last character as size
+                version = remaining[:-1]
+                size = remaining[-1].lower()
+
+            standard_name = f"yolo{version}{size}"
+            console.print(
+                f"\n[bold]Converting model name {model_name} to {standard_name}[/bold]"
+            )
+            model = yolo_class(standard_name + ".pt")
+            console.print(
+                f"\n[bold green]Successfully loaded/downloaded model: {standard_name}[/bold green]"
+            )
+            return model
+        else:
+            if not os.path.exists(model_name):
+                console.print(
+                    f"[bold red]Error: Model file {model_name} not found[/bold red]"
+                )
+                raise FileNotFoundError(f"Model file {model_name} not found")
+            model = yolo_class(model_name)
+            console.print(
+                f"\n[bold green]Successfully loaded model: {model_name}[/bold green]"
+            )
+            return model
+    except MLDependencyError as e:
+        console.print(f"[bold red]{str(e)}[/bold red]")
+        return None
+    except Exception as e:
+        console.print(
+            f"[bold red]Error loading model {model_name}: {str(e)}[/bold red]"
+        )
+        return None
+
+
+def initialize_clearml_task(project_name, task_name, tags, clearml_settings=None):
+    clearml_settings = clearml_settings or DEFAULT_SETTINGS["clearml"]
+    if not clearml_settings.get("enabled", True):
+        return None
+    try:
+        from clearml import Task
+
+        return Task.init(
+            project_name=project_name,
+            task_name=task_name,
+            tags=tags,
+        )
+    except Exception as error:
+        if clearml_settings.get("require_configured", False):
+            console.print(f"[bold red]ClearML is required but not configured: {error}[/bold red]")
+            return False
+        console.print(f"[bold yellow]ClearML is not configured: {error}[/bold yellow]")
+        selection = get_user_choice(
+            ["Continue Without ClearML", "Cancel Training"],
+            title="ClearML Setup Required",
+            text=(
+                "[yellow]ClearML experiment tracking could not be initialized.[/yellow] "
+                "Training can still run, but per-epoch metrics, artifacts, and "
+                "parameters will not be logged to the ClearML server."
+            ),
+            descriptions={
+                "Continue Without ClearML": (
+                    "[bold yellow]Train without remote experiment tracking.[/bold yellow]\n\n"
+                    "• Local TensorBoard logs in [cyan]runs/[/cyan] still work.\n"
+                    "• Useful if you're iterating locally and don't need a shared dashboard.\n"
+                    "• You can re-run `clearml-init` later and the next run will log normally."
+                ),
+                "Cancel Training": (
+                    "[bold red]Abort so you can configure ClearML first.[/bold red]\n\n"
+                    "• Run [cyan]clearml-init[/cyan] in another terminal to set up credentials.\n"
+                    "• Or edit [cyan]~/clearml.conf[/cyan] directly."
+                ),
+            },
+            status_fields={"error": str(error)[:120]},
+            tip=(
+                "ClearML is optional — YOLOmatic runs fine without it. Only block "
+                "training here if you specifically need the ClearML dashboard for this run."
+            ),
+            back_option="Cancel Training",
+        )
+        if selection == "Cancel Training":
+            return False
+        return None
+
+
+def upload_clearml_final_model(task, run_dir, clearml_settings):
+    if task is None or not clearml_settings.get("upload_final_model", True) or run_dir is None:
+        return
+    for candidate in (run_dir / "weights" / "best.pt", run_dir / "weights" / "last.pt"):
+        if candidate.exists():
+            try:
+                task.upload_artifact(name="final_model", artifact_object=str(candidate))
+            except Exception as error:
+                console.print(f"[bold yellow]ClearML final model upload skipped: {error}[/bold yellow]")
+            return
+
+
+def normalize_class_names(names):
+    """Return YOLO class names as display-safe strings for list or dict data.yaml forms."""
+    if isinstance(names, dict):
+        def _sort_key(value):
+            text = str(value)
+            return (0, int(text)) if text.isdigit() else (1, text)
+
+        return [str(names[key]) for key in sorted(names, key=_sort_key)]
+    if isinstance(names, list):
+        return [str(name) for name in names]
+    return []
+
+
+def print_config_summary(config, dataset_config):
+    """Print a summary of the loaded configurations."""
+    console.print(Panel.fit("[bold]Configuration Summary[/bold]", style="bold blue"))
+    table = Table(show_header=True, header_style="bold magenta")
+    table.add_column("Category", style="dim", width=20)
+    table.add_column("Details")
+    class_names = normalize_class_names(dataset_config.get("names", []))
+
+    # Check if it's a YOLO NAS config
+    if "experiment" in config:
+        # YOLO NAS configuration
+        table.add_row("Model Type", "YOLO NAS")
+        table.add_row("Model", str(config["model"]["name"]))
+        table.add_row("Dataset", str(config["dataset"]["name"]))
+        table.add_row("Project Name", str(config["clearml"]["project_name"]))
+        table.add_row("Batch Size", str(config["training"]["batch_size"]))
+        table.add_row("Max Epochs", str(config["training"]["max_epochs"]))
+        table.add_row("Pretrained Weights", str(config["model"]["pretrained_weights"]))
+        table.add_row("Number of Classes", str(len(class_names)))
+        table.add_row("Classes", ", ".join(class_names))
+
+        # Add experiment info
+        table.add_row("Experiment Name", str(config["experiment"]["name_prefix"]))
+        table.add_row("Checkpoint Dir", str(config["experiment"]["checkpoint_dir"]))
+    else:
+        # Regular YOLO configuration
+        table.add_row("Model Type", "YOLO")
+        table.add_row("Model", str(config["settings"]["model_type"]))
+        table.add_row("Dataset", str(config["settings"]["dataset"]))
+        table.add_row("Project Name", str(config["clearml"]["project_name"]))
+        table.add_row("Batch Size", str(config["training"]["batch"]))
+        table.add_row("Epochs", str(config["training"]["epochs"]))
+        table.add_row("Image Size", str(config["training"]["imgsz"]))
+        table.add_row("Number of Classes", str(len(class_names)))
+        table.add_row("Classes", ", ".join(class_names))
+
+        # Add device info if available
+        if "device" in config["training"]:
+            table.add_row("Device", str(config["training"]["device"]))
+
+    # Add Roboflow info if available
+    if "roboflow" in dataset_config:
+        table.add_row("Workspace", str(dataset_config["roboflow"]["workspace"]))
+        table.add_row("Project", str(dataset_config["roboflow"]["project"]))
+        table.add_row("Version", str(dataset_config["roboflow"]["version"]))
+
+    console.print(table)
+
+
+def upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_type, console):
+    """Automatically upload trained weights to Roboflow if configured."""
+    roboflow_config = config.get("roboflow", {})
+    if not roboflow_config.get("upload", False):
+        return
+
+    weight_name = roboflow_config.get("weight") or roboflow_config.get("auto_upload_weight", "best.pt")
+    console.print(f"\n[bold green]Preparing to upload {weight_name} to Roboflow...[/bold green]")
+    
+    if run_dir is None:
+        console.print("[bold red]Cannot upload: run directory is unknown.[/bold red]")
+        return
+        
+    weight_path = run_dir / "weights" / weight_name
+    if not weight_path.exists():
+        console.print(f"[bold red]Cannot upload: Weight file {weight_path} does not exist.[/bold red]")
+        return
+
+    dataset_rf = dataset_config.get("roboflow", {})
+    workspace = dataset_rf.get("workspace")
+    project = dataset_rf.get("project")
+    
+    if not workspace or not project:
+        if roboflow_config.get("require_dataset_metadata", True):
+            console.print("[bold red]Cannot upload: Dataset configuration lacks Roboflow workspace or project.[/bold red]")
+        else:
+            console.print("[bold yellow]Skipping Roboflow upload: dataset Roboflow metadata is missing.[/bold yellow]")
+        return
+
+    project_ids = parse_project_ids(project) if isinstance(project, str) else [str(p) for p in project]
+    try:
+        env_config = load_env_config(project_root())
+        candidate = build_candidate(weight_path)
+        upload_type = candidate.detected_model_type or infer_model_type_from_text(str(model_type))
+        if not upload_type:
+            raise RuntimeError(
+                f"Could not determine the Roboflow model type for '{model_type}'. "
+                "Upload manually with yolomatic-upload."
+            )
+        if is_rfdetr_upload(candidate, upload_type):
+            raise RuntimeError(
+                "RF-DETR checkpoints are uploaded by the RF-DETR trainer, not the YOLO trainer."
+            )
+        console.print(
+            f"[bold]Uploading to workspace '{workspace}', project(s) '{', '.join(project_ids)}'...[/bold]"
+        )
+        upload_model(
+            env_config.api_key,
+            candidate,
+            str(workspace),
+            project_ids,
+            upload_type,
+            suggest_model_name(weight_path),
+        )
+        console.print("[bold green]Roboflow upload completed successfully![/bold green]")
+    except Exception as error:
+        console.print(f"[bold red]Roboflow upload failed: {error}[/bold red]")
+
+
+def _trainer_run_dir(model: Any) -> Path | None:
+    save_dir = getattr(getattr(model, "trainer", None), "save_dir", None)
+    return Path(save_dir) if save_dir else None
+
+
+def _print_post_training_summary(steps: list[tuple[str, str, str]]) -> None:
+    if not steps:
+        return
+    table = Table(title="Post-training steps", show_header=True, header_style="bold cyan")
+    table.add_column("Step")
+    table.add_column("Status")
+    table.add_column("Details", overflow="fold")
+    styles = {"ok": "[green]done[/green]", "failed": "[red]failed[/red]", "cancelled": "[yellow]cancelled[/yellow]"}
+    for name, status, detail in steps:
+        table.add_row(name, styles.get(status, status), safe(detail))
+    console.print(table)
+
+
+def main() -> CommandResult:
+    task = None
+    try:
+        args = parse_args()
+        config_file = select_config(args.config)
+        if config_file is None:
+            return CommandResult.cancelled("No configuration selected.")
+
+        # Load configuration from selected YAML file
+        with open(config_file, "r", encoding="utf-8") as file:
+            config = yaml.safe_load(file)
+
+        if "experiment" in config:
+            console.print(
+                "[bold yellow]YOLO-NAS support is deprecated in this build.[/bold yellow]\n\n"
+                "SuperGradients conflicts with RF-DETR's training dependency stack, "
+                "so YOLOmatic no longer installs or routes YOLO-NAS training. "
+                "Create a YOLO or RF-DETR config instead."
+            )
+            return CommandResult.failed("YOLO-NAS configs are no longer supported.")
+
+        # Extract parameters from config based on type
+        if config.get("settings", {}).get("model_family") == "rfdetr":
+            console.print(
+                "\n[bold green]Routing RF-DETR configuration to RF-DETR trainer...[/bold green]"
+            )
+            from yolomatic.trainers.rfdetr_trainer import main as rfdetr_main
+
+            return coerce_result(rfdetr_main(config_file))
+        if config.get("settings", {}).get("model_family") == "detectron2":
+            console.print(
+                "\n[bold green]Routing Detectron2 configuration to Detectron2 trainer...[/bold green]"
+            )
+            from yolomatic.trainers.detectron2_trainer import main as detectron2_main
+
+            return coerce_result(detectron2_main(config_file))
+        if config.get("settings", {}).get("model_family") == "sam3.1":
+            console.print(
+                "\n[bold green]Routing SAM 3.1 configuration to SAM trainer...[/bold green]"
+            )
+            from yolomatic.trainers.sam_trainer import main as sam_main
+
+            return coerce_result(sam_main(config_file))
+        settings = config["settings"]
+        clearml_settings = effective_clearml_settings(config.get("clearml", {}))
+        training_params = dict(config["training"])
+        export_params = config["export"]
+
+        # Load dataset configuration
+        model_name = settings["model_type"]
+        dataset_section = config.get("dataset", {})
+        dataset_name_or_path = dataset_section.get("prepared_dir") or (
+            settings["dataset"] if "dataset" in settings else settings["model_type"]
+        )
+        dataset_config, data_yaml_path, dataset_path = load_dataset_config(dataset_name_or_path)
+        verify_directories(dataset_config)
+        preflight_dataset(dataset_path, settings.get("task"))
+        warn_on_split_leakage(dataset_config)
+        # Ultralytics re-reads the yaml with its own root rules, where a relative
+        # 'path:' resolves against the CWD. Hand it a fully-resolved copy instead.
+        resolved_data_yaml = write_resolved_data_yaml(dataset_path, data_yaml_path)
+
+        normalized_cache, disk_cache_disabled = normalize_yolo_cache_setting(
+            training_params.get("cache", False)
+        )
+        training_params["cache"] = normalized_cache
+        config["training"] = training_params
+        if disk_cache_disabled:
+            console.print(
+                "[bold yellow]Persistent dataset cache 'disk' is disabled to prevent "
+                "large .npy files; continuing with cache=False.[/bold yellow]"
+            )
+
+        cache_cleanup = clean_dataset_image_cache(dataset_path)
+        if cache_cleanup.removed_files:
+            console.print(
+                "[bold green]Removed "
+                f"{cache_cleanup.removed_files:,} dataset image-cache files and reclaimed "
+                f"{format_size(cache_cleanup.reclaimed_bytes)}.[/bold green]"
+            )
+        if cache_cleanup.errors:
+            console.print(
+                f"[bold yellow]Warning: {len(cache_cleanup.errors)} dataset cache files "
+                "could not be removed.[/bold yellow]"
+            )
+        print_config_summary(config, dataset_config)
+
+        # Get the correct model name based on config type
+        if is_rfdetr_model(model_name):
+            console.print(
+                "\n[bold green]Routing RF-DETR configuration to RF-DETR trainer...[/bold green]"
+            )
+            from yolomatic.trainers.rfdetr_trainer import main as rfdetr_main
+
+            return coerce_result(rfdetr_main(config_file))
+        current_time = datetime.now().strftime(clearml_settings["task_name_format"])
+        task_name = f"{model_name}-{current_time}"
+
+        device_resolution = resolve_training_device(training_params.get("device"))
+        if device_resolution.cancelled:
+            return CommandResult.cancelled("Training cancelled.")
+        if device_resolution.device != training_params.get("device"):
+            training_params = dict(training_params)
+            training_params["device"] = device_resolution.device
+        if "project" not in training_params:
+            training_params["project"] = "runs"
+        if "name" not in training_params:
+            training_params["name"] = task_name
+
+        configure_ultralytics_runtime()
+
+        model = verify_model_file(model_name)
+        if model is None:
+            return CommandResult.failed("Model verification failed.")
+        disable_ultralytics_clearml_callbacks(model)
+
+        # Initialize ClearML Task
+        task = initialize_clearml_task(
+            project_name=clearml_settings["project_name"],
+            task_name=task_name,
+            tags=[model_name[:4].upper() + model_name[4:]],
+            clearml_settings=clearml_settings,
+        )
+        if task is False:
+            return CommandResult.cancelled("Training cancelled.")
+
+        if task is not None and clearml_settings.get("log_hyperparameters", True):
+            task.connect(
+                {
+                    "dataset_config": dataset_config,
+                    "training_params": training_params,
+                    "export_params": export_params,
+                }
+            )
+
+        # Validate export configuration early to catch issues before training
+        is_valid, export_errors = validate_export_config(export_params, console)
+        if not is_valid:
+            console.print(
+                "\n[bold red]Export configuration errors detected. Please fix your config file.[/bold red]"
+            )
+            raise ValueError(
+                f"Export config validation failed: {'; '.join(export_errors)}"
+            )
+
+        # Start training
+        console.print("\n[bold green]Starting training...[/bold green]")
+        try:
+            model.train(data=resolved_data_yaml, **training_params)
+        except KeyboardInterrupt:
+            run_dir = _trainer_run_dir(model)
+            last = run_dir / "weights" / "last.pt" if run_dir else None
+            where = f" The latest checkpoint is {last}." if last and last.exists() else ""
+            return CommandResult.cancelled(f"Training interrupted.{where}")
+        run_dir = _trainer_run_dir(model)
+
+        # Each post-training step runs independently: an export failure (for
+        # example TensorRT not installed) must not skip the ClearML/Roboflow
+        # uploads or the TensorBoard backfill after hours of training.
+        steps: list[tuple[str, str, str]] = []
+        outputs: dict[str, Path] = {}
+
+        def post_step(name: str, action: Callable[[], Any]) -> Any:
+            console.print(f"\n[bold green]{name}...[/bold green]")
+            try:
+                value = action()
+            except KeyboardInterrupt:
+                steps.append((name, "cancelled", ""))
+                raise
+            except Exception as error:  # noqa: BLE001 - reported in the summary
+                log_exception(error, f"Post-training step '{name}'")
+                console.print(f"[bold red]{name} failed:[/bold red] {safe(error)}")
+                steps.append((name, "failed", str(error)))
+                return None
+            steps.append((name, "ok", ""))
+            return value
+
+        try:
+            post_step("Validation", lambda: model.val(data=resolved_data_yaml))
+            exported = post_step("Export", lambda: model.export(**export_params))
+            if exported:
+                outputs["Export"] = Path(str(exported))
+            post_step("ClearML model upload", lambda: upload_clearml_final_model(task, run_dir, clearml_settings))
+            post_step(
+                "Roboflow upload",
+                lambda: upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_name, console),
+            )
+            if run_dir is not None:
+                def _tensorboard() -> None:
+                    metadata = build_tensorboard_metadata(
+                        model_name=model_name,
+                        dataset_name=settings["dataset"],
+                        config_path=config_file,
+                        run_name=task_name,
+                        device=training_params.get("device"),
+                        training_params=training_params,
+                    )
+                    backfill_ultralytics_tensorboard(
+                        run_dir=run_dir,
+                        metadata=metadata,
+                        device=training_params.get("device"),
+                    )
+                    emit_tensorboard_report(console, validate_tensorboard_run(run_dir))
+
+                post_step("TensorBoard logs", _tensorboard)
+        except KeyboardInterrupt:
+            pass
+
+        if run_dir is not None:
+            outputs = {"Run folder": run_dir, **outputs}
+            for weight in ("best.pt", "last.pt"):
+                weight_path = run_dir / "weights" / weight
+                if weight_path.exists():
+                    outputs[weight] = weight_path
+        _print_post_training_summary(steps)
+        failed_steps = [name for name, status, _ in steps if status != "ok"]
+        message = "Training completed."
+        if failed_steps:
+            message += f" Some follow-up steps did not finish: {', '.join(failed_steps)}."
+        return CommandResult.ok(message, outputs=outputs, review=True)
+
+    except FileNotFoundError as e:
+        return CommandResult.failed(str(e))
+    except yaml.YAMLError as e:
+        return CommandResult.failed(f"Invalid YAML configuration: {e}")
+    except MLDependencyError as e:
+        return CommandResult.failed(str(e))
+    except ValueError as e:
+        if "Invalid CUDA 'device" in str(e):
+            return CommandResult.failed(
+                str(e),
+                hint=(
+                    "PyTorch cannot see a CUDA device in this environment. If `nvidia-smi` works, "
+                    "reinstall a CUDA-enabled torch build in this `.venv`."
+                ),
+            )
+        return CommandResult.failed(str(e))
+    except KeyboardInterrupt:
+        return CommandResult.cancelled("Training cancelled.")
+    except Exception as e:  # noqa: BLE001 - last line of defence for a long run
+        log_path = log_exception(e, "YOLO training")
+        return CommandResult.failed(
+            f"An unexpected error occurred: {e}",
+            hint=f"Full traceback in {log_path}" if log_path else None,
+        )
+    finally:
+        if task not in (None, False):
+            task.close()
+
+
+if __name__ == "__main__":
+    main()

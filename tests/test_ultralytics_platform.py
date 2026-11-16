@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from src.cli.ultralytics_platform import build_parser
-from src.integrations.ultralytics_platform import (
+from yolomatic.cli.ultralytics_platform import build_parser
+from yolomatic.integrations.ultralytics_platform import (
     UltralyticsPlatformClient,
     UltralyticsPlatformError,
 )

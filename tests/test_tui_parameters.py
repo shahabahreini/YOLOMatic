@@ -1,6 +1,6 @@
 import unittest
 
-from src.utils.tui import (
+from yolomatic.utils.tui import (
     MenuRenderer,
     MultiSelectRenderer,
     ParameterDefinition,
@@ -182,7 +182,7 @@ class TUIParameterValidationTest(unittest.TestCase):
         from rich.console import Console
         from unittest.mock import patch
 
-        with patch("src.utils.tui.TUI_TERM") as mock_term:
+        with patch("yolomatic.utils.tui.TUI_TERM") as mock_term:
             mock_term.width = 80
             mock_term.height = 24
             console = Console(record=True, width=80, height=20, color_system=None)
@@ -302,7 +302,7 @@ class TUIParameterValidationTest(unittest.TestCase):
     def test_clone_helpers_collect_only_known_tunable_sections(self) -> None:
         from pathlib import Path
 
-        from src.cli.run import (
+        from yolomatic.cli.run import (
             clone_config_filename,
             collect_known_config_sections,
             extract_regular_yolo_model_choice,
@@ -347,7 +347,7 @@ class TUIParameterValidationTest(unittest.TestCase):
         )
 
     def test_detectron2_summary_paths_use_dataset_splits_schema(self) -> None:
-        from src.cli.run import dataset_path_rows_for_config
+        from yolomatic.cli.run import dataset_path_rows_for_config
 
         rows = dataset_path_rows_for_config(
             "Mask R-CNN R50-FPN 3x",
@@ -382,7 +382,7 @@ class TUIParameterValidationTest(unittest.TestCase):
         from pathlib import Path
         from unittest.mock import patch
 
-        from src.cli import run
+        from yolomatic.cli import run
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -415,7 +415,7 @@ class TUIParameterValidationTest(unittest.TestCase):
                 config_file.unlink()
 
     def test_fully_customized_catalog_covers_ultralytics_tunable_args(self) -> None:
-        from src.cli.run import YOLO_TRAINING_PARAMETERS
+        from yolomatic.cli.run import YOLO_TRAINING_PARAMETERS
 
         generated_or_read_only = {
             "data",

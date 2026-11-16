@@ -11,9 +11,10 @@ import cv2
 import numpy as np
 import yaml
 
-from src.cli.prepare_dataset import _discover_ndjson_files
-from src.datasets.core import DatasetValidationError
-from src.datasets.prepare import (
+from yolomatic.cli.prepare_dataset import _discover_ndjson_files
+from yolomatic.datasets.core import DatasetValidationError
+from yolomatic.utils.fs import UnsafePathError
+from yolomatic.datasets.prepare import (
     PrepareDatasetConfig,
     PrepareSplitConfig,
     prepare_dataset,
@@ -86,6 +87,57 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertEqual(data["task"], "detect")
         self.assertEqual(stats.split_counts, {"train": 3, "valid": 1, "test": 2})
         self.assertEqual(len(list((out / "train" / "labels").glob("*.txt"))), 3)
+
+    def test_overwrite_never_deletes_source_named_like_a_version(self) -> None:
+        # Regression: a source called datasets/foo_v001 resolved to itself as the
+        # versioned output, and --overwrite ran rmtree on it.
+        output_root = self.tmp / "datasets"
+        source = output_root / "foo_v001"
+        source.mkdir(parents=True)
+        self._write_yolo_dataset(source, count=4)
+        before = sorted(p.relative_to(source) for p in source.rglob("*"))
+
+        with self.assertRaises(UnsafePathError):
+            prepare_dataset(
+                PrepareDatasetConfig(
+                    source_path=source,
+                    output_root=output_root,
+                    output_format="YOLO Detection",
+                    split_config=PrepareSplitConfig(0.50, 0.25, 0.25),
+                    overwrite=True,
+                )
+            )
+        self.assertEqual(sorted(p.relative_to(source) for p in source.rglob("*")), before)
+
+    def test_overwrite_replaces_latest_version(self) -> None:
+        output_root = self.tmp / "datasets"
+        for version in (1, 3):
+            (output_root / f"plants_v{version:03d}").mkdir(parents=True)
+        path, version = resolve_versioned_output(output_root, "plants", overwrite=True)
+        self.assertEqual((path.name, version), ("plants_v003", 3))
+
+    def test_failed_write_leaves_no_partial_version_and_data_yaml_has_final_path(self) -> None:
+        source = self.tmp / "source"
+        source.mkdir()
+        self._write_yolo_dataset(source, count=6)
+        output_root = self.tmp / "datasets"
+        config = PrepareDatasetConfig(
+            source_path=source,
+            output_root=output_root,
+            output_slug="prepared",
+            output_format="YOLO Detection",
+            split_config=PrepareSplitConfig(0.50, 0.25, 0.25),
+        )
+        with patch("yolomatic.datasets.prepare._write_readme", side_effect=RuntimeError("disk full")):
+            with self.assertRaises(RuntimeError):
+                prepare_dataset(config)
+        self.assertEqual(list(output_root.iterdir()), [])
+
+        stats = prepare_dataset(config)
+        out = Path(stats.output_path)
+        self.assertEqual(out.name, "prepared_v001")
+        data = yaml.safe_load((out / "data.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(Path(data["path"]), out.resolve())
 
     def test_prepare_yolo_to_coco(self) -> None:
         source = self.tmp / "source"
@@ -417,7 +469,7 @@ class PrepareDatasetTest(unittest.TestCase):
                 )
 
     def test_ndjson_download_retries_on_transient_failure(self) -> None:
-        from src.datasets.prepare import _download_ndjson_image
+        from yolomatic.datasets.prepare import _download_ndjson_image
 
         target = self.tmp / "img.jpg"
         good = MagicMock()
@@ -438,7 +490,7 @@ class PrepareDatasetTest(unittest.TestCase):
 class DatasetSummaryCacheTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
-        self.patcher = patch("src.datasets.core.project_root", return_value=self.tmp)
+        self.patcher = patch("yolomatic.datasets.core.project_root", return_value=self.tmp)
         self.patcher.start()
 
     def tearDown(self) -> None:
@@ -458,7 +510,7 @@ class DatasetSummaryCacheTest(unittest.TestCase):
         label.write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
 
     def test_summarize_dataset_cache_creation_and_hit(self) -> None:
-        from src.datasets.core import summarize_dataset
+        from yolomatic.datasets.core import summarize_dataset
 
         dataset_path = self.tmp / "my_test_dataset"
         dataset_path.mkdir()
@@ -476,7 +528,7 @@ class DatasetSummaryCacheTest(unittest.TestCase):
         # Prove the second run is served from cache: the summary body
         # (_summarize_yolo) must never execute again.
         with patch(
-            "src.datasets.core._summarize_yolo",
+            "yolomatic.datasets.core._summarize_yolo",
             side_effect=AssertionError("Should load from cache"),
         ):
             summary2 = summarize_dataset(dataset_path)
@@ -485,7 +537,7 @@ class DatasetSummaryCacheTest(unittest.TestCase):
             self.assertEqual(summary2.total_size_bytes, summary1.total_size_bytes)
 
     def test_cache_invalidated_by_image_added_under_images_dir(self) -> None:
-        from src.datasets.core import summarize_dataset
+        from yolomatic.datasets.core import summarize_dataset
 
         dataset_path = self.tmp / "growing_dataset"
         dataset_path.mkdir()
@@ -504,7 +556,7 @@ class DatasetSummaryCacheTest(unittest.TestCase):
         self.assertEqual(summary2.annotation_count, 2)
 
     def test_cache_invalidated_by_label_edit(self) -> None:
-        from src.datasets.core import summarize_dataset
+        from yolomatic.datasets.core import summarize_dataset
 
         dataset_path = self.tmp / "edited_dataset"
         dataset_path.mkdir()
@@ -523,7 +575,7 @@ class DatasetSummaryCacheTest(unittest.TestCase):
     def test_cache_dir_anchored_at_project_root_not_cwd(self) -> None:
         import os as _os
 
-        from src.datasets.core import summarize_dataset
+        from yolomatic.datasets.core import summarize_dataset
 
         dataset_path = self.tmp / "anchored_dataset"
         dataset_path.mkdir()
@@ -662,7 +714,7 @@ class SplitDiscoveryTest(unittest.TestCase):
             self._write_label(root / split / "labels" / f"{split}_{idx}.txt")
 
     def test_resolve_dataset_paths_relative_and_roboflow(self) -> None:
-        from src.datasets.core import _resolve_dataset_paths
+        from yolomatic.datasets.core import _resolve_dataset_paths
 
         base = self.tmp / "ds"
         (base / "train" / "images").mkdir(parents=True)
@@ -683,7 +735,7 @@ class SplitDiscoveryTest(unittest.TestCase):
         )
 
     def test_resolve_dataset_paths_list_and_path_root(self) -> None:
-        from src.datasets.core import _resolve_dataset_paths
+        from yolomatic.datasets.core import _resolve_dataset_paths
 
         base = self.tmp / "ds"
         (base / "train" / "images").mkdir(parents=True)
@@ -708,7 +760,7 @@ class SplitDiscoveryTest(unittest.TestCase):
         )
 
     def test_discover_includes_disk_only_split_with_warning(self) -> None:
-        from src.datasets.core import discover_split_dirs
+        from yolomatic.datasets.core import discover_split_dirs
 
         root = self.tmp / "ds"
         self._write_split(root, "train")
@@ -723,7 +775,7 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertTrue(any("not referenced" in w for w in warnings))
 
     def test_discover_warns_on_missing_yaml_dir_and_uses_disk(self) -> None:
-        from src.datasets.core import discover_split_dirs
+        from yolomatic.datasets.core import discover_split_dirs
 
         root = self.tmp / "ds"
         self._write_split(root, "train")
@@ -736,7 +788,7 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertEqual(result["train"], [(root / "train" / "images").resolve()])
 
     def test_discover_pools_val_and_valid_keys(self) -> None:
-        from src.datasets.core import discover_split_dirs
+        from yolomatic.datasets.core import discover_split_dirs
 
         root = self.tmp / "ds"
         self._write_image(root / "val_a" / "images" / "a.jpg")
@@ -941,14 +993,14 @@ class SplitDiscoveryTest(unittest.TestCase):
         (root / "data.yaml").write_text("train: train/images\nnc: 1\nnames: [item]\ntask: detect\n", encoding="utf-8")
         
         warnings: list[str] = []
-        from src.datasets.core import discover_split_dirs
+        from yolomatic.datasets.core import discover_split_dirs
         split_dirs = discover_split_dirs(root, {"train": "train/images"}, warnings=warnings)
 
         self.assertEqual(split_dirs["train"], [(root / "train" / "images").resolve()])
         self.assertEqual(warnings, [])
 
     def test_target_counts_prevents_val_starvation_on_small_datasets(self) -> None:
-        from src.datasets.prepare import _target_counts
+        from yolomatic.datasets.prepare import _target_counts
         # 3 items with 80/20 train/val:
         counts = _target_counts(3, PrepareSplitConfig(train_ratio=0.8, val_ratio=0.2, test_ratio=0.0))
         self.assertEqual(counts["valid"], 1)
@@ -966,7 +1018,7 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertEqual(counts2["train"], 1)
 
     def test_read_yolo_annotations_filters_degenerate_bboxes(self) -> None:
-        from src.datasets.prepare import _read_yolo_annotations
+        from yolomatic.datasets.prepare import _read_yolo_annotations
         img_dir = self.tmp / "images"
         lbl_dir = self.tmp / "labels"
         img_dir.mkdir(parents=True)
@@ -993,7 +1045,7 @@ class SplitDiscoveryTest(unittest.TestCase):
         self.assertTrue(any("degenerate YOLO bbox" in w for w in warnings))
 
     def test_read_coco_records_filters_degenerate_bboxes(self) -> None:
-        from src.datasets.prepare import _read_coco_records
+        from yolomatic.datasets.prepare import _read_coco_records
         coco_dir = self.tmp / "coco_source"
         coco_dir.mkdir(parents=True)
         img_path = coco_dir / "sample.jpg"

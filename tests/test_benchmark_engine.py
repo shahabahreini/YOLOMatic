@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.benchmark.engine import (
+from yolomatic.benchmark.engine import (
     GTObject,
     PredObject,
     _auto_detect_annotations,
@@ -151,7 +151,7 @@ class TestDominantBucket(unittest.TestCase):
 class TestEvaluateModelWorker(unittest.TestCase):
     def test_logs_model_name_on_load_failure(self):
         """Worker must log 'Loading model: <name>' even when YOLO load fails."""
-        from src.benchmark.engine import _evaluate_model_worker
+        from yolomatic.benchmark.engine import _evaluate_model_worker
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             fake_weights = Path(tmp) / "my_model.pt"
@@ -172,12 +172,12 @@ class TestEvaluateModelWorker(unittest.TestCase):
 
 class TestEffectiveBatchSize(unittest.TestCase):
     def test_pytorch_checkpoint_keeps_requested_batch_size(self):
-        from src.benchmark.engine import _effective_batch_size
+        from yolomatic.benchmark.engine import _effective_batch_size
 
         self.assertEqual(_effective_batch_size(Path("best.pt"), 16), 16)
 
     def test_exported_artifact_uses_single_image_batch(self):
-        from src.benchmark.engine import _effective_batch_size
+        from yolomatic.benchmark.engine import _effective_batch_size
 
         self.assertEqual(_effective_batch_size(Path("best.onnx"), 16), 1)
         self.assertEqual(_effective_batch_size(Path("best.engine"), 16), 1)
@@ -186,30 +186,30 @@ class TestEffectiveBatchSize(unittest.TestCase):
 
 class TestResolveWorkers(unittest.TestCase):
     def test_gpu_always_one(self):
-        from src.benchmark.engine import _resolve_workers
+        from yolomatic.benchmark.engine import _resolve_workers
         self.assertEqual(_resolve_workers(max_workers=0, n_models=4, is_gpu=True, cpu_count=8), 1)
 
     def test_cpu_scales_with_models(self):
-        from src.benchmark.engine import _resolve_workers
+        from yolomatic.benchmark.engine import _resolve_workers
         w = _resolve_workers(max_workers=0, n_models=3, is_gpu=False, cpu_count=4)
         self.assertGreaterEqual(w, 2)
         self.assertLessEqual(w, 3)
 
     def test_explicit_override(self):
-        from src.benchmark.engine import _resolve_workers
+        from yolomatic.benchmark.engine import _resolve_workers
         self.assertEqual(_resolve_workers(max_workers=3, n_models=10, is_gpu=True, cpu_count=2), 3)
 
     def test_min_one(self):
-        from src.benchmark.engine import _resolve_workers
+        from yolomatic.benchmark.engine import _resolve_workers
         self.assertEqual(_resolve_workers(max_workers=0, n_models=1, is_gpu=False, cpu_count=1), 1)
 
 
 class TestRunBenchmarkSequential(unittest.TestCase):
     def test_sequential_path_single_weight(self):
         from unittest.mock import patch
-        from src.benchmark.config import BenchmarkConfig
-        from src.benchmark.engine import run_benchmark, ModelMetrics, BenchmarkResult
-        from src.benchmark.metrics import SizeBucketMetrics
+        from yolomatic.benchmark.config import BenchmarkConfig
+        from yolomatic.benchmark.engine import run_benchmark, ModelMetrics, BenchmarkResult
+        from yolomatic.benchmark.metrics import SizeBucketMetrics
         import tempfile
 
         called: list[Path] = []
@@ -232,8 +232,8 @@ class TestRunBenchmarkSequential(unittest.TestCase):
             fake_pt = Path(tmp) / "model.pt"
             fake_pt.touch()
             cfg = BenchmarkConfig(weights=[fake_pt], validation_dir=Path(tmp))
-            with patch("src.benchmark.engine._evaluate_model_worker", side_effect=fake_worker), \
-                 patch("src.benchmark.engine.detect_annotation_format", return_value="yolo"):
+            with patch("yolomatic.benchmark.engine._evaluate_model_worker", side_effect=fake_worker), \
+                 patch("yolomatic.benchmark.engine.detect_annotation_format", return_value="yolo"):
                 result = run_benchmark(cfg)
 
         self.assertEqual(len(called), 1)
@@ -242,8 +242,8 @@ class TestRunBenchmarkSequential(unittest.TestCase):
 
     def test_raises_clear_error_when_all_models_fail(self):
         from unittest.mock import patch
-        from src.benchmark.config import BenchmarkConfig
-        from src.benchmark.engine import BenchmarkRunError, run_benchmark
+        from yolomatic.benchmark.config import BenchmarkConfig
+        from yolomatic.benchmark.engine import BenchmarkRunError, run_benchmark
         import tempfile
 
         def fake_worker(weights, **_kwargs):
@@ -253,8 +253,8 @@ class TestRunBenchmarkSequential(unittest.TestCase):
             fake_pt = Path(tmp) / "model.pt"
             fake_pt.touch()
             cfg = BenchmarkConfig(weights=[fake_pt], validation_dir=Path(tmp))
-            with patch("src.benchmark.engine._evaluate_model_worker", side_effect=fake_worker), \
-                 patch("src.benchmark.engine.detect_annotation_format", return_value="yolo"):
+            with patch("yolomatic.benchmark.engine._evaluate_model_worker", side_effect=fake_worker), \
+                 patch("yolomatic.benchmark.engine.detect_annotation_format", return_value="yolo"):
                 with self.assertRaisesRegex(
                     BenchmarkRunError,
                     "No selected models completed successfully",
@@ -264,13 +264,13 @@ class TestRunBenchmarkSequential(unittest.TestCase):
 
 class TestBenchmarkConfigNewFields(unittest.TestCase):
     def test_defaults(self):
-        from src.benchmark.config import BenchmarkConfig
+        from yolomatic.benchmark.config import BenchmarkConfig
         cfg = BenchmarkConfig(weights=[], validation_dir=Path("."))
         self.assertEqual(cfg.batch_size, 16)
         self.assertEqual(cfg.max_workers, 0)
 
     def test_custom(self):
-        from src.benchmark.config import BenchmarkConfig
+        from yolomatic.benchmark.config import BenchmarkConfig
         cfg = BenchmarkConfig(weights=[], validation_dir=Path("."), batch_size=8, max_workers=2)
         self.assertEqual(cfg.batch_size, 8)
         self.assertEqual(cfg.max_workers, 2)
@@ -278,7 +278,7 @@ class TestBenchmarkConfigNewFields(unittest.TestCase):
 
 class TestLoadYoloDataUnreadableImage(unittest.TestCase):
     def test_unreadable_image_warns_and_falls_back_to_640(self):
-        from src.benchmark.engine import _load_yolo_data
+        from yolomatic.benchmark.engine import _load_yolo_data
 
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
@@ -293,7 +293,7 @@ class TestLoadYoloDataUnreadableImage(unittest.TestCase):
             )
 
             log_lines: list[str] = []
-            with self.assertLogs("src.benchmark.engine", level="WARNING") as captured:
+            with self.assertLogs("yolomatic.benchmark.engine", level="WARNING") as captured:
                 fname_to_gts = _load_yolo_data(d, [img], log=log_lines.append)
 
             self.assertTrue(any("640" in msg for msg in captured.output))
@@ -301,6 +301,24 @@ class TestLoadYoloDataUnreadableImage(unittest.TestCase):
             gts = fname_to_gts["broken.jpg"]
             self.assertEqual(len(gts), 1)
             self.assertEqual(tuple(gts[0].box_xyxy), (0.0, 0.0, 640.0, 640.0))
+
+
+class TestLoadGtFromYoloTxtBoxes(unittest.TestCase):
+    def test_detection_row_is_parsed_as_centre_box(self):
+        # Regression: 5-token rows were treated as a 2-point polygon, producing
+        # boxes from (min(cx, w), min(cy, h)) and wrong mAP for every detection set.
+        from yolomatic.benchmark.engine import _load_gt_from_yolo_txt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            label = Path(tmp) / "img.txt"
+            label.write_text("2 0.5 0.25 0.2 0.1\n1.0 0.1 0.1 0.2 0.2\n", encoding="utf-8")
+            gts = _load_gt_from_yolo_txt(label, img_w=200, img_h=100)
+
+        self.assertEqual([g.cls for g in gts], [2, 1])
+        np.testing.assert_allclose(gts[0].box_xyxy, (80.0, 20.0, 120.0, 30.0))
+        self.assertIsNone(gts[0].mask)
+        self.assertAlmostEqual(gts[0].area, 40.0 * 10.0)
+        np.testing.assert_allclose(gts[1].box_xyxy, (0.0, 0.0, 40.0, 20.0))
 
 
 if __name__ == "__main__":

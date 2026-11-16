@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.trainers.rfdetr_trainer import (
+from yolomatic.trainers.rfdetr_trainer import (
     find_rfdetr_checkpoint,
     instantiate_rfdetr_model,
     prepare_training_params,
@@ -34,7 +34,7 @@ class RFDETRTrainerTests(unittest.TestCase):
 
             self.assertEqual(find_rfdetr_checkpoint(run_dir), best)
 
-    @patch("src.trainers.rfdetr_trainer.import_rfdetr_model_class")
+    @patch("yolomatic.trainers.rfdetr_trainer.import_rfdetr_model_class")
     def test_instantiate_rfdetr_model_omits_pretrain_for_auto_download(self, mock_import) -> None:
         class FakeModel:
             def __init__(self, **kwargs):
@@ -51,8 +51,8 @@ class RFDETRTrainerTests(unittest.TestCase):
         mock_import.assert_called_once_with("RFDETRSmall")
         self.assertEqual(model.kwargs, {})
 
-    @patch("src.trainers.rfdetr_trainer._validate_local_weights")
-    @patch("src.trainers.rfdetr_trainer.import_rfdetr_model_class")
+    @patch("yolomatic.trainers.rfdetr_trainer._validate_local_weights")
+    @patch("yolomatic.trainers.rfdetr_trainer.import_rfdetr_model_class")
     def test_instantiate_rfdetr_model_passes_finetune_checkpoint(self, mock_import, mock_validate) -> None:
         class FakeModel:
             def __init__(self, **kwargs):
@@ -69,15 +69,17 @@ class RFDETRTrainerTests(unittest.TestCase):
         mock_import.assert_called_once_with("RFDETRMedium")
         self.assertEqual(model.kwargs, {"pretrain_weights": "checkpoint.pth"})
 
-    @patch("src.trainers.rfdetr_trainer.train_from_config")
-    def test_main_raises_system_exit_on_failure(self, mock_train) -> None:
-        from src.trainers.rfdetr_trainer import main
+    @patch("yolomatic.trainers.rfdetr_trainer.train_from_config")
+    def test_main_reports_failure_result(self, mock_train) -> None:
+        from yolomatic.trainers.rfdetr_trainer import main
         mock_train.side_effect = RuntimeError("Training failed")
 
-        with self.assertRaises(SystemExit) as cm:
-            main("dummy_config.yaml")
+        # Failures are reported as a FAILED CommandResult (exit code 1 when run
+        # from the shell) instead of raising SystemExit inside the TUI process.
+        result = main("dummy_config.yaml")
 
-        self.assertEqual(cm.exception.code, 1)
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("Training failed", result.message)
 
 
 if __name__ == "__main__":

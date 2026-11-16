@@ -10,9 +10,9 @@ import numpy as np
 import yaml
 from torch.utils.tensorboard import SummaryWriter
 
-from src.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator
-from src.utils.ml_dependencies import MLDependencyError
-from src.utils.project import (
+from yolomatic.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator
+from yolomatic.utils.ml_dependencies import MLDependencyError
+from yolomatic.utils.project import (
     find_finetune_candidates,
     resolve_dataset_root,
     write_resolved_data_yaml,
@@ -26,7 +26,7 @@ from src.utils.project import (
     project_root,
     verify_dataset_directories,
 )
-from src.utils.tensorboard import (
+from yolomatic.utils.tensorboard import (
     backfill_ultralytics_tensorboard,
     validate_tensorboard_run,
 )

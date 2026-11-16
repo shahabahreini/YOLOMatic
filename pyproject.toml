@@ -1,6 +1,6 @@
 [build-system]
-build-backend = "setuptools.build_meta"
-requires = ["setuptools>=61.0", "wheel"]
+build-backend = "hatchling.build"
+requires = ["hatchling>=1.27"]
 
 [project]
 authors = [
@@ -41,6 +41,7 @@ dependencies = [
   "coremltools>=7.1.0; sys_platform != 'win32'",
   "ncnn>=1.0.3",
   "tensorrt-cu12==11.1.0.106; sys_platform != 'darwin'",
+  "platformdirs>=4.2",
 ]
 description = "Automated object-detection training utilities and CLI — configure, train, predict, benchmark, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, and SAM 3.1 models with an interactive terminal interface."
 keywords = [
@@ -120,17 +121,18 @@ docs = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = ["src"]
 
-[tool.setuptools]
-package-dir = {"src" = "src"}
+[tool.hatch.build.targets.wheel]
+packages = ["src/yolomatic"]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["src*"]
+[tool.hatch.build.targets.sdist]
+include = ["/src/yolomatic", "/tests", "/README.md", "/LICENSE.md", "/CHANGELOG.md"]
 
 [dependency-groups]
 dev = [
+  "pytest>=8.3",
+  "pytest-cov>=6.0",
   "ruff>=0.12",
 ]
 
@@ -160,12 +162,6 @@ torchvision = [
   { index = "pytorch-cu128", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
 ]
 tensorrt-cu12 = [
-  { index = "nvidia" },
-]
-tensorrt-cu12-libs = [
-  { index = "nvidia" },
-]
-tensorrt-cu12-bindings = [
   { index = "nvidia" },
 ]
 
@@ -201,39 +197,22 @@ exclude-dependencies = [
 ]
 
 [project.scripts]
-bump = "src.cli.bump:main"
-yolomatic = "src.cli.run:main"
-yolomatic-predict = "src.cli.predict:main"
-yolomatic-tensorboard = "src.cli.tensorboard_launcher:main"
-yolomatic-train = "src.trainers.yolo_trainer:main"
-yolomatic-upload = "src.cli.upload:main"
-yolomatic-upload-dataset = "src.cli.upload_dataset:main"
-yolomatic-benchmark = "src.cli.benchmark:main"
-yolomatic-sam = "src.cli.sam_predict:main"
-yolomatic-convert = "src.cli.convert_ndjson:main"
-yolomatic-prepare = "src.cli.prepare_dataset:main"
-yolomatic-ultralytics = "src.cli.ultralytics_platform:main"
+yolomatic = "yolomatic.cli.run:main"
+yolomatic-predict = "yolomatic.cli.entrypoints:predict"
+yolomatic-tensorboard = "yolomatic.cli.entrypoints:tensorboard"
+yolomatic-train = "yolomatic.cli.entrypoints:train"
+yolomatic-upload = "yolomatic.cli.entrypoints:upload"
+yolomatic-upload-dataset = "yolomatic.cli.entrypoints:upload_dataset"
+yolomatic-benchmark = "yolomatic.cli.entrypoints:benchmark"
+yolomatic-sam = "yolomatic.cli.entrypoints:sam"
+yolomatic-convert = "yolomatic.cli.entrypoints:convert"
+yolomatic-prepare = "yolomatic.cli.entrypoints:prepare"
+yolomatic-ultralytics = "yolomatic.cli.entrypoints:ultralytics"
+yolomatic-export = "yolomatic.cli.entrypoints:export"
+yolomatic-augment = "yolomatic.cli.entrypoints:augment"
 
 [tool.pyrefly]
 project-includes = [
     "**/*.py*",
     "**/*.ipynb",
 ]
-
-[[tool.uv.dependency-metadata]]
-name = "tensorrt-cu12"
-version = "11.0.0.114"
-requires-dist = [
-    "tensorrt-cu12-libs==11.0.0.114",
-    "tensorrt-cu12-bindings==11.0.0.114",
-]
-
-[[tool.uv.dependency-metadata]]
-name = "tensorrt-cu12-libs"
-version = "11.0.0.114"
-requires-dist = []
-
-[[tool.uv.dependency-metadata]]
-name = "tensorrt-cu12-bindings"
-version = "11.0.0.114"
-requires-dist = []

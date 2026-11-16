@@ -1,9 +1,17 @@
+import errno
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from src.utils.fs import retry_filesystem_op, safe_directory_swap
+from yolomatic.utils.fs import (
+    UnsafePathError,
+    ensure_overwritable_dir,
+    ensure_safe_destructive_target,
+    retry_filesystem_op,
+    safe_directory_swap,
+)
 
 
 class SafeDirectorySwapTest(unittest.TestCase):
@@ -110,7 +118,7 @@ class SafeDirectorySwapTest(unittest.TestCase):
                 return original_rename(self_path, dest_path)
 
             with patch.object(Path, "rename", side_effect=selective_rename, autospec=True):
-                with patch("src.utils.fs.shutil.move", side_effect=RuntimeError("Disk full during move")):
+                with patch("yolomatic.utils.fs.shutil.move", side_effect=RuntimeError("Disk full during move")):
                     with self.assertRaises(RuntimeError):
                         safe_directory_swap(source, target, max_retries=2, backoff_base=0.01)
 
@@ -135,6 +143,121 @@ class SafeDirectorySwapTest(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 safe_directory_swap(source, source)
+
+    def test_partial_migration_failure_never_deletes_source_files(self) -> None:
+        # Regression: rollback used to rmtree(target) after some items had already
+        # been moved out of source, silently deleting them.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = (root / "source").resolve()
+            target = (root / "target").resolve()
+            source.mkdir()
+            names = [f"img{i}.jpg" for i in range(4)]
+            for name in names:
+                (source / name).write_text(name, encoding="utf-8")
+            target.mkdir()
+            (target / "original.txt").write_text("original", encoding="utf-8")
+
+            original_rename = Path.rename
+            original_move = shutil.move
+            moves = {"count": 0}
+
+            def selective_rename(self_path, dest_path):
+                if Path(self_path).resolve() == source:
+                    raise PermissionError(5, "Source rename denied")
+                return original_rename(self_path, dest_path)
+
+            def flaky_move(src, dst):
+                # Forward moves go source -> target; fail on the third one.
+                if Path(src).parent == source:
+                    moves["count"] += 1
+                    if moves["count"] == 3:
+                        raise OSError(errno.ENOSPC, "No space left on device")
+                return original_move(src, dst)
+
+            with patch.object(Path, "rename", side_effect=selective_rename, autospec=True):
+                with patch("yolomatic.utils.fs.shutil.move", side_effect=flaky_move):
+                    with self.assertRaises(OSError):
+                        safe_directory_swap(source, target, max_retries=2, backoff_base=0.01)
+
+            self.assertEqual(sorted(p.name for p in source.iterdir()), sorted(names))
+            for name in names:
+                self.assertEqual((source / name).read_text(encoding="utf-8"), name)
+            self.assertEqual((target / "original.txt").read_text(encoding="utf-8"), "original")
+            self.assertEqual(sorted(p.name for p in target.iterdir()), ["original.txt"])
+
+
+class RetryFilesystemOpTest(unittest.TestCase):
+    def test_permanent_errors_are_not_retried(self) -> None:
+        calls = {"n": 0}
+
+        def disk_full():
+            calls["n"] += 1
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        with self.assertRaises(OSError):
+            retry_filesystem_op(disk_full, max_retries=5, backoff_base=0.001)
+        self.assertEqual(calls["n"], 1)
+
+    def test_transient_lock_errors_are_retried(self) -> None:
+        calls = {"n": 0}
+
+        def locked_then_ok():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise PermissionError(errno.EACCES, "locked")
+            return "ok"
+
+        self.assertEqual(retry_filesystem_op(locked_then_ok, max_retries=5, backoff_base=0.001), "ok")
+        self.assertEqual(calls["n"], 3)
+
+
+class EnsureSafeDestructiveTargetTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name).resolve() / "datasets"
+        self.root.mkdir()
+        self.source = self.root / "source_ds"
+        self.source.mkdir()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_allows_child_folder(self) -> None:
+        target = ensure_safe_destructive_target(self.root / "merged", self.root, [self.source])
+        self.assertEqual(target, self.root / "merged")
+
+    def test_rejects_root_ancestors_and_escapes(self) -> None:
+        for bad in (self.root, self.root / ".", self.root / "..", self.root.parent / "elsewhere"):
+            with self.subTest(bad=bad), self.assertRaises(UnsafePathError):
+                ensure_safe_destructive_target(bad, self.root)
+
+    def test_rejects_overlap_with_forbidden_sources(self) -> None:
+        for bad in (self.source, self.source / "inner"):
+            with self.subTest(bad=bad), self.assertRaises(UnsafePathError):
+                ensure_safe_destructive_target(bad, self.root, [self.source])
+
+
+class EnsureOverwritableDirTest(unittest.TestCase):
+    def test_rejects_roots_home_cwd_and_ancestors(self) -> None:
+        for bad in (Path("/"), Path.home(), Path.cwd(), Path.cwd().parent):
+            with self.subTest(bad=bad), self.assertRaises(UnsafePathError):
+                ensure_overwritable_dir(bad)
+
+    def test_rejects_protected_and_folders_containing_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            datasets = root / "datasets"
+            out = datasets / "converted"
+            out.mkdir(parents=True)
+            source = out / "export.ndjson"
+            source.write_text("{}", encoding="utf-8")
+            with self.assertRaises(UnsafePathError):
+                ensure_overwritable_dir(datasets, protected=[datasets])
+            with self.assertRaises(UnsafePathError):
+                ensure_overwritable_dir(out, must_not_contain=[source])
+            source.unlink()
+            self.assertEqual(ensure_overwritable_dir(out, protected=[datasets]), out)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from src.datasets.validate_roboflow import (
+from yolomatic.datasets.validate_roboflow import (
     TASK_INSTANCE_SEG,
     TASK_OBJECT_DETECT,
     TASK_POSE,

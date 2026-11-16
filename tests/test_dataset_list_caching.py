@@ -1,8 +1,9 @@
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import src.cli.run as run
-from src.datasets.core import DatasetSummary
+import yolomatic.cli.run as run
+from yolomatic.datasets.core import DatasetSummary
 
 
 class DatasetListCachingTest(unittest.TestCase):
@@ -15,10 +16,10 @@ class DatasetListCachingTest(unittest.TestCase):
         run._CACHED_DATASETS = None
         run._CACHED_DATASET_DESCRIPTIONS = None
 
-    @patch("src.cli.run.os.path.exists", return_value=True)
-    @patch("src.cli.run.list_dataset_directories")
-    @patch("src.cli.run.summarize_dataset")
-    @patch("src.cli.run.get_user_choice")
+    @patch("yolomatic.cli.run.os.path.exists", return_value=True)
+    @patch("yolomatic.cli.run.list_dataset_directories")
+    @patch("yolomatic.cli.run.summarize_dataset")
+    @patch("yolomatic.cli.run.get_user_choice")
     def test_list_datasets_caches_and_uses_cache(
         self, mock_get_user_choice, mock_summarize_dataset, mock_list_dataset_dirs, mock_exists
     ):
@@ -43,7 +44,7 @@ class DatasetListCachingTest(unittest.TestCase):
 
         # 1. First call: Should scan directories
         choice = run.list_datasets()
-        self.assertEqual(choice, "datasets/test_ds")
+        self.assertEqual(Path(choice), Path("datasets/test_ds"))
         self.assertEqual(mock_list_dataset_dirs.call_count, 1)
         self.assertEqual(mock_summarize_dataset.call_count, 1)
         self.assertIsNotNone(run._CACHED_DATASETS)
@@ -54,15 +55,15 @@ class DatasetListCachingTest(unittest.TestCase):
         mock_get_user_choice.return_value = "test_ds"
 
         choice2 = run.list_datasets()
-        self.assertEqual(choice2, "datasets/test_ds")
+        self.assertEqual(Path(choice2), Path("datasets/test_ds"))
         # Call count remains 1 because it loaded from cache
         self.assertEqual(mock_list_dataset_dirs.call_count, 1)
         self.assertEqual(mock_summarize_dataset.call_count, 1)
 
-    @patch("src.cli.run.os.path.exists", return_value=True)
-    @patch("src.cli.run.list_dataset_directories")
-    @patch("src.cli.run.summarize_dataset")
-    @patch("src.cli.run.get_user_choice")
+    @patch("yolomatic.cli.run.os.path.exists", return_value=True)
+    @patch("yolomatic.cli.run.list_dataset_directories")
+    @patch("yolomatic.cli.run.summarize_dataset")
+    @patch("yolomatic.cli.run.get_user_choice")
     def test_list_datasets_refresh_invalidates_cache(
         self, mock_get_user_choice, mock_summarize_dataset, mock_list_dataset_dirs, mock_exists
     ):
@@ -87,12 +88,12 @@ class DatasetListCachingTest(unittest.TestCase):
 
         # Call list_datasets: it should loop, clear cache, and run a second scan
         choice = run.list_datasets()
-        self.assertEqual(choice, "datasets/test_ds")
+        self.assertEqual(Path(choice), Path("datasets/test_ds"))
         # Should be called twice due to the refresh
         self.assertEqual(mock_list_dataset_dirs.call_count, 2)
         self.assertEqual(mock_summarize_dataset.call_count, 2)
 
-    @patch("src.cli.run.clear_screen")
+    @patch("yolomatic.cli.run.clear_screen")
     @patch("builtins.input", return_value="")
     def test_safe_subcommand_invalidates_cache(self, mock_input, mock_clear_screen):
         # Set cache variables
@@ -112,7 +113,7 @@ class DatasetListCachingTest(unittest.TestCase):
         import tempfile
         import time
         from pathlib import Path
-        from src.datasets.core import _dataset_signature
+        from yolomatic.datasets.core import _dataset_signature
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "large_ds"

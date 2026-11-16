@@ -83,7 +83,7 @@ Use your Roboflow **workspace slug** for `ROBOFLOW_WORKSPACE`, not a project nam
 | `uv run yolomatic-benchmark` | Benchmark trained checkpoints with interactive HTML report |
 | `uv run yolomatic-upload` | Upload or deploy trained checkpoints to Roboflow |
 | `uv run yolomatic-tensorboard` | Launch TensorBoard for discovered runs |
-| `uv run bump patch\|minor\|major\|VERSION` | Update the package version |
+| `uv version --bump patch\|minor\|major` | Update the package version (uv built-in) |
 
 ### First Run
 
@@ -624,7 +624,7 @@ YOLO-NAS is deprecated because SuperGradients conflicts with RF-DETR's modern tr
 If `uv run` fails with an access-denied error on a locked `torch` file:
 
 ```powershell
-.\.venv\Scripts\python.exe -m src.cli.tensorboard_launcher
+.\.venv\Scripts\python.exe -m yolomatic.cli.tensorboard_launcher
 ```
 
 ---

@@ -2,7 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.augmentation.recovery import find_recoverable_augmentations, recover_augmentation
+from yolomatic.augmentation.recovery import find_recoverable_augmentations, recover_augmentation
+from yolomatic.utils.fs import COMPLETION_MARKER
 
 
 class AugmentationRecoveryTest(unittest.TestCase):
@@ -16,6 +17,7 @@ class AugmentationRecoveryTest(unittest.TestCase):
             (train_images / "aug_train_000000.jpg").write_text("img0", encoding="utf-8")
             (train_images / "aug_train_000001.jpg").write_text("img1", encoding="utf-8")
             (output_dir / "data.yaml").write_text("names: [cat, dog]\n", encoding="utf-8")
+            (output_dir / COMPLETION_MARKER).write_text("ok\n", encoding="utf-8")
 
             recoverable = find_recoverable_augmentations(root)
             self.assertEqual(len(recoverable), 1)
@@ -32,6 +34,29 @@ class AugmentationRecoveryTest(unittest.TestCase):
             self.assertTrue((target / "data.yaml").exists())
             self.assertEqual((target / "train" / "images" / "aug_train_000000.jpg").read_text(encoding="utf-8"), "img0")
             self.assertFalse(staged.exists())
+            self.assertFalse((target / COMPLETION_MARKER).exists())
+
+    def test_partial_runs_are_not_offered_and_existing_targets_are_protected(self) -> None:
+        # Regression: a run interrupted while writing (images but no completion
+        # marker) was offered for recovery, and recovery silently replaced an
+        # existing dataset of the same name.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            partial = root / ".half.augmenting-" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" / "output" / "train" / "images"
+            partial.mkdir(parents=True)
+            (partial / "aug_train_000000.jpg").write_text("x", encoding="utf-8")
+            (partial.parents[1] / "data.yaml").write_text("names: [a]\n", encoding="utf-8")
+            self.assertEqual(find_recoverable_augmentations(root), [])
+
+            (partial.parents[1] / COMPLETION_MARKER).write_text("ok\n", encoding="utf-8")
+            (root / "half").mkdir()
+            (root / "half" / "keep.txt").write_text("keep", encoding="utf-8")
+            rec = find_recoverable_augmentations(root)[0]
+            with self.assertRaises(FileExistsError):
+                recover_augmentation(rec)
+            self.assertTrue((root / "half" / "keep.txt").exists())
+            self.assertTrue(recover_augmentation(rec, overwrite=True))
+            self.assertTrue((root / "half" / "train" / "images" / "aug_train_000000.jpg").exists())
 
     def test_ignores_non_matching_directories(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

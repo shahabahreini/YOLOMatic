@@ -7,9 +7,9 @@ from pathlib import Path
 
 
 class TestBenchmarkMenuIntegration(unittest.TestCase):
-    """Verify the benchmark menu item is present in src/cli/run.py without importing ML deps."""
+    """Verify the benchmark menu item is present in src/yolomatic/cli/run.py without importing ML deps."""
 
-    _RUN_PY = Path(__file__).parent.parent / "src" / "cli" / "run.py"
+    _RUN_PY = Path(__file__).parent.parent / "src" / "yolomatic" / "cli" / "run.py"
 
     def _read_source(self) -> str:
         return self._RUN_PY.read_text(encoding="utf-8")
@@ -27,7 +27,7 @@ class TestBenchmarkMenuIntegration(unittest.TestCase):
     def test_elif_handler_exists(self):
         src = self._read_source()
         self.assertIn('main_choice == "Benchmark Models"', src)
-        self.assertIn("src.cli.benchmark", src)
+        self.assertIn("yolomatic.cli.benchmark", src)
 
     def test_safe_subcommand_called(self):
         src = self._read_source()
@@ -39,12 +39,12 @@ class TestBenchmarkModuleImports(unittest.TestCase):
     """Verify the benchmark package public API is correct."""
 
     def test_public_api_importable(self):
-        from src.benchmark import run_benchmark, write_benchmark_report
+        from yolomatic.benchmark import run_benchmark, write_benchmark_report
         self.assertTrue(callable(run_benchmark))
         self.assertTrue(callable(write_benchmark_report))
 
     def test_benchmark_config_defaults(self):
-        from src.benchmark import BenchmarkConfig
+        from yolomatic.benchmark import BenchmarkConfig
         from pathlib import Path
         config = BenchmarkConfig(
             weights=[Path("model.pt")],
@@ -63,7 +63,7 @@ class TestBenchmarkWeightSelection(unittest.TestCase):
     def test_collect_benchmark_weights_includes_checkpoints_and_exported_models(
         self,
     ) -> None:
-        from src.cli.benchmark import _collect_benchmark_weights
+        from yolomatic.cli.benchmark import _collect_benchmark_weights
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -119,7 +119,7 @@ class TestBenchmarkWeightSelection(unittest.TestCase):
     def test_collect_benchmark_weights_excludes_non_ultralytics_runtime_artifacts(
         self,
     ) -> None:
-        from src.cli.benchmark import _collect_benchmark_weights
+        from yolomatic.cli.benchmark import _collect_benchmark_weights
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -147,7 +147,7 @@ class TestBenchmarkWeightSelection(unittest.TestCase):
             self.assertNotIn(sam_checkpoint, results)
 
     def test_infer_family_recognizes_yolo12_file_names(self) -> None:
-        from src.cli.benchmark import _infer_family
+        from yolomatic.cli.benchmark import _infer_family
 
         self.assertEqual(_infer_family(Path("weights/yolo12n.pt")), "YOLO12")
 
@@ -156,7 +156,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
     """Verify live benchmark progress parsing stays useful for long model lists."""
 
     def test_progress_rows_show_done_running_and_next_models(self):
-        from src.cli.benchmark import _benchmark_progress_rows
+        from yolomatic.cli.benchmark import _benchmark_progress_rows
 
         weights = [
             Path("runs/detect/train_a/weights/best.pt"),
@@ -181,7 +181,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
         self.assertEqual(rows[2]["status"], "Pending")
 
     def test_progress_rows_mark_next_after_completed_model(self):
-        from src.cli.benchmark import _benchmark_progress_rows
+        from yolomatic.cli.benchmark import _benchmark_progress_rows
 
         rows = _benchmark_progress_rows(
             [Path("a.pt"), Path("b.pt")],
@@ -196,7 +196,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
 
     def test_progress_renderer_adapts_to_narrow_terminal(self):
         from rich.console import Console
-        from src.cli import benchmark
+        from yolomatic.cli import benchmark
 
         renderable = benchmark._render_benchmark_progress(
             [Path("runs/detect/train_a/weights/best.pt")],
@@ -217,7 +217,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
 
     def test_progress_renderer_keeps_full_metrics_on_wide_terminal(self):
         from rich.console import Console
-        from src.cli import benchmark
+        from yolomatic.cli import benchmark
 
         renderable = benchmark._render_benchmark_progress(
             [Path("runs/detect/train_a/weights/best.pt")],
@@ -237,7 +237,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
 
     def test_live_screen_contains_single_refreshable_dashboard(self):
         from rich.console import Console
-        from src.cli import benchmark
+        from yolomatic.cli import benchmark
 
         renderable = benchmark._render_benchmark_live_screen(
             [Path("runs/detect/train_a/weights/best.pt")],

@@ -5,7 +5,7 @@ import unittest
 from types import ModuleType
 from unittest.mock import patch
 
-from src.utils import ml_dependencies
+from yolomatic.utils import ml_dependencies
 
 
 class ImportCv2Tests(unittest.TestCase):

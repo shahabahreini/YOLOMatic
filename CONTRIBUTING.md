@@ -72,10 +72,10 @@ A maintainer will review within a week. If you don't hear back, ping the PR — 
 
 YOLOmatic intentionally supports many families. To add a new one:
 
-1. Add metadata to `src/models/data.py` (variants, tasks, checkpoint extension, recommended hyperparameters).
-2. Create a detector module under `src/models/` (e.g., `src/models/foo.py`) with `is_foo_model(name)` and any source-detection helpers.
-3. Add a trainer in `src/trainers/` if the family doesn't fit the existing Ultralytics/RF-DETR/SAM/Detectron2 routes.
-4. Wire the trainer into the smart router in `src/trainers/yolo_trainer.py`.
+1. Add metadata to `src/yolomatic/models/data.py` (variants, tasks, checkpoint extension, recommended hyperparameters).
+2. Create a detector module under `src/yolomatic/models/` (e.g., `src/yolomatic/models/foo.py`) with `is_foo_model(name)` and any source-detection helpers.
+3. Add a trainer in `src/yolomatic/trainers/` if the family doesn't fit the existing Ultralytics/RF-DETR/SAM/Detectron2 routes.
+4. Wire the trainer into the smart router in `src/yolomatic/trainers/yolo_trainer.py`.
 5. Add a guide page at `docs/guides/<family>.md` and link it from `mkdocs.yml`.
 6. Add tests covering config generation and source detection.
 7. Update `MODELS.md`, `llms.txt`, and `llms-full.txt`.

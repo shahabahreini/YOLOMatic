@@ -7,16 +7,16 @@ import unittest
 
 
 MODULES = [
-    "src",
-    "src.cli.run",
-    "src.cli.predict",
-    "src.cli.upload",
-    "src.cli.tensorboard_launcher",
-    "src.config",
-    "src.datasets",
-    "src.trainers.common",
-    "src.trainers.yolo_trainer",
-    "src.utils.tensorboard",
+    "yolomatic",
+    "yolomatic.cli.run",
+    "yolomatic.cli.predict",
+    "yolomatic.cli.upload",
+    "yolomatic.cli.tensorboard_launcher",
+    "yolomatic.config",
+    "yolomatic.datasets",
+    "yolomatic.trainers.common",
+    "yolomatic.trainers.yolo_trainer",
+    "yolomatic.utils.tensorboard",
 ]
 
 
@@ -28,9 +28,9 @@ class ImportSmokeTests(unittest.TestCase):
 
     def test_cli_help_commands(self) -> None:
         commands = [
-            [sys.executable, "-m", "src.cli.predict", "--help"],
-            [sys.executable, "-m", "src.cli.upload", "--help"],
-            [sys.executable, "-m", "src.trainers.yolo_trainer", "--help"],
+            [sys.executable, "-m", "yolomatic.cli.predict", "--help"],
+            [sys.executable, "-m", "yolomatic.cli.upload", "--help"],
+            [sys.executable, "-m", "yolomatic.trainers.yolo_trainer", "--help"],
         ]
         for command in commands:
             with self.subTest(command=" ".join(command)):
@@ -44,13 +44,13 @@ class ImportSmokeTests(unittest.TestCase):
                 self.assertIn("usage:", process.stdout.lower())
 
     def test_package_exports_include_supported_generators(self) -> None:
-        config = importlib.import_module("src.config")
+        config = importlib.import_module("yolomatic.config")
         self.assertTrue(hasattr(config, "YOLOConfigGenerator"))
         self.assertTrue(hasattr(config, "RFDETRConfigGenerator"))
         self.assertTrue(hasattr(config, "Detectron2ConfigGenerator"))
         self.assertFalse(hasattr(config, "YOLONASConfigGenerator"))
 
     def test_dataset_exports_keep_analyzer_and_core_helpers(self) -> None:
-        datasets = importlib.import_module("src.datasets")
+        datasets = importlib.import_module("yolomatic.datasets")
         self.assertIn("DatasetAnalyzer", datasets.__all__)
         self.assertIn("summarize_dataset", datasets.__all__)
