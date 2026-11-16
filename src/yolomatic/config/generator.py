@@ -1184,7 +1184,7 @@ class YOLOConfigGenerator(BaseConfigGenerator):
             task = "semantic"
         else:
             task = self.dataset_info.get("task_type") or fallback_task
-        dataset_config = self._prepared_dataset_config("yolo", task)
+        dataset_config = self._prepared_dataset_config("yolo", str(task) if task else None)
         integration_settings = load_settings()
         config = {
             "settings": {

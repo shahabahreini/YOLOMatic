@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 from rich import box
 from rich.align import Align
+from rich.console import RenderableType
 from rich.panel import Panel
 from rich.table import Table
 from ruamel.yaml import YAML
@@ -441,7 +442,7 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             _CACHED_DATASET_DESCRIPTIONS = dataset_descriptions
         else:
             datasets = _CACHED_DATASETS
-            dataset_descriptions = dict(_CACHED_DATASET_DESCRIPTIONS)
+            dataset_descriptions = dict(_CACHED_DATASET_DESCRIPTIONS or {})
 
         if not datasets:
             console.print(
@@ -658,6 +659,8 @@ def clone_saved_config_flow() -> bool:
                 return False
             step = 2  # exit loop normally
 
+    # The wizard loop only exits normally once all three were chosen.
+    assert dataset_choice is not None and source_path is not None and model_choice
     dataset_path = Path(dataset_choice)
     dataset_name = dataset_path.name
     generator = YOLOConfigGenerator(str(dataset_path))
@@ -1018,7 +1021,7 @@ def update_config(
 
     if mismatch_type:
         classes = generator.dataset_info.get("classes", []) or []
-        num_classes = len(classes)
+        num_classes = len(classes) if isinstance(classes, (list, tuple)) else 0
         dataset_path_display = str(generator.dataset_path)
 
         if mismatch_type == "seg_model_needed":
@@ -1197,7 +1200,7 @@ def update_config(
         # mislabelled dataset produce the same screen.
         scanned_label_dirs = []
         try:
-            train_path = Path(generator.dataset_info.get("train_path") or "")
+            train_path = Path(str(generator.dataset_info.get("train_path") or ""))
             scanned_label_dirs = [str(path) for path in generator._candidate_label_dirs(train_path)]
         except Exception:
             pass
@@ -1254,6 +1257,7 @@ def update_config(
             family = "rfdetr"
             task = get_rfdetr_variant(model_choice).task
             flow_title = "RF-DETR Configuration"
+        assert isinstance(generator, (Detectron2ConfigGenerator, RFDETRConfigGenerator))
         config = generator.generate_config(
             model_choice,
             finetune_source=finetune_source,
@@ -1274,7 +1278,12 @@ def update_config(
         custom_sections = result.get("sections", {"training": result.get("params", {})})
         for section_name, section_params in custom_sections.items():
             config.setdefault(section_name, {}).update(section_params)
+    elif isinstance(generator, SAMConfigGenerator):
+        # SAM has no YOLO profiles; it used to fall into the YOLO profile flow
+        # below and fail on generate_config's different signature.
+        config = generator.generate_config(model_choice, finetune_source=finetune_source)
     elif "nas" not in model_choice.lower():
+        assert isinstance(generator, YOLOConfigGenerator) and profile_context is not None
         profile_selection = choose_regular_yolo_profiles(
             dataset_name,
             profile_context,
@@ -2563,7 +2572,7 @@ def settings_ai_page() -> None:
 
         def _render_content(self) -> Panel:
             key, label = self.sidebar_items[self.current_idx]
-            content_items = []
+            content_items: list[RenderableType] = []
             
             # Build header for right card
             content_items.append(Text(f"{label} Configuration", style="bold yellow underline"))
@@ -3502,7 +3511,7 @@ def _main_loop_iteration():
 
                 elif cm_step == 1:
                     _family = cm_state["model_family"]
-                    variants = [model["Model"] for model in model_data_dict[_family]]
+                    variants = [str(model["Model"]) for model in model_data_dict[_family]]
                     model_variant = get_user_choice(
                         variants,
                         allow_back=True,

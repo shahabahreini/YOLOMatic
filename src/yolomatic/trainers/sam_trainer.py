@@ -70,7 +70,8 @@ class _SAMDataset(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
-    def __getitem__(self, idx: int) -> dict[str, Any]:
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        idx = index
         from PIL import Image as PILImage
 
         sample = self.samples[idx]
@@ -359,7 +360,8 @@ def _make_hf_trainer_class():
             # "labels", which SAM's forward rejects; evaluate through our loss.
             inputs = self._prepare_inputs(inputs)
             with torch.no_grad():
-                loss = self.compute_loss(model, inputs)
+                loss, ious, _outputs = sam_batch_loss(model, inputs)
+            self._eval_ious.extend(ious.tolist())
             return loss.detach(), None, None
 
         def evaluate(self, *args, **kwargs):

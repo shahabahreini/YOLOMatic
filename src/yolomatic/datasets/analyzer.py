@@ -21,7 +21,7 @@ class DatasetAnalyzer:
         """Clean path string by removing spaces and normalizing separators."""
         return str(Path(path.replace(" ", "_")))
 
-    def get_relative_path(self, path: str, base_path: str) -> str:
+    def get_relative_path(self, path: str, base_path: str | Path) -> str:
         """Get relative path that works with the training script."""
         try:
             # Convert to absolute paths first

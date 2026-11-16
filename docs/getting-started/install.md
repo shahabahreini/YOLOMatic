@@ -77,7 +77,7 @@ panels show the path. Override with `YOLOMATIC_LOG_DIR` or `--log-file`, and use
   wheels and will otherwise fall back to a CMake source build.
 - Linux and Windows can use CUDA when the installed PyTorch build supports it.
 - macOS uses CPU or Apple Silicon MPS. NVIDIA CUDA is not available on macOS.
-- Apple Silicon is tested in CI on a native arm64 macOS runner.
+- CI runs the test suite on Linux (Python 3.12 and 3.13); macOS and Windows are supported but not part of the CI matrix.
 - YOLOmatic detects a CPU-only PyTorch build on GPU machines and offers repair
   guidance from the TUI.
 - The interactive TUI needs a terminal. Over SSH use `ssh -t`; in scripts and CI

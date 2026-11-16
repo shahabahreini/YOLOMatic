@@ -259,3 +259,5 @@ yolomatic-augment = "yolomatic.cli.entrypoints:augment"
 [tool.pyrefly]
 project-includes = ["src/yolomatic"]
 search-path = ["src"]
+# Optional runtime dependencies that are not part of the base/dev install.
+ignore-missing-imports = ["detectron2", "detectron2.*", "tensorrt", "umap"]

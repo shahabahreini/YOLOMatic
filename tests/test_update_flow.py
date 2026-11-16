@@ -10,7 +10,9 @@ class UpdateFlowTest(unittest.TestCase):
         from yolomatic.cli import run
 
         completed = Mock(returncode=0)
-        with patch("yolomatic.cli.updates.shutil.which", return_value="/usr/bin/uv"), \
+        # Start from an empty environment: CI runners export UV_CACHE_DIR themselves.
+        with patch.dict("os.environ", {}, clear=True), \
+             patch("yolomatic.cli.updates.shutil.which", return_value="/usr/bin/uv"), \
              patch("subprocess.run", return_value=completed) as run_mock:
             self.assertTrue(run._run_pip_upgrade(["ultralytics"]))
 

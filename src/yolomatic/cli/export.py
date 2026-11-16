@@ -4,7 +4,7 @@ import argparse
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from rich import box
 from rich.panel import Panel
@@ -261,10 +261,10 @@ def build_engine_metadata(yolo_model: Any, kwargs: dict[str, Any], *, max_batch:
         ultralytics_version = "unknown"
     model = getattr(yolo_model, "model", None)
     stride_value = getattr(model, "stride", 32)
-    try:
-        stride = int(max(stride_value))
-    except TypeError:
+    if isinstance(stride_value, (int, float)):
         stride = int(stride_value)
+    else:  # tensor or list of per-level strides
+        stride = int(max(stride_value))
     imgsz = kwargs.get("imgsz", 640)
     imgsz_list = list(imgsz) if isinstance(imgsz, (list, tuple)) else [int(imgsz), int(imgsz)]
     metadata: dict[str, Any] = {
@@ -283,7 +283,7 @@ def build_engine_metadata(yolo_model: Any, kwargs: dict[str, Any], *, max_batch:
                  "int8": False, "nms": bool(kwargs.get("nms", False))},
         "channels": int((getattr(model, "yaml", None) or {}).get("channels", 3)),
     }
-    if metadata["task"] == "pose":
+    if metadata["task"] == "pose" and model is not None:
         try:
             metadata["kpt_shape"] = list(model.model[-1].kpt_shape)
         except Exception:  # noqa: BLE001
@@ -456,7 +456,7 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
         _cuda_available = False
 
     def _cuda_sync() -> None:
-        if _cuda_available:
+        if _cuda_available and torch is not None:
             torch.cuda.synchronize()
 
     # ── Realistic image pool ───────────────────────────────────────────────────
@@ -547,7 +547,7 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
             import gc
 
             gc.collect()
-            if _cuda_available:
+            if _cuda_available and torch is not None:
                 torch.cuda.empty_cache()
 
             return result
@@ -755,7 +755,7 @@ def _run_export(args: argparse.Namespace, root: Path) -> CommandResult:
     pre_selected = set(defaults.keys())
 
     result = get_user_multi_select(
-        parameters=definitions,
+        parameters=cast(list[ParameterDefinition], definitions),
         title=f"Configure {format_label} Export Options",
         instruction="[Space] Toggle  [Enter] Edit Value  [F] Start Export  [Q] Cancel",
         pre_selected=pre_selected,

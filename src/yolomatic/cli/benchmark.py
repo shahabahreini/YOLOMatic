@@ -440,6 +440,8 @@ def _select_dataset_splits(task: str) -> dict[str, Path] | str:
                 default=str(root / "datasets"),
                 value_type="str",
                 description="Dataset root containing data.yaml",
+                # help_text is required; without it this prompt raised TypeError.
+                help_text="Folder that contains the dataset's data.yaml (or COCO annotations).",
             ),
             current_value=str(root / "datasets"),
         )
@@ -962,7 +964,7 @@ def main() -> CommandResult:
     val_dir = next(iter(split_dirs.values()))
 
     options = _configure_options(val_dir)
-    if options == NAV_BACK:
+    if not isinstance(options, dict):
         return CommandResult.cancelled()
     options["task"] = task
 

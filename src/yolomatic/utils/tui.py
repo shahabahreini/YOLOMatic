@@ -725,7 +725,7 @@ class MenuRenderer:
 
         if show_stepper:
             layout["header"].update(
-                _render_wizard_stepper(self.title, self.wizard_steps, self.wizard_current_step)
+                _render_wizard_stepper(self.title, self.wizard_steps or [], self.wizard_current_step or 0)
             )
         else:
             layout["header"].update(
@@ -788,7 +788,7 @@ class MenuRenderer:
             Layout(name="main"),
         ]
         if show_tip:
-            tip_lines = max(1, self.tip.count("\n") + 1)
+            tip_lines = max(1, (self.tip or "").count("\n") + 1)
             splits.append(Layout(name="tip", size=min(tip_lines + 3, 8)))
         content_layout.split_column(*splits)
 
@@ -831,7 +831,7 @@ class MenuRenderer:
         if show_tip:
             content_layout["tip"].update(
                 make_panel(
-                    Text.from_markup(self.tip),
+                    Text.from_markup(self.tip or ""),
                     title="[bold green]Tip[/bold green]",
                     state=TUIState.SUCCESS,
                     padding=(0, 1),
@@ -1299,7 +1299,7 @@ class MultiSelectRenderer:
 
         start_idx, end_idx = self._compute_visible_window()
 
-        items: list[Text] = []
+        items: list[RenderableType] = []
         # The caller's instruction (e.g. "[F] Start Export") was stored but never shown.
         if self.instruction:
             items.append(markup_or_text(self.instruction))
@@ -1339,7 +1339,7 @@ class MultiSelectRenderer:
         param = self.parameters[self.current_index]
         current_val = self.values.get(param.name, param.default)
 
-        info_lines = [
+        info_lines: list[RenderableType] = [
             Text.from_markup(f"[bold cyan]Parameter:[/bold cyan] {param.name}"),
             Text.from_markup(f"[bold cyan]Category:[/bold cyan] {param.category}"),
             Text.from_markup(f"[bold cyan]Saved To:[/bold cyan] config.{param.config_section}"),
@@ -1511,7 +1511,7 @@ class MultiSelectRenderer:
 
         if show_stepper:
             layout["header"].update(
-                _render_wizard_stepper(self.title, self.wizard_steps, self.wizard_current_step)
+                _render_wizard_stepper(self.title, self.wizard_steps or [], self.wizard_current_step or 0)
             )
         else:
             layout["header"].update(

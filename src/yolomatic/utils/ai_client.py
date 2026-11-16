@@ -474,7 +474,7 @@ def query_llm_multimodal(
             "Authorization": f"Bearer {api_key}"
         }
         
-        content_parts = [{"type": "text", "text": text_prompt}]
+        content_parts: list[dict[str, Any]] = [{"type": "text", "text": text_prompt}]
         
         for sample in samples_base64:
             content_parts.append({
@@ -484,7 +484,7 @@ def query_llm_multimodal(
                 }
             })
             
-        messages = []
+        messages: list[dict[str, Any]] = []
         if system_instruction:
             messages.append({"role": "system", "content": system_instruction})
             

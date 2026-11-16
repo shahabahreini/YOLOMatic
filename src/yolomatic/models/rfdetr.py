@@ -78,7 +78,7 @@ def get_rfdetr_variant(model_choice: str) -> RFDETRVariant:
 
 
 def rfdetr_table_rows(task: str | None = None) -> list[dict[str, object]]:
-    rows = []
+    rows: list[dict[str, object]] = []
     for variant in RFDETR_VARIANTS.values():
         if task is not None and variant.task != task:
             continue

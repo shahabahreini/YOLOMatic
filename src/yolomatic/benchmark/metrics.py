@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -236,7 +237,7 @@ def _safe_div(a: float, b: float) -> float:
 
 def semantic_metrics(
     predictions: list[np.ndarray], ground_truth: list[np.ndarray], class_ids: list[int]
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Compute dense semantic-segmentation metrics from class-index masks.
 
     Pixels whose ground truth is negative are ignored. Background (0) is

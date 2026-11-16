@@ -1095,7 +1095,7 @@ def convert_coco_to_yolo(source_dir: str | Path, output_dir: str | Path, *, summ
                     x, y, w, h = [float(v) for v in bbox]
                     rows.append(f"{cls} {(x + w / 2) / width} {(y + h / 2) / height} {w / width} {h / height}")
             (label_dir / f"{Path(file_name).stem}.txt").write_text("\n".join(rows), encoding="utf-8")
-    data_yaml = {"path": str(output.resolve()), "train": yaml_splits.get("train", "train/images"), "val": yaml_splits.get("val", "val/images"), "test": yaml_splits.get("test", "test/images"), "nc": len(class_names), "names": class_names}
+    data_yaml: dict[str, Any] = {"path": str(output.resolve()), "train": yaml_splits.get("train", "train/images"), "val": yaml_splits.get("val", "val/images"), "test": yaml_splits.get("test", "test/images"), "nc": len(class_names), "names": class_names}
     if num_kpts:
         data_yaml["task"] = "pose"
         data_yaml["kpt_shape"] = [num_kpts, 3]

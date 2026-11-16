@@ -42,7 +42,7 @@ def _validate_local_weights(value: Any, *, label: str) -> None:
         )
 
 
-def instantiate_rfdetr_model(config: dict[str, Any]) -> object:
+def instantiate_rfdetr_model(config: dict[str, Any]) -> Any:
     settings = config["settings"]
     variant = get_rfdetr_variant(settings["model_type"])
     training = config.get("training", {})

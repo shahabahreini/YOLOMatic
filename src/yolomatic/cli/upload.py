@@ -374,7 +374,7 @@ def fetch_workspace_projects(workspace: Any) -> list[dict[str, str]]:
 
 def select_project_ids_from_workspace(
     workspace: Any, defaults: Sequence[str]
-) -> list[str]:
+) -> list[str] | None:
     """Offer a TUI picker populated with real project IDs from the workspace.
 
     If env defaults are provided and all exist in the workspace they are
@@ -819,7 +819,7 @@ def main() -> CommandResult:
             return coerce_result(upload_dataset_main(_dataset_delegate_argv(args)))
 
     # Shared state for the wizard
-    context = {
+    context: dict[str, Any] = {
         "candidate": None,
         "workspace_input": args.workspace,
         "resolved_workspace": None,

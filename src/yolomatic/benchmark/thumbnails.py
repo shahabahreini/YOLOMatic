@@ -31,7 +31,7 @@ def generate_thumbnail(
 
         img = Image.open(image_path).convert("RGB")
         orig_w, orig_h = img.size
-        img_resized = img.resize((size, size), Image.LANCZOS)
+        img_resized = img.resize((size, size), Image.Resampling.LANCZOS)
         draw = ImageDraw.Draw(img_resized, "RGBA")
         sx, sy = size / orig_w, size / orig_h
 
