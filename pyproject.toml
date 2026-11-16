@@ -92,7 +92,7 @@ license = "Apache-2.0"
 name = "yolomatic"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
-version = "6.4.0"
+version = "7.0.0"
 
 [project.urls]
 Changelog = "https://github.com/shahabahreini/YOLOMatic/blob/main/CHANGELOG.md"
@@ -259,3 +259,5 @@ yolomatic-augment = "yolomatic.cli.entrypoints:augment"
 [tool.pyrefly]
 project-includes = ["src/yolomatic"]
 search-path = ["src"]
+# Optional runtime dependencies that are not part of the base/dev install.
+ignore-missing-imports = ["detectron2", "detectron2.*", "tensorrt", "umap"]

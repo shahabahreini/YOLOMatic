@@ -170,7 +170,7 @@ def build_export_kwargs(
     warn: Callable[[str], None] | None = None,
     model_details: ExportModelDetails | None = None,
 ) -> dict[str, Any]:
-    export_kwargs = {"format": target_format}
+    export_kwargs: dict[str, Any] = {"format": target_format}
 
     for param in definitions:
         if param.name not in selected_params:

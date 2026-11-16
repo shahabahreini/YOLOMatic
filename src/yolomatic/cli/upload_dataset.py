@@ -181,7 +181,10 @@ def step_select_dataset(root_dir: Path, requested_dataset: str | None) -> Path |
         console.print(expected_error_panel(f"Specified dataset path not found: {cand}"))
         return None
 
-    discovered = list_dataset_directories(root_dir)
+    # list_dataset_directories returns entry dicts ({"name", "path", ...}) for the
+    # datasets/ folder; this used to treat them as Paths of the project root and
+    # crashed with AttributeError as soon as any dataset existed.
+    discovered = [Path(entry["path"]) for entry in list_dataset_directories(root_dir / "datasets", include_size=False)]
     options: list[str] = []
     descriptions: dict[str, str] = {}
 
@@ -721,7 +724,7 @@ def execute_per_image_upload(
     num_workers: int = 10,
 ) -> dict[str, Any]:
     total = len(parsed_images)
-    stats = {
+    stats: dict[str, Any] = {
         "uploaded": 0,
         "duplicate": 0,
         "annotations_saved": 0,

@@ -626,6 +626,7 @@ def convert_ndjson_to_format(
                 for split in ("train", "val", "test"):
                     if (images_dir / split).is_dir():
                         data_yaml[split] = f"images/{split}"
+                assert pose_meta is not None  # pose output always has metadata
                 data_yaml["task"] = "pose"
                 data_yaml["kpt_shape"] = pose_meta["kpt_shape"]
                 if pose_meta.get("flip_idx") is not None:
@@ -638,7 +639,7 @@ def convert_ndjson_to_format(
             categories = []
             for idx, name in enumerate(class_names):
                 category: dict[str, Any] = {"id": idx + 1, "name": name}
-                if pose_output:
+                if pose_output and pose_meta is not None:
                     category["keypoints"] = pose_meta["kpt_names"]
                     category["skeleton"] = pose_meta["skeleton"]
                 categories.append(category)

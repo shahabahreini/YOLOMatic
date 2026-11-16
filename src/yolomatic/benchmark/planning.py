@@ -131,7 +131,7 @@ def resolve_dataset_splits(
         # standardizes it to the user-facing ``valid`` group.
         split = summary.splits.get("val") if name == "valid" else summary.splits.get(name)
         directory = _split_directory(split) if split else None
-        if directory is None or not directory.exists() or split.image_count == 0:
+        if split is None or directory is None or not directory.exists() or split.image_count == 0:
             if normalized_selection != "all":
                 raise BenchmarkCompatibilityError(
                     f"The {name} split is missing or contains no images in '{dataset_dir}'."

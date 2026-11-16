@@ -12,14 +12,18 @@ Thanks for your interest. YOLOmatic is an open-source toolkit for automating com
 
 ## Dev setup
 
-Prerequisites: Python ≥ 3.12 (< 3.13) and [`uv`](https://docs.astral.sh/uv/).
+Prerequisites: Python 3.12 or 3.13 and [`uv`](https://docs.astral.sh/uv/).
 
 ```sh
 git clone https://github.com/shahabahreini/YOLOMatic.git
 cd YOLOMatic
-uv sync                       # install deps + create .venv
+uv sync                       # base install + dev tools (pytest, ruff, pyrefly)
+uv sync --all-extras          # optional: export/tensorrt/clearml/viz/sam stacks
+uvx pre-commit install        # ruff + lockfile + hygiene checks on commit
 uv run yolomatic              # launch the TUI to confirm it works
 ```
+
+The test suite must pass on the base install (CI does not install extras).
 
 A CUDA-capable GPU is recommended for end-to-end training tests; CPU and Apple Silicon (`mps`) are supported as fallbacks.
 
@@ -60,7 +64,7 @@ Scopes mirror top-level folders under `src/` (`cli`, `datasets`, `models`, `trai
 ## Pull requests
 
 1. Fork → branch from `main` → small, focused changes.
-2. Run `uv run pytest` locally before opening the PR.
+2. Run `uv run ruff check src tests` and `uv run pytest` locally before opening the PR.
 3. Update `CHANGELOG.md` under `[Unreleased]` describing user-facing impact.
 4. If your change affects docs, update `README.md` *and* the relevant page under `docs/`.
 5. Use the [PR template](.github/PULL_REQUEST_TEMPLATE.md) — it asks the right questions.

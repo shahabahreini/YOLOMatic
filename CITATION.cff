@@ -10,8 +10,8 @@ authors:
 repository-code: "https://github.com/shahabahreini/YOLOMatic"
 url: "https://shahabahreini.github.io/YOLOMatic/"
 license: Apache-2.0
-version: 4.4.0
-date-released: 2026-05-20
+version: 7.0.0
+date-released: 2026-11-15
 identifiers:
   - type: doi
     value: "10.5281/zenodo.TBD"

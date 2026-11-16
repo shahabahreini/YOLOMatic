@@ -222,6 +222,8 @@ class LoggingSetupTest(unittest.TestCase):
 
             logging.getLogger("yolomatic.test").warning("visible warning")
             self.assertIn("visible warning", buffer.getvalue())
+            # Close the file handler before the temp dir is removed (Windows locks open files).
+            self.tearDown()
 
     def test_run_log_mirrors_records(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

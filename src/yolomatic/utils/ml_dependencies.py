@@ -7,9 +7,7 @@ import sys
 import threading
 from importlib import metadata
 from pathlib import Path
-from typing import TypeVar
-
-_T = TypeVar("_T")
+from typing import Any, NoReturn
 
 _IS_WINDOWS = platform.system() == "Windows"
 _NVIDIA_PACKAGE_NAMES = (
@@ -189,7 +187,7 @@ def prepare_ml_runtime() -> list[Path]:
     return added_paths
 
 
-def _raise_dependency_error(module_name: str, error: Exception) -> None:
+def _raise_dependency_error(module_name: str, error: Exception) -> NoReturn:
     prepare_ml_runtime()
     message = str(error)
     if "libcudnn.so.9" in message:
@@ -203,7 +201,7 @@ def _raise_dependency_error(module_name: str, error: Exception) -> None:
     ) from error
 
 
-def import_module_or_raise(module_name: str) -> _T:
+def import_module_or_raise(module_name: str) -> Any:
     prepare_ml_runtime()
     try:
         return importlib.import_module(module_name)
@@ -211,11 +209,11 @@ def import_module_or_raise(module_name: str) -> _T:
         _raise_dependency_error(module_name, error)
 
 
-def import_torch() -> _T:
+def import_torch() -> Any:
     return import_module_or_raise("torch")
 
 
-def import_ultralytics_yolo() -> object:
+def import_ultralytics_yolo() -> Any:
     ultralytics_module = import_module_or_raise("ultralytics")
     try:
         return ultralytics_module.YOLO
@@ -225,7 +223,7 @@ def import_ultralytics_yolo() -> object:
         ) from error
 
 
-def import_ultralytics_settings() -> object:
+def import_ultralytics_settings() -> Any:
     ultralytics_module = import_module_or_raise("ultralytics")
     try:
         return ultralytics_module.settings
@@ -235,7 +233,7 @@ def import_ultralytics_settings() -> object:
         ) from error
 
 
-def import_rfdetr_module() -> object:
+def import_rfdetr_module() -> Any:
     try:
         return import_module_or_raise("rfdetr")
     except MLDependencyError as error:
@@ -245,7 +243,7 @@ def import_rfdetr_module() -> object:
         ) from error
 
 
-def import_rfdetr_model_class(class_name: str) -> object:
+def import_rfdetr_model_class(class_name: str) -> Any:
     rfdetr_module = import_rfdetr_module()
     try:
         return getattr(rfdetr_module, class_name)
@@ -264,7 +262,7 @@ def import_rfdetr_model_class(class_name: str) -> object:
         ) from error
 
 
-def import_detectron2() -> object:
+def import_detectron2() -> Any:
     try:
         return import_module_or_raise("detectron2")
     except MLDependencyError as error:
@@ -283,7 +281,7 @@ def extra_install_hint(extra: str) -> str:
     )
 
 
-def import_sam_transformers() -> object:
+def import_sam_transformers() -> Any:
     """Import transformers, validating that Sam3TrackerModel (added in 5.8) is present."""
     try:
         mod = import_module_or_raise("transformers")
@@ -300,7 +298,7 @@ def import_sam_transformers() -> object:
         ) from error
 
 
-def import_cv2() -> _T:
+def import_cv2() -> Any:
     """Import OpenCV once at a time, recovering a known partial-import state.
 
     OpenCV's Python bootstrap can expose a partially initialized ``cv2`` module
@@ -324,10 +322,8 @@ def import_cv2() -> _T:
                 module = importlib.import_module("cv2")
             except Exception as retry_error:
                 _raise_dependency_error("cv2", retry_error)
-                return None  # unreachable; keeps type checkers happy
         except Exception as error:
             _raise_dependency_error("cv2", error)
-            return None  # unreachable; keeps type checkers happy
 
         missing = [attr for attr in _CV2_REQUIRED_ATTRS if not hasattr(module, attr)]
         if missing:

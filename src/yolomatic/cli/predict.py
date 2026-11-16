@@ -166,7 +166,7 @@ def infer_rfdetr_class_from_weight(weight_path: Path) -> str:
     return infer_rfdetr_class(weight_path)
 
 
-def load_rfdetr_model(weight_path: Path) -> object:
+def load_rfdetr_model(weight_path: Path) -> Any:
     model_class = import_rfdetr_model_class(infer_rfdetr_class_from_weight(weight_path))
     return model_class(pretrain_weights=str(weight_path))
 
@@ -410,7 +410,7 @@ def run_rfdetr_prediction(weight_path: Path, source_path: Path, conf: float) -> 
 
 
 def _predict_single_image(
-    model: object, image_path: Path, conf: float
+    model: Any, image_path: Path, conf: float
 ) -> BatchPredictionResult:
     try:
         if getattr(model, "_yolomatic_rfdetr", False):
@@ -432,7 +432,7 @@ def _predict_single_image(
         )
 
 
-def _predict_single_rfdetr_image(model: object, image_path: Path, conf: float) -> Path:
+def _predict_single_rfdetr_image(model: Any, image_path: Path, conf: float) -> Path:
     import supervision as sv
     from PIL import Image
 
@@ -448,7 +448,7 @@ def _predict_single_rfdetr_image(model: object, image_path: Path, conf: float) -
     return output_dir
 
 
-def _output_dir_from_results(results: object) -> Path | None:
+def _output_dir_from_results(results: Any) -> Path | None:
     if not results:
         return None
     save_dir = getattr(results[0], "save_dir", None)
@@ -477,7 +477,7 @@ def _predict_image_in_worker(image_path: str) -> BatchPredictionResult:
 
 def build_batch_summary(
     results: Sequence[BatchPredictionResult], elapsed_seconds: float, workers: int
-) -> dict[str, object]:
+) -> dict[str, Any]:
     succeeded = [result for result in results if result.succeeded]
     failed = [result for result in results if not result.succeeded]
     output_dirs = sorted(

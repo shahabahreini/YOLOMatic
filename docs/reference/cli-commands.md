@@ -23,6 +23,62 @@ description: Reference for all YOLOmatic command-line entrypoints, flags, and us
 
 All commands are available as `uv run <command>` from the repository root, or directly after `uv tool install --python 3.12 yolomatic`.
 
+## `yolomatic <command>`
+
+Every tool can also be run as a subcommand of `yolomatic`, without the TUI:
+
+```sh
+yolomatic --help
+yolomatic predict --weight best.pt --source images/ --mode folder
+yolomatic train --config configs/my_run.yaml
+yolomatic tensorboard --port 6007
+```
+
+| Command | Same as |
+|---|---|
+| `train` | `yolomatic-train` |
+| `predict` | `yolomatic-predict` |
+| `export` | `yolomatic-export` |
+| `benchmark` | `yolomatic-benchmark` |
+| `augment` | `yolomatic-augment` |
+| `prepare` | `yolomatic-prepare` |
+| `convert` | `yolomatic-convert` |
+| `sam` | `yolomatic-sam` |
+| `upload` | `yolomatic-upload` |
+| `upload-dataset` | `yolomatic-upload-dataset` |
+| `tensorboard` | `yolomatic-tensorboard` |
+| `ultralytics` | `yolomatic-ultralytics` |
+
+Global flags (before the command): `--version`, `--debug` (verbose logs and
+on-screen tracebacks), `--no-color` (same as `NO_COLOR=1`), `--log-file PATH`.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Success |
+| `1` | The command failed (the message explains why; details are in the log) |
+| `2` | Usage error, or the TUI was started without a terminal |
+| `130` | Cancelled with Ctrl+C |
+
+### Environment variables
+
+| Variable | Effect |
+|---|---|
+| `YOLOMATIC_DEBUG=1` | Same as `--debug` |
+| `YOLOMATIC_LOG_DIR` | Folder for the rotating session log |
+| `YOLOMATIC_ASCII=1` | Plain ASCII symbols for legacy terminals |
+| `YOLOMATIC_MOUSE=1` | Mouse-wheel scrolling in menus (disables text selection) |
+| `YOLOMATIC_KEYRING=0` | Keep AI API keys in the settings file instead of the OS credential store |
+| `NO_COLOR=1` | Disable colors |
+
+### Keys in the TUI
+
+`↑↓`/`j k` move, `Enter` selects, `B`/`Esc` goes back, `Q` goes back (quits on
+the main menu), `F` continues where offered, `?` shows all shortcuts, and
+`Ctrl+C` cancels the current flow (quits from the main menu). Text prompts
+support line editing, history and `Tab` path completion; type `:b` to go back.
+
 ---
 
 ## `yolomatic`

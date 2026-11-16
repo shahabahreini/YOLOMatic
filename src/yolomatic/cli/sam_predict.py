@@ -592,8 +592,10 @@ def _run_batch(
                 if mode == "Auto (segment everything)":
                     n = _run_auto(img_path, model, processor, device, writer)
                 elif mode == "Text-prompted":
+                    assert isinstance(mode_config, list)
                     n = _run_text(img_path, mode_config, model, processor, device, writer)
                 else:
+                    assert isinstance(mode_config, Path)
                     n = _run_box(img_path, mode_config, model, processor, device, writer)
                 counters["masks"] += n
                 log_lines.append(f"  [{i}/{total}] {escape(img_path.name)} → {n} masks")

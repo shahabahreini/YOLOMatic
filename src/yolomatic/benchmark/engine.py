@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import yaml
@@ -98,7 +99,7 @@ class ModelMetrics:
     per_image: list[ImageResult]
     inference_time_ms: float = 0.0
     fps: float = 0.0
-    semantic: dict[str, object] | None = None
+    semantic: dict[str, Any] | None = None
     split_metrics: dict[str, dict[str, float]] = field(default_factory=dict)
 
 @dataclass
@@ -429,7 +430,8 @@ def _extract_preds(result, task: str, img_w: int, img_h: int) -> list[PredObject
         masks_data = raw.cpu().numpy() if hasattr(raw, "cpu") else np.array(raw)
 
     for i in range(len(confs)):
-        box = tuple(float(v) for v in xyxy[i])
+        x1, y1, x2, y2 = (float(v) for v in xyxy[i][:4])
+        box = (x1, y1, x2, y2)
         mask: np.ndarray | None = None
         if masks_data is not None and i < len(masks_data):
             m = masks_data[i]
@@ -723,15 +725,17 @@ def _evaluate_model_worker(
             per_image[-1].split = split_name
 
     agg = aggregate_metrics(per_image, task)
-    semantic: dict[str, object] | None = None
+    semantic: dict[str, Any] | None = None
     if task == "semantic":
         masks = [result for result in per_image if result.semantic_prediction is not None and result.semantic_ground_truth is not None]
         if not masks:
             log("  [ERROR] No semantic masks could be extracted from this model.")
             return None, logs
         max_class = max(
-            int(max(result.semantic_prediction.max(), result.semantic_ground_truth.max()))
+            int(max(np.max(prediction), np.max(truth)))
             for result in masks
+            if (prediction := result.semantic_prediction) is not None
+            and (truth := result.semantic_ground_truth) is not None
         )
         semantic = semantic_metrics(
             [result.semantic_prediction for result in masks if result.semantic_prediction is not None],

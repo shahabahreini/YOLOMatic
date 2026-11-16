@@ -1281,7 +1281,7 @@ def _write_coco_dataset(
         category: dict[str, Any] = {"id": idx + 1, "name": name}
         if num_kpts:
             category["keypoints"] = kpt_names
-            category["skeleton"] = pose_meta.get("skeleton") or []
+            category["skeleton"] = (pose_meta or {}).get("skeleton") or []
         categories.append(category)
     for split_name, records in split_records_by_name.items():
         img_dir = output / split_name / "images"

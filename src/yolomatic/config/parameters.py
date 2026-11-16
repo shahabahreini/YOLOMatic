@@ -1831,7 +1831,7 @@ def _normalize_task(task: str | None) -> str:
     return value or "detection"
 
 
-def _filter_yolo_parameters(task: str) -> list[ParameterDefinition]:
+def _filter_yolo_parameters(task: str | None) -> list[ParameterDefinition]:
     task = _normalize_task(task)
     result: list[ParameterDefinition] = []
     for param in YOLO_TRAINING_PARAMETERS:
@@ -1845,7 +1845,7 @@ def _filter_yolo_parameters(task: str) -> list[ParameterDefinition]:
     return result
 
 
-def _filter_rfdetr_parameters(task: str) -> list[ParameterDefinition]:
+def _filter_rfdetr_parameters(task: str | None) -> list[ParameterDefinition]:
     task = _normalize_task(task)
     if task == "pose":
         return list(RFDETR_TRAINING_PARAMETERS)

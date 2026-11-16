@@ -624,7 +624,7 @@ def build_pose_pipeline(profile):
             "Pose augmentation: skipping flip/transpose transforms — keypoint "
             "left/right reindexing (flip_idx) is not supported."
         )
-    transforms = [
+    transforms: list[Any] = [
         t for cfg in safe_cfgs
         if (t := _instantiate_transform(A, cfg)) is not None
     ]
@@ -1193,11 +1193,12 @@ def run_augmentation(
     worker_context = multiprocessing.get_context("spawn")
     split_data: dict[str, list[Path]] = {name: [] for name in _SPLIT_NAMES}
 
+    # Defined before the try: the cleanup below needs it even if the pool fails to start.
+    pending: dict[Any, tuple[int, Path]] = {}
     try:
         # Keep at most two jobs per process outstanding: large images remain on disk,
         # not in the parent process or an unbounded executor queue.
         job_iter = iter(enumerate(all_pairs))
-        pending: dict[Any, tuple[int, Path]] = {}
         with ProcessPoolExecutor(
             max_workers=max_workers,
             mp_context=worker_context,
