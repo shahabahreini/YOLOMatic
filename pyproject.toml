@@ -212,17 +212,17 @@ tensorrt-cu12 = [
 
 [[tool.uv.dependency-metadata]]
 name = "tensorrt-cu12"
-version = "11.1.0.106"
-requires-dist = ["tensorrt-cu12-libs==11.1.0.106", "tensorrt-cu12-bindings==11.1.0.106"]
+version = "11.4.0.106"
+requires-dist = ["tensorrt-cu12-libs==11.4.0.106", "tensorrt-cu12-bindings==11.4.0.106"]
 
 [[tool.uv.dependency-metadata]]
 name = "tensorrt-cu12-bindings"
-version = "11.1.0.106"
+version = "11.4.0.106"
 requires-dist = []
 
 [[tool.uv.dependency-metadata]]
 name = "tensorrt-cu12-libs"
-version = "11.1.0.106"
+version = "11.4.0.106"
 requires-dist = []
 
 [tool.uv]
