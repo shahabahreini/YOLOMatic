@@ -1,3 +1,86 @@
+## [7.0.0] - 2026-11-15
+
+A hardening release: dozens of correctness and data-safety fixes, honest exit
+codes, working Ctrl-C, a reworked TUI, a much smaller default install, and
+Detectron2 / SAM 3.1 training that actually trains. It contains breaking
+changes; see **Migrating from 6.x** below.
+
+### Migrating from 6.x
+
+- **Import path:** the package is now `yolomatic` (it was literally `src`).
+  `from src.cli.run import main` becomes `from yolomatic.cli.run import main`.
+  Console commands are unchanged.
+- **Optional extras:** the base install no longer includes TensorFlow, ONNX,
+  OpenVINO, CoreML, NCNN, TensorRT or umap-learn. Install what you use:
+  `yolomatic[export]` (ONNX/TF/CoreML/OpenVINO/NCNN), `yolomatic[tensorrt]`,
+  `yolomatic[clearml]`, `yolomatic[viz]` (UMAP), `yolomatic[sam]`, or
+  `yolomatic[all]`. A missing extra now prints the exact install command.
+- **Exit codes:** every command exits `0` on success, `1` on failure, `2` for
+  usage errors or a missing terminal, `130` when cancelled with Ctrl+C. Several
+  commands used to exit `0` after failing.
+- **`bump` removed:** use `uv version --bump patch|minor|major` (also updates
+  `uv.lock`).
+- **API keys:** keys saved in Settings > AI move to your OS credential store
+  (Keychain, Credential Locker, Secret Service) the next time settings are
+  saved; `configs/yolomatic_settings.yaml` keeps a `keyring:` reference.
+  Without a credential store the previous format is used.
+- **`yolomatic-upload-dataset --type`** no longer defaults to
+  instance-segmentation; the task is detected from the dataset.
+- **Detectron2 prediction** needs the `config.yaml` / `yolomatic_detectron2.json`
+  that training now writes into each run folder; checkpoints from 6.x runs need
+  retraining (or a copied `config.yaml`).
+
+### Added
+- `yolomatic <command>`: run any tool without the TUI (`train`, `predict`,
+  `export`, `benchmark`, `augment`, `prepare`, `convert`, `sam`, `upload`,
+  `upload-dataset`, `tensorboard`, `ultralytics`), plus `--version`, `--debug`,
+  `--no-color` and `--log-file`. New `yolomatic-export` and `yolomatic-augment`
+  scripts.
+- Rotating session log in the OS user log folder (`YOLOMATIC_LOG_DIR`
+  overrides); error panels show its path, tracebacks only with `--debug`.
+- TUI: `?` keyboard help, accurate footer hints, readline editing with Tab
+  path completion, plan summaries visible on every confirmation screen, a
+  "terminal too small" notice, opt-in mouse capture (`YOLOMATIC_MOUSE=1`).
+- TensorBoard launcher picks a free port and accepts `--port` / `--logdir`.
+- Custom dynamic-batch TensorRT engines carry Ultralytics metadata.
+- Python 3.13 support.
+
+### Fixed
+- Automatic Roboflow upload after YOLO training never worked.
+- Dataset combiner crashed on every run (after deleting the old output); it
+  now writes only inside `datasets/` and swaps in a finished merge.
+- Benchmark ground truth for YOLO detection labels was parsed as polygons, so
+  detection mAP/precision/recall were wrong; matching is now class-aware and
+  COCO category ids are mapped correctly.
+- Data-loss bugs: a failed directory swap could delete migrated files,
+  `prepare --overwrite` could delete the source dataset, cache cleanup deleted
+  user `.npy` files, and convert/export overwrites accepted unsafe paths.
+- Ctrl-C now stops augmentation, benchmark, SAM, conversion, preparation and
+  prediction work instead of leaving it running in the background.
+- Outputs (datasets, settings, profiles, downloads, COCO files) are written
+  atomically or staged, so a crash never leaves half-written results.
+- A TUI started without a terminal no longer spins at 100% CPU.
+- Errors no longer flash past: failures always pause with the message and a hint.
+- Detectron2: RetinaNet class count, repeat dataset registration, a real COCO
+  evaluator, converted-dataset image paths, and prediction that loads the
+  trained architecture and saves results.
+- SAM 3.1 fine-tuning had no loss and failed on batches with different object
+  counts; SAM prediction wrote invalid COCO and dropped detection classes.
+- Many smaller fixes: export device default on Macs/CPU, labels for the
+  `train/images` + `train/labels` upload layout, duplicate Roboflow batches
+  after server errors, NDJSON class-id order, GPU probe timeouts, Gemini key
+  leaking into error text, UTF-8 file I/O on Windows, stale conversion caches.
+
+### Changed
+- Upper bounds on the major ML dependencies; `scikit-learn`, `requests`,
+  `platformdirs` and `keyring` declared; unused `termcolor`, `tabulate` and
+  `terminaltables` removed.
+- Settings values are type-checked (`enabled: "no"` is now false).
+- CI runs on pull requests with pytest, a Python 3.13 job, lockfile, type-check
+  and dependency-audit jobs; `.pre-commit-config.yaml` added.
+
+Releases 6.1.0-6.4.0 are described in the git history.
+
 ## [6.0.0] - 2026-06-19
 
 ### Added

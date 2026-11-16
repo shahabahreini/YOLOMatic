@@ -48,9 +48,13 @@ RF-DETR, SAM 3.1, and Detectron2 from one terminal workflow.
 ## 30-Second Quickstart
 
 ```sh
-uv tool install --python 3.12 yolomatic
+uv tool install --python 3.12 yolomatic   # add extras as needed, e.g. "yolomatic[export,sam]"
 yolomatic
 ```
+
+Optional extras: `export` (ONNX/TensorFlow/CoreML/OpenVINO/NCNN), `tensorrt`,
+`clearml`, `viz` (UMAP), `sam` (SAM 3.1), or `all`. See the
+[install guide](docs/getting-started/install.md).
 
 Repository development:
 
@@ -61,16 +65,19 @@ uv sync
 uv run yolomatic
 ```
 
-Common commands:
+Run any tool without the TUI (handy in scripts and CI):
 
 ```sh
-uv run yolomatic-train
-uv run yolomatic-predict
-uv run yolomatic-benchmark
-uv run yolomatic-convert
-uv run yolomatic-upload
-uv run yolomatic-tensorboard
+yolomatic --help                      # all commands, flags and exit codes
+yolomatic train --config configs/my_run.yaml
+yolomatic predict --weight runs/detect/train/weights/best.pt --source images/
+yolomatic export --weight runs/detect/train/weights/best.pt
+yolomatic tensorboard --port 6006
 ```
+
+Commands exit `0` on success, `1` on failure, `2` on usage errors or when no
+terminal is available, and `130` when cancelled with Ctrl+C. The older
+`yolomatic-train`, `yolomatic-predict`, ... scripts still work.
 
 ## Versioning
 
