@@ -2,8 +2,8 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from src.augmentation.profiles import AugmentationProfile
-from src.cli.augment import (
+from yolomatic.augmentation.profiles import AugmentationProfile
+from yolomatic.cli.augment import (
     _apply_profile_editor_result,
     _build_profile_editor_state,
     _ensure_transform_entries,

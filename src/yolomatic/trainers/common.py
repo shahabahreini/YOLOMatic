@@ -5,7 +5,7 @@ from typing import Any
 
 from rich.console import Console
 
-from src.config.settings import deep_merge, load_settings
+from yolomatic.config.settings import deep_merge, load_settings
 
 
 def effective_clearml_settings(config_or_clearml: dict[str, Any] | None) -> dict[str, Any]:

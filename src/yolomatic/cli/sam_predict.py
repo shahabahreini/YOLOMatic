@@ -13,7 +13,7 @@ import torch
 from rich.live import Live
 from rich.panel import Panel
 
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     NAV_BACK,
     clear_screen,
     console,
@@ -22,8 +22,8 @@ from src.utils.cli import (
     print_stylized_header,
     render_summary_panel,
 )
-from src.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
-from src.utils.project import is_sam_checkpoint, project_root
+from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
+from yolomatic.utils.project import is_sam_checkpoint, project_root
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
@@ -306,7 +306,7 @@ def _masks_to_yolo_txt(masks: list[np.ndarray], img_w: int, img_h: int) -> list[
     lines: list[str] = []
     for mask in masks:
         try:
-            from src.utils.ml_dependencies import import_cv2
+            from yolomatic.utils.ml_dependencies import import_cv2
             cv2 = import_cv2()
             contours, _ = cv2.findContours(
                 mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE

@@ -30,10 +30,10 @@ from typing import Any, Callable
 import numpy as np
 import yaml
 
-from src.datasets.cache import clean_dataset_image_cache
-from src.utils.fs import safe_directory_swap
-from src.utils.ml_dependencies import import_cv2
-from src.utils.semantic import (
+from yolomatic.datasets.cache import clean_dataset_image_cache
+from yolomatic.utils.fs import safe_directory_swap
+from yolomatic.utils.ml_dependencies import import_cv2
+from yolomatic.utils.semantic import (
     semantic_background_index,
     semantic_class_names,
     semantic_pixel_value,
@@ -460,7 +460,7 @@ def polygons_to_semantic_mask(
 ) -> np.ndarray:
     """Combine per-instance polygons into a dense uint8 class-index mask.
 
-    Pixels hold raw class indices under the convention in ``src.utils.semantic``:
+    Pixels hold raw class indices under the convention in ``yolomatic.utils.semantic``:
     background is ``0`` and foreground ``1`` for a single-class dataset, while a
     multi-class dataset puts background at ``num_classes`` and keeps class ids as
     they are. Ultralytics runs these values straight through CrossEntropyLoss, so
@@ -533,7 +533,7 @@ def _import_albumentations():
 
 def _instantiate_transform(A, t_cfg: dict[str, Any]):
     """Instantiate a single albumentations transform from a profile entry."""
-    from src.augmentation.transforms import build_albu_kwargs
+    from yolomatic.augmentation.transforms import build_albu_kwargs
     if not t_cfg.get("enabled", False):
         return None
     name = t_cfg.get("name", "")
@@ -1099,10 +1099,7 @@ def run_augmentation(
     for error in cache_cleanup.errors:
         logger.warning("Could not remove dataset cache artifact: %s", error)
 
-    try:
-        from src.datasets.core import convert_yolo_to_coco, read_yaml_file
-    except ImportError:
-        from datasets.core import convert_yolo_to_coco, read_yaml_file  # type: ignore
+    from yolomatic.datasets.core import convert_yolo_to_coco, read_yaml_file
 
     ann_format = detect_annotation_format(source_dataset_path)
     all_pairs = collect_all_images(source_dataset_path)
@@ -1377,7 +1374,7 @@ def run_augmentation(
         data_yaml_content["kpt_shape"] = [kpt_shape[0], kpt_shape[1]]
     if write_as_semantic:
         # Dense masks live in a sibling "masks/" directory next to each split's
-        # "images/" directory. Pixels are raw class indices (see src.utils.semantic):
+        # "images/" directory. Pixels are raw class indices (see yolomatic.utils.semantic):
         # a multi-class dataset gains an explicit trailing "background" class, so nc
         # and names must grow to match or CrossEntropyLoss sees an out-of-range target.
         # The key must be "masks_dir": that is what Ultralytics' SemanticDataset

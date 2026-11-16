@@ -6,9 +6,9 @@ import shutil
 import tempfile
 import yaml
 
-from src.cli import convert_ndjson
-from src.cli.convert_ndjson import convert_ndjson_to_format, _discover_ndjson_files
-from src.datasets.core import summarize_dataset
+from yolomatic.cli import convert_ndjson
+from yolomatic.cli.convert_ndjson import convert_ndjson_to_format, _discover_ndjson_files
+from yolomatic.datasets.core import summarize_dataset
 
 
 class TestConvertNDJSON(unittest.TestCase):
@@ -259,11 +259,11 @@ class TestConvertNDJSON(unittest.TestCase):
             self.assertNotIn("title", kwargs)
             return next(prompt_values)
 
-        with patch("src.cli.convert_ndjson.clear_screen"), \
-             patch("src.cli.convert_ndjson.print_stylized_header"), \
-             patch("src.cli.convert_ndjson.get_parameter_value_input", side_effect=prompt_side_effect), \
-             patch("src.cli.convert_ndjson.get_user_choice", side_effect=lambda *args, **kwargs: next(choices)), \
-             patch("src.cli.convert_ndjson.convert_ndjson_to_format") as mock_convert, \
+        with patch("yolomatic.cli.convert_ndjson.clear_screen"), \
+             patch("yolomatic.cli.convert_ndjson.print_stylized_header"), \
+             patch("yolomatic.cli.convert_ndjson.get_parameter_value_input", side_effect=prompt_side_effect), \
+             patch("yolomatic.cli.convert_ndjson.get_user_choice", side_effect=lambda *args, **kwargs: next(choices)), \
+             patch("yolomatic.cli.convert_ndjson.convert_ndjson_to_format") as mock_convert, \
              patch("builtins.input", return_value=""):
             convert_ndjson.main()
 

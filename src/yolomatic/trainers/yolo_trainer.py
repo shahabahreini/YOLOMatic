@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from src.cli.upload import (
+from yolomatic.cli.upload import (
     build_candidate,
     infer_model_type_from_text,
     is_rfdetr_upload,
@@ -22,16 +22,16 @@ from src.cli.upload import (
     suggest_model_name,
     upload_model,
 )
-from src.config.settings import DEFAULT_SETTINGS
-from src.trainers.common import effective_clearml_settings
+from yolomatic.config.settings import DEFAULT_SETTINGS
+from yolomatic.trainers.common import effective_clearml_settings
 
-from src.utils.cli import NAV_BACK, get_user_choice
-from src.utils.ml_dependencies import (
+from yolomatic.utils.cli import NAV_BACK, get_user_choice
+from yolomatic.utils.ml_dependencies import (
     MLDependencyError,
     import_ultralytics_settings,
     import_ultralytics_yolo,
 )
-from src.utils.project import (
+from yolomatic.utils.project import (
     format_size,
     list_config_files,
     project_root,
@@ -39,18 +39,18 @@ from src.utils.project import (
     verify_dataset_directories,
     write_resolved_data_yaml,
 )
-from src.datasets.cache import clean_dataset_image_cache, normalize_yolo_cache_setting
-from src.utils.project import (
+from yolomatic.datasets.cache import clean_dataset_image_cache, normalize_yolo_cache_setting
+from yolomatic.utils.project import (
     load_dataset_config as load_project_dataset_config,
 )
-from src.utils.tensorboard import (
+from yolomatic.utils.tensorboard import (
     backfill_ultralytics_tensorboard,
     build_tensorboard_metadata,
     emit_tensorboard_report,
     validate_tensorboard_run,
 )
-from src.utils.training_preflight import resolve_training_device, validate_export_config
-from src.models.rfdetr import is_rfdetr_model
+from yolomatic.utils.training_preflight import resolve_training_device, validate_export_config
+from yolomatic.models.rfdetr import is_rfdetr_model
 
 # Initialize Rich console
 console = Console()
@@ -142,7 +142,7 @@ def preflight_dataset(dataset_path, task):
     semantic run whose declared ``masks_dir`` has no masks is fatal, because
     that one cannot produce a single usable batch.
     """
-    from src.datasets.validate import validate_dataset
+    from yolomatic.datasets.validate import validate_dataset
 
     try:
         report = validate_dataset(Path(dataset_path), task_override=task)
@@ -507,7 +507,7 @@ def main():
             console.print(
                 "\n[bold green]Routing RF-DETR configuration to RF-DETR trainer...[/bold green]"
             )
-            from src.trainers.rfdetr_trainer import main as rfdetr_main
+            from yolomatic.trainers.rfdetr_trainer import main as rfdetr_main
 
             rfdetr_main(config_file)
             return
@@ -515,7 +515,7 @@ def main():
             console.print(
                 "\n[bold green]Routing Detectron2 configuration to Detectron2 trainer...[/bold green]"
             )
-            from src.trainers.detectron2_trainer import main as detectron2_main
+            from yolomatic.trainers.detectron2_trainer import main as detectron2_main
 
             detectron2_main(config_file)
             return
@@ -523,7 +523,7 @@ def main():
             console.print(
                 "\n[bold green]Routing SAM 3.1 configuration to SAM trainer...[/bold green]"
             )
-            from src.trainers.sam_trainer import main as sam_main
+            from yolomatic.trainers.sam_trainer import main as sam_main
 
             sam_main(config_file)
             return
@@ -576,7 +576,7 @@ def main():
             console.print(
                 "\n[bold green]Routing RF-DETR configuration to RF-DETR trainer...[/bold green]"
             )
-            from src.trainers.rfdetr_trainer import main as rfdetr_main
+            from yolomatic.trainers.rfdetr_trainer import main as rfdetr_main
 
             rfdetr_main(config_file)
             return

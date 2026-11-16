@@ -36,7 +36,7 @@ from roboflow import Roboflow
 from roboflow.adapters import rfapi
 from roboflow.adapters.rfapi import RoboflowError
 
-from src.datasets.validate_roboflow import (
+from yolomatic.datasets.validate_roboflow import (
     TASK_CLASSIFY,
     TASK_INSTANCE_SEG,
     TASK_OBJECT_DETECT,
@@ -45,13 +45,13 @@ from src.datasets.validate_roboflow import (
     RoboflowValidationResult,
     validate_roboflow_dataset,
 )
-from src.integrations.roboflow_dataset import (
+from yolomatic.integrations.roboflow_dataset import (
     create_batch_zip_archive,
     partition_dataset_into_batches,
     poll_zip_status,
     upload_zip_stream,
 )
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
     clear_screen,
@@ -64,7 +64,7 @@ from src.utils.cli import (
     print_stylized_header,
     warning_panel,
 )
-from src.utils.project import list_dataset_directories, project_root
+from yolomatic.utils.project import list_dataset_directories, project_root
 
 logger = logging.getLogger(__name__)
 

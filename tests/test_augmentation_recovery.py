@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.augmentation.recovery import find_recoverable_augmentations, recover_augmentation
+from yolomatic.augmentation.recovery import find_recoverable_augmentations, recover_augmentation
 
 
 class AugmentationRecoveryTest(unittest.TestCase):

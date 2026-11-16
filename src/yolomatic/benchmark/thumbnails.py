@@ -68,7 +68,7 @@ def generate_thumbnail(
 def _draw_mask_outline(draw, mask: np.ndarray, orig_w: int, orig_h: int,
                        sx: float, sy: float, color: tuple) -> None:
     try:
-        from src.utils.ml_dependencies import import_cv2
+        from yolomatic.utils.ml_dependencies import import_cv2
         cv2 = import_cv2()
 
         m = mask.astype(np.uint8) * 255

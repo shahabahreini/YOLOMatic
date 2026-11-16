@@ -5,8 +5,8 @@ import sys
 
 from rich.panel import Panel
 
-from src.utils.cli import NAV_BACK, console, get_user_choice, print_stylized_header
-from src.utils.project import find_run_directories
+from yolomatic.utils.cli import NAV_BACK, console, get_user_choice, print_stylized_header
+from yolomatic.utils.project import find_run_directories
 
 
 DEFAULT_PORT = 6006

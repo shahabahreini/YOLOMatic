@@ -9,14 +9,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.datasets.core import summarize_dataset
+from yolomatic.datasets.core import summarize_dataset
 
 
 class DatasetSummaryTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())
         # Keep summary caches inside the temp dir, not the real project.
-        self.patcher = patch("src.datasets.core.project_root", return_value=self.tmp)
+        self.patcher = patch("yolomatic.datasets.core.project_root", return_value=self.tmp)
         self.patcher.start()
 
     def tearDown(self) -> None:
@@ -116,8 +116,8 @@ class DatasetSummaryTest(unittest.TestCase):
 
     def test_summary_and_size_without_os_fwalk(self) -> None:
         import os
-        from src.datasets.core import _stat_aggregate
-        from src.utils.project import calculate_folder_size
+        from yolomatic.datasets.core import _stat_aggregate
+        from yolomatic.utils.project import calculate_folder_size
 
         root = self.tmp / "no_fwalk"
         root.mkdir()
@@ -147,8 +147,8 @@ class DatasetSummaryTest(unittest.TestCase):
         import cv2
         import numpy as np
 
-        from src.benchmark.engine import _auto_detect_annotations, _load_coco_data
-        from src.datasets.core import convert_yolo_to_coco
+        from yolomatic.benchmark.engine import _auto_detect_annotations, _load_coco_data
+        from yolomatic.datasets.core import convert_yolo_to_coco
 
         source = self.tmp / "yolo_src"
         (source / "data.yaml").parent.mkdir(parents=True)

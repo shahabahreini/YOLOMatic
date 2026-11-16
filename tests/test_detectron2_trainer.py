@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 
 class Detectron2TrainerTests(unittest.TestCase):
-    @patch("src.trainers.detectron2_trainer.train_from_config")
+    @patch("yolomatic.trainers.detectron2_trainer.train_from_config")
     def test_main_raises_system_exit_on_failure(self, mock_train) -> None:
-        from src.trainers.detectron2_trainer import main
+        from yolomatic.trainers.detectron2_trainer import main
 
         mock_train.side_effect = RuntimeError("Training failed")
 

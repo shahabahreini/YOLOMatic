@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from src.datasets.core import SplitSummary, summarize_dataset
+from yolomatic.datasets.core import SplitSummary, summarize_dataset
 
 
 SUPPORTED_TASKS = frozenset({"detection", "segmentation", "pose", "semantic"})

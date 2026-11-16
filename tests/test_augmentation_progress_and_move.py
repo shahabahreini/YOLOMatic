@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import cv2
 import numpy as np
 
-from src.augmentation.engine import SplitConfig, run_augmentation
+from yolomatic.augmentation.engine import SplitConfig, run_augmentation
 
 
 class AugmentationProgressAndMoveTest(unittest.TestCase):
@@ -59,8 +59,8 @@ class AugmentationProgressAndMoveTest(unittest.TestCase):
 
             from concurrent.futures import Future
 
-            with patch("src.augmentation.engine._process_augmentation_job", side_effect=mock_process_job):
-                with patch("src.augmentation.engine.ProcessPoolExecutor") as mock_executor_cls:
+            with patch("yolomatic.augmentation.engine._process_augmentation_job", side_effect=mock_process_job):
+                with patch("yolomatic.augmentation.engine.ProcessPoolExecutor") as mock_executor_cls:
                     # Make executor run synchronously in test using real completed Future
                     mock_executor = MagicMock()
                     mock_executor.__enter__.return_value = mock_executor

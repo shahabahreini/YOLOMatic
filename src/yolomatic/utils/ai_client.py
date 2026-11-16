@@ -15,7 +15,7 @@ from typing import Any
 
 from PIL import Image
 
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     console,
     clear_screen,
     get_user_choice,
@@ -30,8 +30,8 @@ from src.utils.cli import (
     NAV_BACK,
     NAV_LIST,
 )
-from src.config.settings import load_settings, save_settings
-from src.datasets.core import summarize_dataset
+from yolomatic.config.settings import load_settings, save_settings
+from yolomatic.datasets.core import summarize_dataset
 
 # Fallback models in case fetching fails
 FALLBACK_MODELS = {
@@ -742,7 +742,7 @@ def _transform_param_defs(name: str) -> dict[str, Any]:
     """Return {param_name: ParameterDefinition} for a transform, excluding the
     shared probability `p`. Empty for transforms that take no extra params."""
     try:
-        from src.augmentation.transforms import get_params_for_transform
+        from yolomatic.augmentation.transforms import get_params_for_transform
     except ImportError:  # pragma: no cover - defensive
         return {}
     return {d.name: d for d in get_params_for_transform(name) if d.name != "p"}
@@ -878,7 +878,7 @@ def sanitize_augmentation_transforms(transforms: list) -> list:
 def _get_project_key(dataset_choice: str) -> str:
     """Generate a key to identify the project/dataset relative to the project root."""
     try:
-        from src.utils.project import project_root
+        from yolomatic.utils.project import project_root
         root = project_root()
         dataset_path = Path(dataset_choice).resolve()
         try:
@@ -1271,7 +1271,7 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         
         if choice == "Save Augmentation Profile":
             # Build and save profile
-            from src.augmentation.profiles import AugmentationProfile, save_profile, PROFILES_DIR
+            from yolomatic.augmentation.profiles import AugmentationProfile, save_profile, PROFILES_DIR
             
             profile = AugmentationProfile(
                 name=profile_name,

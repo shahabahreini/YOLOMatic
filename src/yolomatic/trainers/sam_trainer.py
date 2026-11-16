@@ -11,7 +11,7 @@ import torch
 from rich.console import Console
 from rich.panel import Panel
 
-from src.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
+from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ class _SAMDataset(torch.utils.data.Dataset):
     @staticmethod
     def _poly_to_mask(poly: list[float], w: int, h: int) -> np.ndarray:
         try:
-            from src.utils.ml_dependencies import import_cv2
+            from yolomatic.utils.ml_dependencies import import_cv2
             cv2 = import_cv2()
             pts = np.array(poly, dtype=np.float32).reshape(-1, 2).astype(np.int32)
             mask = np.zeros((h, w), dtype=np.uint8)

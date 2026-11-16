@@ -7,49 +7,14 @@ from typing import Any, Dict
 import psutil
 import yaml
 
-try:
-    from src.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
-    from src.datasets import prepare_dataset_for_family, prepared_format_for_family, summarize_dataset
-    from src.datasets.cache import is_dataset_runtime_cache
-    from src.models.detectron2 import get_detectron2_variant
-    from src.models.rfdetr import get_rfdetr_variant
-    from src.models.data import model_data_dict
-    from src.utils.ml_dependencies import MLDependencyError, import_torch
-    from src.utils.project import resolve_split_paths
-except ImportError:
-    try:
-        from datasets import prepare_dataset_for_family, prepared_format_for_family, summarize_dataset
-        from datasets.cache import is_dataset_runtime_cache
-        from models.detectron2 import get_detectron2_variant
-        from models.rfdetr import get_rfdetr_variant
-        from models.data import model_data_dict
-        from utils.ml_dependencies import MLDependencyError, import_torch
-        from utils.project import resolve_split_paths
-    except ImportError:
-        model_data_dict = {}
-        MLDependencyError = RuntimeError
-
-        def get_rfdetr_variant(model_choice: str) -> object:
-            raise RuntimeError(f"RF-DETR metadata is not available for {model_choice}.")
-
-        def get_detectron2_variant(model_choice: str) -> object:
-            raise RuntimeError(f"Detectron2 metadata is not available for {model_choice}.")
-
-        def import_torch() -> object:
-            raise RuntimeError("torch is not available.")
-
-        def resolve_split_paths(meta, yaml_dir, dataset_dir=None):
-            base = Path(yaml_dir)
-            root = meta.get("path") or "."
-            root_path = Path(str(root).replace("\\", "/"))
-            if not root_path.is_absolute():
-                root_path = (base / root_path).resolve()
-            return {
-                key: str((root_path / str(meta[key]).replace("\\", "/")).resolve())
-                for key in ("train", "val", "test")
-                if meta.get(key)
-            }
-
+from yolomatic.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
+from yolomatic.datasets import prepare_dataset_for_family, prepared_format_for_family, summarize_dataset
+from yolomatic.datasets.cache import is_dataset_runtime_cache
+from yolomatic.models.data import model_data_dict
+from yolomatic.models.detectron2 import get_detectron2_variant
+from yolomatic.models.rfdetr import get_rfdetr_variant
+from yolomatic.utils.ml_dependencies import MLDependencyError, import_torch
+from yolomatic.utils.project import resolve_split_paths
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1333,10 +1298,7 @@ class SAMConfigGenerator(BaseConfigGenerator):
         finetune_source: str | None = None,
     ) -> dict[str, Any]:
         from datetime import datetime
-        try:
-            from src.models.sam import get_sam_variant
-        except ImportError:
-            from models.sam import get_sam_variant
+        from yolomatic.models.sam import get_sam_variant
 
         variant = get_sam_variant(model_choice)
         self.extract_dataset_info()
@@ -1350,7 +1312,7 @@ class SAMConfigGenerator(BaseConfigGenerator):
         )
 
         try:
-            from src.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
+            from yolomatic.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
             integration_settings = load_settings()
             clearml_cfg = snapshot_clearml_settings(integration_settings, "SAM", model_choice)
             roboflow_cfg = snapshot_roboflow_settings(integration_settings)

@@ -10,7 +10,7 @@ from typing import Any
 from rich.live import Live
 from rich.panel import Panel
 
-from src.datasets.prepare import (
+from yolomatic.datasets.prepare import (
     OUTPUT_FORMATS,
     PrepareDatasetConfig,
     PrepareDatasetStats,
@@ -20,7 +20,7 @@ from src.datasets.prepare import (
     resolve_versioned_output,
     slugify,
 )
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
     clear_screen,
@@ -31,12 +31,12 @@ from src.utils.cli import (
     print_stylized_header,
     render_summary_panel,
 )
-from src.utils.project import (
+from yolomatic.utils.project import (
     calculate_folder_size,
     format_size,
     list_dataset_directories,
 )
-from src.cli.convert_ndjson import _discover_ndjson_files
+from yolomatic.cli.convert_ndjson import _discover_ndjson_files
 
 
 WIZARD_STEPS = ["Source", "Format", "Split", "Strategy", "Output", "Confirm"]
@@ -98,7 +98,7 @@ def _quick_source_description(path: Path) -> str:
             "[dim]Images will be downloaded into a temporary directory before splitting.[/dim]"
         )
     try:
-        from src.datasets.core import summarize_dataset
+        from yolomatic.datasets.core import summarize_dataset
 
         summary = summarize_dataset(path, sample_limit=200)
         class_preview = ", ".join(summary.classes[:8])

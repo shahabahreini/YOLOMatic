@@ -8,7 +8,7 @@ from unittest import mock
 import numpy as np
 from PIL import Image
 
-from src.utils import ai_client as ac
+from yolomatic.utils import ai_client as ac
 
 
 class SlugifyTests(unittest.TestCase):
@@ -164,7 +164,7 @@ class SanitizeAugmentationTransformsTests(unittest.TestCase):
     def test_every_supported_transform_instantiates(self) -> None:
         """The whole point of the schema fix: sanitized transforms must build."""
         import albumentations as A
-        from src.augmentation.transforms import build_albu_kwargs
+        from yolomatic.augmentation.transforms import build_albu_kwargs
 
         for name in ac.SUPPORTED_TRANSFORMS:
             out = ac.sanitize_augmentation_transforms([{"name": name, "enabled": True, "p": 0.5}])
@@ -176,7 +176,7 @@ class SanitizeAugmentationTransformsTests(unittest.TestCase):
 
 class CatalogDriftTests(unittest.TestCase):
     def test_supported_transforms_match_engine_catalog(self) -> None:
-        from src.augmentation.transforms import TRANSFORM_GROUPS
+        from yolomatic.augmentation.transforms import TRANSFORM_GROUPS
 
         engine = {n for names in TRANSFORM_GROUPS.values() for n in names}
         self.assertEqual(set(ac.SUPPORTED_TRANSFORMS), engine)
@@ -443,7 +443,7 @@ class GetDatasetAiSummaryTests(unittest.TestCase):
 
 class ProjectDescriptionTests(unittest.TestCase):
     def test_get_project_key_resolves_path(self) -> None:
-        from src.utils.project import project_root
+        from yolomatic.utils.project import project_root
         root = project_root()
         dataset_path = root / "datasets" / "test_ds"
         key = ac._get_project_key(str(dataset_path))
@@ -454,20 +454,20 @@ class ProjectDescriptionTests(unittest.TestCase):
         key_ext = ac._get_project_key("/some/external/path")
         self.assertTrue(Path(key_ext).is_absolute() or key_ext == "/some/external/path")
 
-    @mock.patch("src.utils.ai_client.get_user_choice")
-    @mock.patch("src.utils.ai_client.get_parameter_value_input")
-    @mock.patch("src.utils.ai_client.get_dataset_ai_summary")
-    @mock.patch("src.utils.ai_client.query_llm_with_free_tier_fallback")
+    @mock.patch("yolomatic.utils.ai_client.get_user_choice")
+    @mock.patch("yolomatic.utils.ai_client.get_parameter_value_input")
+    @mock.patch("yolomatic.utils.ai_client.get_dataset_ai_summary")
+    @mock.patch("yolomatic.utils.ai_client.query_llm_with_free_tier_fallback")
     def test_run_ai_recommendation_flow_saves_and_loads_description(
         self, mock_llm, mock_summary, mock_input, mock_choice
     ) -> None:
-        from src.config.settings import load_settings
+        from yolomatic.config.settings import load_settings
 
         # Clean/mock settings path
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_settings_path = Path(temp_dir) / "yolomatic_settings.yaml"
-            with mock.patch("src.config.settings.SETTINGS_PATH", temp_settings_path), \
-                 mock.patch("src.utils.ai_client.verify_ai_setup", return_value=(True, "Gemini", "mock-key", "gemini-2.5-flash")):
+            with mock.patch("yolomatic.config.settings.SETTINGS_PATH", temp_settings_path), \
+                 mock.patch("yolomatic.utils.ai_client.verify_ai_setup", return_value=(True, "Gemini", "mock-key", "gemini-2.5-flash")):
                 
                 # Mock choice returns "Apply AI Recommendation and Save Config"
                 mock_choice.return_value = "Apply AI Recommendation and Save Config"

@@ -1,5 +1,5 @@
 from .analyzer import DatasetAnalyzer
-from src.datasets.core import (
+from yolomatic.datasets.core import (
     DatasetSummary,
     DatasetValidationError,
     SplitSummary,
@@ -11,14 +11,14 @@ from src.datasets.core import (
     read_yaml_file,
     summarize_dataset,
 )
-from src.datasets.prepare import (
+from yolomatic.datasets.prepare import (
     PrepareDatasetConfig,
     PrepareDatasetStats,
     PrepareSplitConfig,
     SPLIT_STRATEGIES,
     prepare_dataset,
 )
-from src.datasets.cache import (
+from yolomatic.datasets.cache import (
     DatasetCacheStats,
     clean_dataset_image_cache,
     inspect_dataset_cache,

@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from src.cli.upload import EnvConfig
-from src.trainers.yolo_trainer import (
+from yolomatic.cli.upload import EnvConfig
+from yolomatic.trainers.yolo_trainer import (
     configure_ultralytics_runtime,
     disable_ultralytics_clearml_callbacks,
     normalize_class_names,
@@ -36,7 +36,7 @@ class FakeModel:
 
 
 class YoloTrainerTests(unittest.TestCase):
-    @patch("src.trainers.yolo_trainer.import_ultralytics_settings")
+    @patch("yolomatic.trainers.yolo_trainer.import_ultralytics_settings")
     def test_configure_ultralytics_runtime_disables_optional_mlflow(self, mock_settings) -> None:
         settings = {}
         mock_settings.return_value = settings
@@ -62,7 +62,7 @@ class YoloTrainerTests(unittest.TestCase):
             ["vegetation", "tree", "7"],
         )
 
-    @patch("src.trainers.yolo_trainer.console")
+    @patch("yolomatic.trainers.yolo_trainer.console")
     def test_print_config_summary_accepts_yolo_names_mapping(self, mock_console) -> None:
         config = {
             "settings": {"model_type": "yolo11l", "dataset": "dataset-v12"},
@@ -77,7 +77,7 @@ class YoloTrainerTests(unittest.TestCase):
 
         self.assertGreaterEqual(mock_console.print.call_count, 2)
 
-    @patch("src.trainers.yolo_trainer.console")
+    @patch("yolomatic.trainers.yolo_trainer.console")
     def test_print_config_summary_accepts_yolo_names_integer_list(self, mock_console) -> None:
         config = {
             "settings": {"model_type": "yolo11l", "dataset": "dataset-v12"},
@@ -95,8 +95,8 @@ class YoloTrainerTests(unittest.TestCase):
 
 
 class TestRoboflowUpload(unittest.TestCase):
-    @patch("src.trainers.yolo_trainer.upload_model")
-    @patch("src.trainers.yolo_trainer.build_candidate")
+    @patch("yolomatic.trainers.yolo_trainer.upload_model")
+    @patch("yolomatic.trainers.yolo_trainer.build_candidate")
     def test_upload_skipped_if_not_configured(self, mock_build, mock_upload):
         config = {"roboflow": {"upload": False}}
         upload_to_roboflow_if_configured(config, {}, Path("/tmp/run"), "yolo11", MagicMock())
@@ -119,9 +119,9 @@ class TestRoboflowUpload(unittest.TestCase):
             console = MagicMock()
 
             with patch(
-                "src.trainers.yolo_trainer.upload_model", autospec=True
+                "yolomatic.trainers.yolo_trainer.upload_model", autospec=True
             ) as mock_upload, patch(
-                "src.trainers.yolo_trainer.load_env_config", autospec=True, return_value=env
+                "yolomatic.trainers.yolo_trainer.load_env_config", autospec=True, return_value=env
             ):
                 upload_to_roboflow_if_configured(config, dataset_config, run_dir, "yolo11n", console)
 
@@ -146,9 +146,9 @@ class TestRoboflowUpload(unittest.TestCase):
             dataset_config = {"roboflow": {"workspace": "ws", "project": "proj"}}
             console = MagicMock()
             with patch(
-                "src.trainers.yolo_trainer.upload_model", autospec=True
+                "yolomatic.trainers.yolo_trainer.upload_model", autospec=True
             ) as mock_upload, patch(
-                "src.trainers.yolo_trainer.load_env_config",
+                "yolomatic.trainers.yolo_trainer.load_env_config",
                 autospec=True,
                 side_effect=RuntimeError("ROBOFLOW_API_KEY is missing."),
             ):

@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 class UpdateFlowTest(unittest.TestCase):
     def test_upgrade_uses_uv_pip_with_active_python(self) -> None:
-        from src.cli import run
+        from yolomatic.cli import run
 
         completed = Mock(returncode=0, stdout="", stderr="")
         with patch.dict("os.environ", clear=True), \

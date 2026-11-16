@@ -11,15 +11,15 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 
-from src.config.parameters import (
+from yolomatic.config.parameters import (
     DETECTRON2_TRAINING_PARAMETERS,
     RFDETR_TRAINING_PARAMETERS,
     YOLO_TRAINING_PARAMETERS,
     parameters_for,
 )
-from src.datasets.core import prepared_format_for_family
-from src.models.data import model_data_dict
-from src.models.rfdetr import RFDETR_FAMILY_KEYS, get_rfdetr_variant, rfdetr_table_rows
+from yolomatic.datasets.core import prepared_format_for_family
+from yolomatic.models.data import model_data_dict
+from yolomatic.models.rfdetr import RFDETR_FAMILY_KEYS, get_rfdetr_variant, rfdetr_table_rows
 
 
 def _names(params) -> set[str]:
@@ -132,7 +132,7 @@ def _make_pose_dataset(root: Path) -> Path:
 
 class RFDETRPoseConfigTests(unittest.TestCase):
     def test_pose_config_uses_coco_and_keypoint_params(self) -> None:
-        from src.config.generator import RFDETRConfigGenerator
+        from yolomatic.config.generator import RFDETRConfigGenerator
 
         with TemporaryDirectory() as tmp:
             dataset = _make_pose_dataset(Path(tmp) / "poses")

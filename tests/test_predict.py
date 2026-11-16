@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.cli.predict import (
+from yolomatic.cli.predict import (
     BatchPredictionResult,
     build_batch_summary,
     discover_images,

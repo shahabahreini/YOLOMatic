@@ -16,9 +16,9 @@ import cv2
 import numpy as np
 import yaml
 
-from src.config.generator import YOLOConfigGenerator
-from src.datasets.core import convert_coco_to_yolo, convert_yolo_to_coco, summarize_dataset
-from src.models.data import model_data_dict
+from yolomatic.config.generator import YOLOConfigGenerator
+from yolomatic.datasets.core import convert_coco_to_yolo, convert_yolo_to_coco, summarize_dataset
+from yolomatic.models.data import model_data_dict
 
 
 POSE_FAMILIES = ("yolo26-pose", "yolov11-pose", "yolov8-pose")
@@ -175,7 +175,7 @@ class PoseConversionRoundTripTests(unittest.TestCase):
 
 class BenchmarkPoseDetectionTests(unittest.TestCase):
     def test_detect_task_returns_pose_for_keypoint_output(self) -> None:
-        from src.benchmark.engine import _detect_task
+        from yolomatic.benchmark.engine import _detect_task
 
         class _Result:
             masks = None
@@ -188,7 +188,7 @@ class BenchmarkPoseDetectionTests(unittest.TestCase):
         self.assertEqual(task, "pose")
 
     def test_detect_task_prefers_segmentation_over_pose(self) -> None:
-        from src.benchmark.engine import _detect_task
+        from yolomatic.benchmark.engine import _detect_task
 
         class _Result:
             masks = [object()]
@@ -200,7 +200,7 @@ class BenchmarkPoseDetectionTests(unittest.TestCase):
 
 class AugmentationPoseTests(unittest.TestCase):
     def test_read_write_yolo_pose_round_trip(self) -> None:
-        from src.augmentation.engine import read_yolo_pose, write_yolo_pose
+        from yolomatic.augmentation.engine import read_yolo_pose, write_yolo_pose
 
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "lbl.txt"
@@ -216,7 +216,7 @@ class AugmentationPoseTests(unittest.TestCase):
             self.assertEqual(len(tokens), 11)
 
     def test_build_pose_pipeline_strips_flips(self) -> None:
-        from src.augmentation.engine import build_pose_pipeline
+        from yolomatic.augmentation.engine import build_pose_pipeline
 
         class _Profile:
             transforms = [
@@ -230,7 +230,7 @@ class AugmentationPoseTests(unittest.TestCase):
         self.assertIn("RandomBrightnessContrast", names)
 
     def test_augment_pose_preserves_keypoint_count(self) -> None:
-        from src.augmentation.engine import _augment_pose, build_pose_pipeline
+        from yolomatic.augmentation.engine import _augment_pose, build_pose_pipeline
 
         class _Profile:
             transforms = [{"name": "RandomBrightnessContrast", "enabled": True, "p": 1.0}]

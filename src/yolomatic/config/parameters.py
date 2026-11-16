@@ -8,7 +8,7 @@ shows parameters that apply to the selected model and task.
 
 from __future__ import annotations
 
-from src.utils.cli import ParameterDefinition
+from yolomatic.utils.cli import ParameterDefinition
 
 
 # Comprehensive YOLO training parameter definitions for fully customized config

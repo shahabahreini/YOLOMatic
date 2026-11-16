@@ -22,7 +22,7 @@ from .metrics import (
     polygon_to_mask,
     size_bucket,
 )
-from src.utils.semantic import semantic_background_index, semantic_pixel_value
+from yolomatic.utils.semantic import semantic_background_index, semantic_pixel_value
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +417,7 @@ def _extract_preds(result, task: str, img_w: int, img_h: int) -> list[PredObject
             m = masks_data[i]
             # Resize mask to original image size if needed
             if m.shape != (img_h, img_w):
-                from src.utils.ml_dependencies import import_cv2
+                from yolomatic.utils.ml_dependencies import import_cv2
                 cv2 = import_cv2()
                 m = cv2.resize(m.astype(np.uint8), (img_w, img_h), interpolation=cv2.INTER_NEAREST)
             mask = m.astype(bool)
@@ -436,7 +436,7 @@ def _semantic_ground_truth(
     """Combine polygon instances into a dense class-index mask.
 
     Must use the same pixel convention the model predicts in, or every score is
-    computed against ground truth shifted by one class. See ``src.utils.semantic``.
+    computed against ground truth shifted by one class. See ``yolomatic.utils.semantic``.
     """
     background = semantic_background_index(num_foreground_classes)
     target = np.full((img_h, img_w), background, dtype=np.int32)
@@ -463,7 +463,7 @@ def _extract_semantic_mask(result, img_w: int, img_h: int) -> np.ndarray:
     if array.ndim != 2:
         raise ValueError(f"Expected a 2D semantic mask, received shape {array.shape}.")
     if array.shape != (img_h, img_w):
-        from src.utils.ml_dependencies import import_cv2
+        from yolomatic.utils.ml_dependencies import import_cv2
 
         array = import_cv2().resize(array.astype(np.int32), (img_w, img_h), interpolation=0)
     return array.astype(np.int32)

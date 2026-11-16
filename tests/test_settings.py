@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from src.config.settings import (
+from yolomatic.config.settings import (
     DEFAULT_SETTINGS,
     load_settings,
     reset_settings,
@@ -94,7 +94,7 @@ class SettingsTests(unittest.TestCase):
             # Verify copying settings to another machine (with different secret key) fails to decrypt
             # Restore encrypted content
             save_settings(settings, path)
-            with unittest.mock.patch("src.config.settings._get_machine_secret", return_value="different-secret-key"):
+            with unittest.mock.patch("yolomatic.config.settings._get_machine_secret", return_value="different-secret-key"):
                 loaded_other_machine = load_settings(path)
                 # Should not decrypt to original plain text
                 self.assertNotEqual(loaded_other_machine["ai"]["gemini_api_key"], "test-gemini-key-123")
@@ -109,7 +109,7 @@ class SettingsTests(unittest.TestCase):
     def test_settings_mtime_caching(self) -> None:
         import time
         from unittest.mock import patch
-        from src.config.settings import clear_settings_cache
+        from yolomatic.config.settings import clear_settings_cache
 
         clear_settings_cache()
         with tempfile.TemporaryDirectory() as temp_dir:

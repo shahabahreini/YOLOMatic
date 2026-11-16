@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-try:
-    from src.utils.tui import ParameterDefinition
-except ImportError:
-    from utils.tui import ParameterDefinition  # type: ignore[no-redef]
+from yolomatic.utils.tui import ParameterDefinition
 
 # ---------------------------------------------------------------------------
 # Transform groups — order controls display in the TUI menu

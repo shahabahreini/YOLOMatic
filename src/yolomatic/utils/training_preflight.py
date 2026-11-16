@@ -13,8 +13,8 @@ from typing import Any
 
 from rich.console import Console
 
-from src.utils.cli import get_user_choice
-from src.utils.ml_dependencies import prepare_ml_runtime
+from yolomatic.utils.cli import get_user_choice
+from yolomatic.utils.ml_dependencies import prepare_ml_runtime
 
 console = Console()
 DEFAULT_TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu128"

@@ -5,14 +5,14 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from src.datasets.cache import (
+from yolomatic.datasets.cache import (
     clean_dataset_image_cache,
     inspect_dataset_cache,
     normalize_yolo_cache_setting,
 )
-from src.datasets.core import summarize_dataset
-from src.config.generator import YOLOConfigGenerator
-from src.utils.project import list_dataset_directories
+from yolomatic.datasets.core import summarize_dataset
+from yolomatic.config.generator import YOLOConfigGenerator
+from yolomatic.utils.project import list_dataset_directories
 
 
 class DatasetCacheTest(unittest.TestCase):

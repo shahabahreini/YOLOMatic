@@ -146,7 +146,7 @@ def find_run_directories(base_dir: str | Path) -> list[Path]:
 
 def calculate_folder_size(folder_path: str | Path) -> int:
     try:
-        from src.datasets.core import summarize_dataset
+        from yolomatic.datasets.core import summarize_dataset
         summary = summarize_dataset(folder_path)
         return summary.total_size_bytes
     except Exception:
@@ -198,7 +198,7 @@ def list_dataset_directories(
         entry: dict[str, Any] = {"name": folder.name, "path": folder.resolve()}
         if include_size:
             try:
-                from src.datasets.core import summarize_dataset
+                from yolomatic.datasets.core import summarize_dataset
                 summary = summarize_dataset(folder)
                 entry["summary"] = summary
                 entry["size"] = format_size(summary.total_size_bytes)
@@ -275,7 +275,7 @@ def resolve_split_paths(
 ) -> dict[str, Any]:
     """Resolve every split (and mask) value in ``meta`` to an absolute path.
 
-    Mirrors ``src.datasets.core._resolve_dataset_paths`` so the two resolvers
+    Mirrors ``yolomatic.datasets.core._resolve_dataset_paths`` so the two resolvers
     cannot disagree. List values (multi-directory splits) are preserved as
     lists.
     """

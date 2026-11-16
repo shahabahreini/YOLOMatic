@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import requests
 import yaml
 
-from src.datasets.core import (
+from yolomatic.datasets.core import (
     DatasetValidationError,
     _image_size,
     _iter_images,
@@ -31,8 +31,8 @@ from src.datasets.core import (
     find_coco_annotation_files,
     summarize_dataset,
 )
-from src.datasets.ndjson import pose_metadata_from_rows
-from src.utils.fs import ensure_safe_destructive_target, safe_directory_swap
+from yolomatic.datasets.ndjson import pose_metadata_from_rows
+from yolomatic.utils.fs import ensure_safe_destructive_target, safe_directory_swap
 
 OUTPUT_FORMATS = {
     "YOLO Detection",

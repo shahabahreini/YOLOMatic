@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.utils.tui import (
+from yolomatic.utils.tui import (
     TUI_CONSOLE,
     TUI_TERM,
     ParameterDefinition,

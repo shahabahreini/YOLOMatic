@@ -9,10 +9,10 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from src.cli.upload import build_candidate, deploy_rfdetr_model, load_env_config
-from src.models.rfdetr import get_rfdetr_variant
-from src.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
-from src.utils.ml_dependencies import MLDependencyError, import_rfdetr_model_class
+from yolomatic.cli.upload import build_candidate, deploy_rfdetr_model, load_env_config
+from yolomatic.models.rfdetr import get_rfdetr_variant
+from yolomatic.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
+from yolomatic.utils.ml_dependencies import MLDependencyError, import_rfdetr_model_class
 
 console = Console()
 

@@ -22,7 +22,7 @@ def compile_onnx_to_trt(
     optimization profiles that can lead to compiler errors, out-of-memory issues, or poor
     inference performance.
     """
-    from src.utils.ml_dependencies import prepare_ml_runtime
+    from yolomatic.utils.ml_dependencies import prepare_ml_runtime
 
     # Ensure CUDA libraries are in path
     prepare_ml_runtime()

@@ -18,25 +18,12 @@ excludes = [
 
 [[manifest.dependency-metadata]]
 name = "tensorrt-cu12"
-version = "11.0.0.114"
-requires-dist = ["tensorrt-cu12-libs==11.0.0.114", "tensorrt-cu12-bindings==11.0.0.114"]
-
-[[manifest.dependency-metadata]]
-name = "tensorrt-cu12"
 version = "11.1.0.106"
 requires-dist = ["tensorrt-cu12-libs==11.1.0.106", "tensorrt-cu12-bindings==11.1.0.106"]
 
 [[manifest.dependency-metadata]]
 name = "tensorrt-cu12-bindings"
-version = "11.0.0.114"
-
-[[manifest.dependency-metadata]]
-name = "tensorrt-cu12-bindings"
 version = "11.1.0.106"
-
-[[manifest.dependency-metadata]]
-name = "tensorrt-cu12-libs"
-version = "11.0.0.114"
 
 [[manifest.dependency-metadata]]
 name = "tensorrt-cu12-libs"

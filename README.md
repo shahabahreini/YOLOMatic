@@ -77,7 +77,7 @@ uv run yolomatic-tensorboard
 Use the built-in semantic version command before creating a release tag:
 
 ```sh
-uv run bump patch  # or: minor / major
+uv version --bump patch  # or: minor / major, or `uv version X.Y.Z`
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```

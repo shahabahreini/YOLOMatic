@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import yaml
 
-from src.augmentation.engine import (
+from yolomatic.augmentation.engine import (
     SplitConfig,
     _write_staged_item,
     assign_groups_to_splits,
@@ -325,7 +325,7 @@ class AugmentationEngineCollectionTest(unittest.TestCase):
             marker = existing / "keep.txt"
             marker.write_text("old output", encoding="utf-8")
 
-            with patch("src.datasets.core.convert_yolo_to_coco", side_effect=RuntimeError("conversion failed")):
+            with patch("yolomatic.datasets.core.convert_yolo_to_coco", side_effect=RuntimeError("conversion failed")):
                 with self.assertRaisesRegex(RuntimeError, "conversion failed"):
                     run_augmentation(
                         root,

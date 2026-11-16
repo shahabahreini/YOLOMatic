@@ -17,17 +17,17 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from src.config.settings import load_settings, ultralytics_credential_status
-from src.datasets.archive import DEFAULT_MAX_ARCHIVE_GIB, package_dataset_archives
-from src.datasets.validate import validate_dataset
-from src.datasets.prepare import PrepareDatasetConfig, PrepareSplitConfig, prepare_dataset, slugify
-from src.integrations.ultralytics_platform import (
+from yolomatic.config.settings import load_settings, ultralytics_credential_status
+from yolomatic.datasets.archive import DEFAULT_MAX_ARCHIVE_GIB, package_dataset_archives
+from yolomatic.datasets.validate import validate_dataset
+from yolomatic.datasets.prepare import PrepareDatasetConfig, PrepareSplitConfig, prepare_dataset, slugify
+from yolomatic.integrations.ultralytics_platform import (
     DEFAULT_BASE_URL,
     UltralyticsPlatformClient,
     UltralyticsPlatformError,
     load_api_key,
 )
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
     clear_screen,
@@ -39,7 +39,7 @@ from src.utils.cli import (
     render_summary_panel,
     render_table,
 )
-from src.utils.project import calculate_folder_size, format_size, list_dataset_directories
+from yolomatic.utils.project import calculate_folder_size, format_size, list_dataset_directories
 
 
 WIZARD_STEPS = ["Action", "Select", "Configure", "Run"]

@@ -10,8 +10,8 @@ from typing import Any
 
 import yaml
 
-from src.utils.project import project_root
-from src.datasets.cache import is_dataset_runtime_cache
+from yolomatic.utils.project import project_root
+from yolomatic.datasets.cache import is_dataset_runtime_cache
 
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 SPLIT_ALIASES = {

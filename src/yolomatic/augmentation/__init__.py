@@ -1,8 +1,8 @@
 """Albumentations-based offline dataset augmentation for YOLOMatic."""
 from __future__ import annotations
 
-from src.augmentation.engine import AugmentationStats, SplitConfig, run_augmentation
-from src.augmentation.profiles import (
+from yolomatic.augmentation.engine import AugmentationStats, SplitConfig, run_augmentation
+from yolomatic.augmentation.profiles import (
     BUILT_IN_PROFILES,
     PROFILES_DIR,
     AugmentationProfile,
@@ -12,7 +12,7 @@ from src.augmentation.profiles import (
     load_profile,
     save_profile,
 )
-from src.augmentation.transforms import TRANSFORM_GROUPS, get_params_for_transform
+from yolomatic.augmentation.transforms import TRANSFORM_GROUPS, get_params_for_transform
 
 __all__ = [
     "AugmentationProfile",

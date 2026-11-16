@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.utils.fs import (
+from yolomatic.utils.fs import (
     UnsafePathError,
     ensure_overwritable_dir,
     ensure_safe_destructive_target,
@@ -118,7 +118,7 @@ class SafeDirectorySwapTest(unittest.TestCase):
                 return original_rename(self_path, dest_path)
 
             with patch.object(Path, "rename", side_effect=selective_rename, autospec=True):
-                with patch("src.utils.fs.shutil.move", side_effect=RuntimeError("Disk full during move")):
+                with patch("yolomatic.utils.fs.shutil.move", side_effect=RuntimeError("Disk full during move")):
                     with self.assertRaises(RuntimeError):
                         safe_directory_swap(source, target, max_retries=2, backoff_base=0.01)
 
@@ -176,7 +176,7 @@ class SafeDirectorySwapTest(unittest.TestCase):
                 return original_move(src, dst)
 
             with patch.object(Path, "rename", side_effect=selective_rename, autospec=True):
-                with patch("src.utils.fs.shutil.move", side_effect=flaky_move):
+                with patch("yolomatic.utils.fs.shutil.move", side_effect=flaky_move):
                     with self.assertRaises(OSError):
                         safe_directory_swap(source, target, max_retries=2, backoff_base=0.01)
 

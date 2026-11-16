@@ -15,8 +15,8 @@ from typing import Iterable
 
 import yaml
 
-from src.utils.project import resolve_split_paths
-from src.utils.semantic import IGNORE_INDEX, semantic_max_pixel_value
+from yolomatic.utils.project import resolve_split_paths
+from yolomatic.utils.semantic import IGNORE_INDEX, semantic_max_pixel_value
 
 IMAGE_SUFFIXES = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"})
 
@@ -332,7 +332,7 @@ def validate_dataset(
 def _check_mask(mask_path: Path, max_value: int, errors: _Collector) -> None:
     """Confirm a dense mask's pixel values are class indices Ultralytics can consume."""
     try:
-        from src.utils.ml_dependencies import import_cv2
+        from yolomatic.utils.ml_dependencies import import_cv2
 
         cv2 = import_cv2()
         import numpy as np

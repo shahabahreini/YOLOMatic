@@ -16,11 +16,11 @@ from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
 
-from src.datasets.ndjson import pose_metadata_from_rows
-from src.datasets.prepare import slugify
-from src.utils.fs import UnsafePathError, ensure_overwritable_dir
-from src.utils.project import project_root
-from src.utils.cli import (
+from yolomatic.datasets.ndjson import pose_metadata_from_rows
+from yolomatic.datasets.prepare import slugify
+from yolomatic.utils.fs import UnsafePathError, ensure_overwritable_dir
+from yolomatic.utils.project import project_root
+from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
     clear_screen,

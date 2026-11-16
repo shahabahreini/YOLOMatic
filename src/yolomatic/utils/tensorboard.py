@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from src.utils.ml_dependencies import import_module_or_raise, import_torch
+from yolomatic.utils.ml_dependencies import import_module_or_raise, import_torch
 
 
 ARTIFACT_IMAGE_NAMES: dict[str, tuple[str, ...]] = {
@@ -110,7 +110,7 @@ def _collect_event_directories(run_dir: str | Path) -> list[Path]:
 
 
 def _read_image_array(image_path: Path) -> Any | None:
-    from src.utils.ml_dependencies import import_cv2
+    from yolomatic.utils.ml_dependencies import import_cv2
 
     cv2 = import_cv2()
     image = cv2.imread(str(image_path))

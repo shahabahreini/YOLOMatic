@@ -14,8 +14,8 @@ from rich.progress import (
 )
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from src.utils.cli import NAV_BACK, get_user_choice, get_parameter_value_input
-from src.utils.fs import UnsafePathError, ensure_safe_destructive_target, safe_directory_swap
+from yolomatic.utils.cli import NAV_BACK, get_user_choice, get_parameter_value_input
+from yolomatic.utils.fs import UnsafePathError, ensure_safe_destructive_target, safe_directory_swap
 
 console = Console()
 

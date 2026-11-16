@@ -9,8 +9,8 @@ import pytest
 import requests
 from roboflow.adapters.rfapi import RoboflowError
 
-from src.integrations import roboflow_dataset
-from src.integrations.roboflow_dataset import (
+from yolomatic.integrations import roboflow_dataset
+from yolomatic.integrations.roboflow_dataset import (
     ProgressFileReader,
     UploadBatchInfo,
     create_batch_zip_archive,

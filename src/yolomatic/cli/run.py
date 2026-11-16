@@ -17,25 +17,25 @@ from rich.panel import Panel
 from rich.table import Table
 from ruamel.yaml import YAML
 
-from src.config.generator import (
+from yolomatic.config.generator import (
     Detectron2ConfigGenerator,
     RFDETRConfigGenerator,
     SAMConfigGenerator,
     YOLOConfigGenerator,
 )
-from src.config.settings import (
+from yolomatic.config.settings import (
     load_settings,
     reset_settings,
     roboflow_credential_status,
     save_settings,
     ultralytics_credential_status,
 )
-from src.datasets import summarize_dataset
-from src.models.data import model_data_dict
-from src.models.detectron2 import get_detectron2_variant, is_detectron2_model
-from src.models.rfdetr import get_rfdetr_variant, is_rfdetr_model
-from src.models.sam import is_sam_model
-from src.utils.cli import (
+from yolomatic.datasets import summarize_dataset
+from yolomatic.models.data import model_data_dict
+from yolomatic.models.detectron2 import get_detectron2_variant, is_detectron2_model
+from yolomatic.models.rfdetr import get_rfdetr_variant, is_rfdetr_model
+from yolomatic.models.sam import is_sam_model
+from yolomatic.utils.cli import (
     ParameterDefinition,
     clear_screen,
     console,
@@ -46,8 +46,8 @@ from src.utils.cli import (
     render_table,
     shorten_middle,
 )
-from src.utils.ml_dependencies import MLDependencyError, import_torch
-from src.utils.project import (
+from yolomatic.utils.ml_dependencies import MLDependencyError, import_torch
+from yolomatic.utils.project import (
     FineTuneCandidate,
     find_finetune_candidates,
     format_size,
@@ -303,7 +303,7 @@ _MODEL_DESCRIPTIONS: dict[str, str] = {
 }
 
 # Training parameter catalogs live in src/config/parameters.py
-from src.config.parameters import (  # noqa: E402
+from yolomatic.config.parameters import (  # noqa: E402
     YOLO_TRAINING_PARAMETERS,
     parameters_for,
 )
@@ -313,7 +313,7 @@ logging.basicConfig(
     format="%(message)s",
     handlers=[RichHandler(rich_tracebacks=True)],
 )
-logging.getLogger("src.config.generator").setLevel(logging.WARNING)
+logging.getLogger("yolomatic.config.generator").setLevel(logging.WARNING)
 # matplotlib (pulled in by ultralytics during training) logs font-cache build
 # details at INFO, e.g. "Failed to extract font properties from NotoColorEmoji.ttf:
 # Non-scalable fonts are not supported". These are harmless cache-build notices, so
@@ -416,7 +416,7 @@ def _safe_subcommand(
 
 def _render_dependency_table(statuses):
     """Build the themed comparison Table for a dependency-health report."""
-    from src.utils.version_check import IMPORTANCE_STYLE, SEVERITY_META
+    from yolomatic.utils.version_check import IMPORTANCE_STYLE, SEVERITY_META
 
     table = Table(
         title="Critical Dependencies",
@@ -554,7 +554,7 @@ def check_for_updates():
     screen style; Back returns to the main menu. All failure modes are
     caught so an offline run never kills the TUI.
     """
-    from src.utils.version_check import check_packages
+    from yolomatic.utils.version_check import check_packages
 
     while True:
         try:
@@ -1353,7 +1353,7 @@ def _base_model_name(model_choice: str) -> str:
     return model_choice
 
 
-# Removed print_model_info, now handled by src.utils.tui
+# Removed print_model_info, now handled by yolomatic.utils.tui
 
 
 def format_timestamp():
@@ -2126,7 +2126,7 @@ def choose_regular_yolo_profiles(
             console.print("[bold red]Error: Dataset path is missing. Cannot run AI analysis.[/bold red]")
             input("\nPress Enter to return...")
             return None
-        from src.utils.ai_client import run_ai_recommendation_flow
+        from yolomatic.utils.ai_client import run_ai_recommendation_flow
         res = run_ai_recommendation_flow(model_choice, dataset_path)
         if res is None:
             return None
@@ -2440,7 +2440,7 @@ def _render_goodbye() -> None:
     else:
         console.print(Align.center(f"[{_GOODBYE_GRADIENT[0]}]GOODBYE[/{_GOODBYE_GRADIENT[0]}]"))
     try:
-        from src.__version__ import __version__
+        from yolomatic.__version__ import __version__
 
         tagline = f"Thanks for using YOLOmatic v{__version__}"
     except Exception:
@@ -2823,7 +2823,7 @@ def settings_credentials_page() -> None:
 
 
 def settings_ai_page() -> None:
-    from src.utils.tui import (
+    from yolomatic.utils.tui import (
         TUI_TERM,
         TUI_CONSOLE,
         make_panel,
@@ -2831,7 +2831,7 @@ def settings_ai_page() -> None:
         is_enter_key,
         get_gpu_status,
     )
-    from src.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS, is_free_tier_gemini_model
+    from yolomatic.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS, is_free_tier_gemini_model
 
     def _order_models(models: list[str], prov: str) -> list[str]:
         """For Gemini, list free-tier (Flash) models first so the default lands on
@@ -3670,19 +3670,19 @@ def _main_loop_iteration():
             continue
 
         elif main_choice == "Train Model":
-            from src.trainers.yolo_trainer import main as trainer_main
+            from yolomatic.trainers.yolo_trainer import main as trainer_main
 
             _safe_subcommand("Training", trainer_main, prog="yolomatic-train")
             continue
 
         elif main_choice == "Run Prediction":
-            from src.cli.predict import main as predict_main
+            from yolomatic.cli.predict import main as predict_main
 
             _safe_subcommand("Prediction", predict_main, prog="yolomatic-predict")
             continue
 
         elif main_choice == "Launch TensorBoard":
-            from src.cli.tensorboard_launcher import main as tensorboard_main
+            from yolomatic.cli.tensorboard_launcher import main as tensorboard_main
 
             _safe_subcommand(
                 "TensorBoard", tensorboard_main, prog="yolomatic-tensorboard"
@@ -3690,55 +3690,55 @@ def _main_loop_iteration():
             continue
 
         elif main_choice == "Benchmark Models":
-            from src.cli.benchmark import main as benchmark_main
+            from yolomatic.cli.benchmark import main as benchmark_main
 
             _safe_subcommand("Benchmark", benchmark_main, prog="yolomatic-benchmark")
             continue
 
         elif main_choice == "SAM Segment":
-            from src.cli.sam_predict import main as sam_predict_main
+            from yolomatic.cli.sam_predict import main as sam_predict_main
 
             _safe_subcommand("SAM Segment", sam_predict_main, prog="yolomatic-sam")
             continue
 
         elif main_choice == "Convert Dataset Format":
-            from src.cli.convert_ndjson import main as convert_main
+            from yolomatic.cli.convert_ndjson import main as convert_main
 
             _safe_subcommand("Dataset Conversion", convert_main, prog="yolomatic-convert")
             continue
 
         elif main_choice == "Export / Compile Model":
-            from src.cli.export import main as export_main
+            from yolomatic.cli.export import main as export_main
 
             _safe_subcommand("Export / Compile Model", export_main, prog="yolomatic-export")
             continue
 
         elif main_choice == "Prepare / Split Dataset":
-            from src.cli.prepare_dataset import main as prepare_main
+            from yolomatic.cli.prepare_dataset import main as prepare_main
 
             _safe_subcommand("Dataset Preparation", prepare_main, prog="yolomatic-prepare")
             continue
 
         elif main_choice == "Upload to Roboflow":
-            from src.cli.upload import main as upload_main
+            from yolomatic.cli.upload import main as upload_main
 
             _safe_subcommand("Roboflow Upload", upload_main, prog="yolomatic-upload")
             continue
 
         elif main_choice == "Ultralytics Platform":
-            from src.cli.ultralytics_platform import main as ultralytics_main
+            from yolomatic.cli.ultralytics_platform import main as ultralytics_main
 
             _safe_subcommand("Ultralytics Platform", ultralytics_main, prog="yolomatic-ultralytics")
             continue
 
         elif main_choice == "Combine Datasets":
-            from src.utils.combine_datasets import main as combine_main
+            from yolomatic.utils.combine_datasets import main as combine_main
 
             _safe_subcommand("Dataset Combiner", combine_main, prog="yolomatic-combine")
             continue
 
         elif main_choice == "Augment Dataset":
-            from src.cli.augment import main as augment_main
+            from yolomatic.cli.augment import main as augment_main
 
             _safe_subcommand("Dataset Augmentation", augment_main, prog="yolomatic-augment")
             continue
@@ -3853,12 +3853,12 @@ def _main_loop_iteration():
 
         elif main_choice == "About YOLOmatic":
             clear_screen()
-            from src.__version__ import __version__
+            from yolomatic.__version__ import __version__
             import platform
             import os
             from rich.console import Group
             from rich.text import Text
-            from src.utils.ml_dependencies import check_hf_auth
+            from yolomatic.utils.ml_dependencies import check_hf_auth
 
             # --- Terminal Width ---
             term_w = console.width

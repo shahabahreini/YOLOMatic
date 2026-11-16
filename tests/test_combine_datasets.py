@@ -7,13 +7,13 @@ from unittest.mock import patch
 
 import yaml
 
-from src.utils.combine_datasets import (
+from yolomatic.utils.combine_datasets import (
     find_datasets,
     merge_datasets,
     resolve_output_path,
     validate_output_name,
 )
-from src.utils.fs import UnsafePathError
+from yolomatic.utils.fs import UnsafePathError
 
 
 def _make_dataset(root: Path, name: str, classes: list[str], label_class: int) -> None:
@@ -74,7 +74,7 @@ class CombineDatasetsTest(unittest.TestCase):
             merge_datasets(self.datasets, "merged", normalize_classes=True, datasets_root=self.root)
 
         with patch(
-            "src.utils.combine_datasets.process_single_image", side_effect=RuntimeError("boom")
+            "yolomatic.utils.combine_datasets.process_single_image", side_effect=RuntimeError("boom")
         ):
             with self.assertRaises(RuntimeError):
                 merge_datasets(

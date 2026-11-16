@@ -12,7 +12,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.utils.fs import safe_directory_swap
+from yolomatic.utils.fs import safe_directory_swap
 
 logger = logging.getLogger(__name__)
 

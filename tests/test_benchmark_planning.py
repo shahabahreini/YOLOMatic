@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from src.benchmark.metrics import semantic_metrics
-from src.benchmark.planning import (
+from yolomatic.benchmark.metrics import semantic_metrics
+from yolomatic.benchmark.planning import (
     BenchmarkCompatibilityError,
     resolve_dataset_splits,
     resolve_selected_model_task,
@@ -63,7 +63,7 @@ class ModelTaskPlanningTests(unittest.TestCase):
     def test_rejects_mixed_verified_tasks(self) -> None:
         weights = [Path("detect.pt"), Path("segment.pt")]
         with patch(
-            "src.benchmark.planning.resolve_ultralytics_model_task",
+            "yolomatic.benchmark.planning.resolve_ultralytics_model_task",
             side_effect=["detection", "segmentation"],
         ):
             with self.assertRaisesRegex(BenchmarkCompatibilityError, "different tasks"):

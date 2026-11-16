@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 
-from src.cli import upload_dataset
-from src.cli.upload_dataset import parse_args
+from yolomatic.cli import upload_dataset
+from yolomatic.cli.upload_dataset import parse_args
 
 
 def test_upload_dataset_cli_defaults():

@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 
 
-from src.benchmark.config import BenchmarkConfig
-from src.benchmark.engine import BenchmarkResult, ImageResult, ModelMetrics
-from src.benchmark.metrics import SizeBucketMetrics
-from src.benchmark.report import write_benchmark_report
+from yolomatic.benchmark.config import BenchmarkConfig
+from yolomatic.benchmark.engine import BenchmarkResult, ImageResult, ModelMetrics
+from yolomatic.benchmark.metrics import SizeBucketMetrics
+from yolomatic.benchmark.report import write_benchmark_report
 
 
 def _make_image_result(image_id: int, f1: float = 0.8, task: str = "detection") -> ImageResult:
@@ -163,7 +163,7 @@ class TestWriteReport(unittest.TestCase):
         )
 
     def test_vector_scatter_handles_all_zero_gt_counts(self):
-        from src.benchmark.report import _vector_scatter
+        from yolomatic.benchmark.report import _vector_scatter
 
         n = 3
         vector_data = {

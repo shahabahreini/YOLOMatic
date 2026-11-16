@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.utils.training_preflight import (
+from yolomatic.utils.training_preflight import (
     _find_uv_project_root,
     validate_export_config,
 )
@@ -50,7 +50,7 @@ class ValidateExportConfigTests(unittest.TestCase):
 
         from importlib.metadata import PackageNotFoundError
 
-        with patch("src.utils.training_preflight.metadata.version", fake_version):
+        with patch("yolomatic.utils.training_preflight.metadata.version", fake_version):
             is_valid, errors = validate_export_config({"format": "onnx"})
 
         self.assertFalse(is_valid)
@@ -60,7 +60,7 @@ class ValidateExportConfigTests(unittest.TestCase):
         from importlib.metadata import PackageNotFoundError
 
         with patch(
-            "src.utils.training_preflight.metadata.version",
+            "yolomatic.utils.training_preflight.metadata.version",
             side_effect=PackageNotFoundError,
         ):
             is_valid, errors = validate_export_config({"format": "torchscript"})

@@ -37,8 +37,8 @@ if hasattr(signal, "SIGWINCH"):
 _refresh_term_size()
 
 # Module-level imports — avoid repeated sys.modules lookups inside render methods
-from src.models.data import model_data_dict  # noqa: E402
-from src.__version__ import __version__  # noqa: E402
+from yolomatic.models.data import model_data_dict  # noqa: E402
+from yolomatic.__version__ import __version__  # noqa: E402
 
 # Layout geometry constants — named to make intent clear and simplify resize tuning
 # header(3-5) + footer(3) + panel_border(2) + padding_buffer(2) = ~10-12
@@ -1691,7 +1691,7 @@ def get_parameter_value_input(
     if param is None:
         if name is None:
             raise ValueError("Either param or name must be provided to get_parameter_value_input")
-        from src.config.parameters import ParameterDefinition
+        from yolomatic.config.parameters import ParameterDefinition
         param = ParameterDefinition(
             name=name,
             category="general",
@@ -1858,7 +1858,7 @@ def _detect_gpu_background() -> None:
     global _gpu_status
     status = "CPU"
     try:
-        from src.utils.ml_dependencies import import_torch
+        from yolomatic.utils.ml_dependencies import import_torch
         torch = import_torch()
         if torch.cuda.is_available():
             try:

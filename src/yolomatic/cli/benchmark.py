@@ -13,7 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     NAV_BACK,
     TUI_TERM,
     ParameterDefinition,
@@ -25,7 +25,7 @@ from src.utils.cli import (
     print_stylized_header,
     render_summary_panel,
 )
-from src.utils.project import (
+from yolomatic.utils.project import (
     format_size,
     format_weight_label,
     infer_ultralytics_task_from_name,
@@ -316,7 +316,7 @@ def _select_weights() -> list[Path] | str:
 
 
 def _val_dir_description(path: Path, root: Path) -> str:
-    from src.benchmark.engine import _find_yolo_labels_dir, detect_annotation_format
+    from yolomatic.benchmark.engine import _find_yolo_labels_dir, detect_annotation_format
 
     img_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
     img_count = sum(1 for _ in path.rglob("*") if _.suffix.lower() in img_exts)
@@ -450,7 +450,7 @@ def _select_validation_dir() -> Path | str:
         input("\nPress Enter to return...")
         return NAV_BACK
 
-    from src.benchmark.engine import detect_annotation_format
+    from yolomatic.benchmark.engine import detect_annotation_format
 
     ann_fmt = detect_annotation_format(path)
     if ann_fmt == "coco":
@@ -473,7 +473,7 @@ def _select_validation_dir() -> Path | str:
 
 def _select_dataset_splits(task: str) -> dict[str, Path] | str:
     """Choose a dataset root and compatible group(s) for a verified model task."""
-    from src.benchmark.planning import BenchmarkCompatibilityError, resolve_dataset_splits
+    from yolomatic.benchmark.planning import BenchmarkCompatibilityError, resolve_dataset_splits
 
     root = project_root()
     candidates: list[Path] = []
@@ -559,7 +559,7 @@ def _select_dataset_splits(task: str) -> dict[str, Path] | str:
 
 
 def _configure_options(val_dir: Path) -> dict | str:
-    from src.benchmark.engine import detect_annotation_format
+    from yolomatic.benchmark.engine import detect_annotation_format
 
     root = project_root()
 
@@ -898,7 +898,7 @@ def _run_with_live_log(
 ) -> Path | None:
     from rich.live import Live
 
-    from src.benchmark import BenchmarkConfig, run_benchmark, write_benchmark_report
+    from yolomatic.benchmark import BenchmarkConfig, run_benchmark, write_benchmark_report
 
     log_lines: list[str] = []
     result_holder: dict = {}
@@ -1015,7 +1015,7 @@ def main() -> None:
     if weights == NAV_BACK or not isinstance(weights, list):
         return
 
-    from src.benchmark.planning import BenchmarkCompatibilityError, resolve_selected_model_task
+    from yolomatic.benchmark.planning import BenchmarkCompatibilityError, resolve_selected_model_task
 
     try:
         task = resolve_selected_model_task(weights)

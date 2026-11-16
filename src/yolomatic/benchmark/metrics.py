@@ -15,7 +15,7 @@ def polygon_to_mask(polygon: list[float], width: int, height: int) -> np.ndarray
     """Rasterise a COCO flat polygon [x1,y1,x2,y2,...] to a binary mask."""
     pts = np.array(polygon, dtype=np.float32).reshape(-1, 2).astype(np.int32)
     try:
-        from src.utils.ml_dependencies import import_cv2
+        from yolomatic.utils.ml_dependencies import import_cv2
 
         mask = np.zeros((height, width), dtype=np.uint8)
         import_cv2().fillPoly(mask, [pts], 1)

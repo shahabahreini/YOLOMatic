@@ -24,7 +24,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from src.augmentation.engine import (
+from yolomatic.augmentation.engine import (
     AugmentationStats,
     SplitConfig,
     collect_all_images,
@@ -32,7 +32,7 @@ from src.augmentation.engine import (
     resolve_augmentation_workers,
     run_augmentation,
 )
-from src.augmentation.profiles import (
+from yolomatic.augmentation.profiles import (
     BUILT_IN_PROFILES,
     PROFILES_DIR,
     AugmentationProfile,
@@ -43,13 +43,13 @@ from src.augmentation.profiles import (
     load_profile,
     save_profile,
 )
-from src.datasets.validate import validate_dataset
-from src.augmentation.transforms import (
+from yolomatic.datasets.validate import validate_dataset
+from yolomatic.augmentation.transforms import (
     TRANSFORM_GROUPS,
     get_params_for_transform,
     get_transform_guidance,
 )
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
     clear_screen,
@@ -61,10 +61,7 @@ from src.utils.cli import (
     render_summary_panel,
 )
 
-try:
-    from src.utils.project import format_size, list_dataset_directories
-except ImportError:
-    from utils.project import format_size, list_dataset_directories  # type: ignore[no-redef]
+from yolomatic.utils.project import format_size, list_dataset_directories
 
 
 # ---------------------------------------------------------------------------
@@ -1329,7 +1326,7 @@ def _configure_leakage_controls(
 
 
 def _recover_staged_augmentations_flow() -> None:
-    from src.augmentation.recovery import find_recoverable_augmentations, recover_augmentation
+    from yolomatic.augmentation.recovery import find_recoverable_augmentations, recover_augmentation
 
     datasets_dir = Path("datasets").resolve()
     recoverable = find_recoverable_augmentations(datasets_dir)
@@ -1409,7 +1406,7 @@ def _recover_staged_augmentations_flow() -> None:
 
 def _run_augmentation_flow() -> None:
     # Check for unfinalized augmentation runs from earlier sessions
-    from src.augmentation.recovery import find_recoverable_augmentations
+    from yolomatic.augmentation.recovery import find_recoverable_augmentations
     datasets_dir = Path("datasets").resolve()
     recoverable = find_recoverable_augmentations(datasets_dir)
     if recoverable:
@@ -1449,7 +1446,7 @@ def _run_augmentation_flow() -> None:
         return
         
     if profile_name == "AI Recommendation":
-        from src.utils.ai_client import run_ai_augmentation_flow
+        from yolomatic.utils.ai_client import run_ai_augmentation_flow
         profile_name = run_ai_augmentation_flow(str(dataset_path))
         if profile_name is None:
             return
@@ -1466,7 +1463,7 @@ def _run_augmentation_flow() -> None:
 
     # Step 3: Output format
     try:
-        from src.augmentation.engine import detect_annotation_format
+        from yolomatic.augmentation.engine import detect_annotation_format
         is_pose_source = detect_annotation_format(dataset_path) == "yolo_pose"
     except Exception:
         is_pose_source = False
@@ -1633,7 +1630,7 @@ def main() -> None:
         clear_screen()
         print_stylized_header("Dataset Augmentation")
 
-        from src.augmentation.recovery import find_recoverable_augmentations
+        from yolomatic.augmentation.recovery import find_recoverable_augmentations
         recoverable = find_recoverable_augmentations(Path("datasets").resolve())
 
         menu_items = [

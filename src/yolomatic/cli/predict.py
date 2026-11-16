@@ -22,7 +22,7 @@ from rich.progress import (
 from rich.panel import Panel
 from rich.table import Column, Table
 
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     console,
     expected_error_panel,
     get_user_choice,
@@ -30,9 +30,9 @@ from src.utils.cli import (
     render_summary_panel,
     render_table,
 )
-from src.utils.ml_dependencies import MLDependencyError, import_detectron2, import_ultralytics_yolo
-from src.utils.ml_dependencies import import_rfdetr_model_class
-from src.utils.project import (
+from yolomatic.utils.ml_dependencies import MLDependencyError, import_detectron2, import_ultralytics_yolo
+from yolomatic.utils.ml_dependencies import import_rfdetr_model_class
+from yolomatic.utils.project import (
     find_available_weights,
     format_weight_label,
     project_root,

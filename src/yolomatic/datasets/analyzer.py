@@ -5,7 +5,7 @@ from typing import Optional
 
 import yaml
 
-from src.datasets.core import read_yaml_file
+from yolomatic.datasets.core import read_yaml_file
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

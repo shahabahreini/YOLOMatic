@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import yaml
 from rich.panel import Panel
 
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
     clear_screen,
@@ -27,9 +27,9 @@ from src.utils.cli import (
     print_stylized_header,
     render_table,
 )
-from src.utils.ml_dependencies import MLDependencyError, import_torch
-from src.utils.ml_dependencies import import_rfdetr_model_class
-from src.utils.project import (
+from yolomatic.utils.ml_dependencies import MLDependencyError, import_torch
+from yolomatic.utils.ml_dependencies import import_rfdetr_model_class
+from yolomatic.utils.project import (
     find_available_weights,
     format_weight_label,
     project_root,
@@ -793,7 +793,7 @@ def main() -> None:
     root = project_root()
 
     if args.dataset:
-        from src.cli.upload_dataset import main as upload_dataset_main
+        from yolomatic.cli.upload_dataset import main as upload_dataset_main
         upload_dataset_main(_dataset_delegate_argv(args))
         return
 
@@ -822,7 +822,7 @@ def main() -> None:
         if mode_choice in (NAV_BACK, "Back"):
             return
         if mode_choice == "Upload Dataset":
-            from src.cli.upload_dataset import main as upload_dataset_main
+            from yolomatic.cli.upload_dataset import main as upload_dataset_main
             upload_dataset_main(_dataset_delegate_argv(args))
             return
 

@@ -8,7 +8,7 @@ from typing import Sequence, Any
 from rich import box
 from rich.panel import Panel
 
-from src.utils.cli import (
+from yolomatic.utils.cli import (
     console,
     get_user_choice,
     get_user_multi_select,
@@ -16,13 +16,13 @@ from src.utils.cli import (
     expected_error_panel,
     NAV_BACK,
 )
-from src.utils.project import (
+from yolomatic.utils.project import (
     find_available_weights,
     format_weight_label,
     project_root,
 )
-from src.utils.ml_dependencies import import_ultralytics_yolo
-from src.utils.export_config import (
+from yolomatic.utils.ml_dependencies import import_ultralytics_yolo
+from yolomatic.utils.export_config import (
     ExportModelDetails,
     build_export_kwargs,
     extract_model_details,
@@ -771,7 +771,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
                         # Step 2: Compile ONNX to TensorRT with custom profile
                         console.print("[dim]  Step 2/2: Programmatically compiling ONNX to TensorRT engine...[/dim]")
-                        from src.utils.trt_compiler import compile_onnx_to_trt
+                        from yolomatic.utils.trt_compiler import compile_onnx_to_trt
 
                         target_imgsz = active_kwargs.get("imgsz", 640)
                         opt_batch = active_kwargs.get("batch", 1)
