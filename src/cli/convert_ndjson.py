@@ -13,10 +13,13 @@ from urllib.parse import urlparse
 import requests
 import yaml
 from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 
 from src.datasets.ndjson import pose_metadata_from_rows
 from src.datasets.prepare import slugify
+from src.utils.fs import UnsafePathError, ensure_overwritable_dir
+from src.utils.project import project_root
 from src.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
@@ -468,6 +471,11 @@ def convert_ndjson_to_format(
     pose_meta = pose_metadata_from_rows(rows) if pose_output else None
 
     if output_dir.exists() and overwrite:
+        ensure_overwritable_dir(
+            output_dir,
+            protected=[project_root(), project_root() / "datasets"],
+            must_not_contain=[ndjson_path],
+        )
         shutil.rmtree(output_dir)
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Output directory already exists and is not empty: {output_dir}")
@@ -577,7 +585,7 @@ def convert_ndjson_to_format(
                     state["annotations"],
                     objects,
                     classes,
-                    str(Path("images") / split / filename) if pose_output else filename,
+                    (Path("images") / split / filename).as_posix() if pose_output else filename,
                     int(img_w),
                     int(img_h),
                     previous_id,
@@ -754,6 +762,15 @@ def _collect_output_settings(source: Path, output_format: str) -> tuple[Path, in
         if choice in (NAV_BACK, "Back"):
             return None
         if choice == "Choose Different Folder":
+            return _collect_output_settings(source, output_format)
+        try:
+            ensure_overwritable_dir(
+                output_dir,
+                protected=[project_root(), project_root() / "datasets"],
+                must_not_contain=[source],
+            )
+        except UnsafePathError as error:
+            console.print(Panel(f"[bold red]{escape(str(error))}[/bold red]", border_style="red"))
             return _collect_output_settings(source, output_format)
         overwrite = True
     return output_dir, int(raw_workers), overwrite

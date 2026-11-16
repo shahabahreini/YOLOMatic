@@ -303,5 +303,23 @@ class TestLoadYoloDataUnreadableImage(unittest.TestCase):
             self.assertEqual(tuple(gts[0].box_xyxy), (0.0, 0.0, 640.0, 640.0))
 
 
+class TestLoadGtFromYoloTxtBoxes(unittest.TestCase):
+    def test_detection_row_is_parsed_as_centre_box(self):
+        # Regression: 5-token rows were treated as a 2-point polygon, producing
+        # boxes from (min(cx, w), min(cy, h)) and wrong mAP for every detection set.
+        from src.benchmark.engine import _load_gt_from_yolo_txt
+
+        with tempfile.TemporaryDirectory() as tmp:
+            label = Path(tmp) / "img.txt"
+            label.write_text("2 0.5 0.25 0.2 0.1\n1.0 0.1 0.1 0.2 0.2\n", encoding="utf-8")
+            gts = _load_gt_from_yolo_txt(label, img_w=200, img_h=100)
+
+        self.assertEqual([g.cls for g in gts], [2, 1])
+        np.testing.assert_allclose(gts[0].box_xyxy, (80.0, 20.0, 120.0, 30.0))
+        self.assertIsNone(gts[0].mask)
+        self.assertAlmostEqual(gts[0].area, 40.0 * 10.0)
+        np.testing.assert_allclose(gts[1].box_xyxy, (0.0, 0.0, 40.0, 20.0))
+
+
 if __name__ == "__main__":
     unittest.main()

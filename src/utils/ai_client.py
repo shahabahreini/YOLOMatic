@@ -882,11 +882,11 @@ def _get_project_key(dataset_choice: str) -> str:
         root = project_root()
         dataset_path = Path(dataset_choice).resolve()
         try:
-            return str(dataset_path.relative_to(root))
+            return dataset_path.relative_to(root).as_posix()
         except ValueError:
-            return str(dataset_path)
+            return dataset_path.as_posix()
     except Exception:
-        return str(Path(dataset_choice).resolve())
+        return Path(dataset_choice).resolve().as_posix()
 
 
 def run_ai_recommendation_flow(model_choice: str, dataset_choice: str) -> dict | None:

@@ -116,7 +116,7 @@ class BenchmarkRunError(RuntimeError):
 
 def detect_annotation_format(validation_dir: Path) -> str:
     """Return 'coco', 'yolo', or 'none'."""
-    if list(validation_dir.glob("_annotations.coco.json")) or list(validation_dir.glob("*.json")):
+    if _find_coco_annotations(validation_dir) is not None:
         return "coco"
     if _find_yolo_labels_dir(validation_dir) is not None:
         return "yolo"
@@ -173,12 +173,14 @@ def _load_gt_from_yolo_txt(
         if len(parts) < 5:
             continue
         try:
-            cls = int(parts[0])
+            cls = int(float(parts[0]))
             coords = [float(v) for v in parts[1:]]
         except ValueError:
             continue
 
-        if pose_values and len(coords) == pose_values:
+        # Plain YOLO detection row: ``cls cx cy w h`` (normalised centre/size).
+        # Pose rows carry the same box followed by keypoints.
+        if len(coords) == 4 or (pose_values and len(coords) == pose_values):
             cx, cy, w, h = coords[:4]
             x1 = (cx - w / 2) * img_w
             y1 = (cy - h / 2) * img_h
@@ -282,13 +284,28 @@ def _pose_label_values(validation_dir: Path) -> int:
 # COCO annotation loading
 # ---------------------------------------------------------------------------
 
-def _auto_detect_annotations(validation_dir: Path) -> Path:
+def _find_coco_annotations(validation_dir: Path) -> Path | None:
     candidates = list(validation_dir.glob("_annotations.coco.json"))
     if candidates:
         return candidates[0]
     candidates = list(validation_dir.glob("*.json"))
     if candidates:
         return candidates[0]
+    # YOLOmatic's converted layout: <root>/<split>/images + <root>/annotations/instances_<split>.json
+    if validation_dir.name == "images":
+        split = validation_dir.parent.name
+        ann_dir = validation_dir.parent.parent / "annotations"
+        for name in (split, "val" if split == "valid" else split):
+            candidate = ann_dir / f"instances_{name}.json"
+            if candidate.is_file():
+                return candidate
+    return None
+
+
+def _auto_detect_annotations(validation_dir: Path) -> Path:
+    found = _find_coco_annotations(validation_dir)
+    if found is not None:
+        return found
     raise FileNotFoundError(
         f"No annotation JSON found in {validation_dir}. "
         "Pass annotations_file explicitly in BenchmarkConfig."
@@ -297,17 +314,21 @@ def _auto_detect_annotations(validation_dir: Path) -> Path:
 
 def _load_coco_data(annotations_file: Path) -> tuple[dict[int, Path], dict[int, list[GTObject]]]:
     """Load COCO JSON → (image_id→path, image_id→[GTObject])."""
-    with annotations_file.open() as f:
+    with annotations_file.open(encoding="utf-8") as f:
         coco = json.load(f)
 
     img_dir = annotations_file.parent
+    # file_name may be relative to the annotation folder, its images/ child, or
+    # (for annotations/instances_*.json layouts) the dataset root.
+    search_roots = (img_dir, img_dir / "images", img_dir.parent)
 
     id_to_path: dict[int, Path] = {}
     for img_info in coco.get("images", []):
-        img_path = img_dir / img_info["file_name"]
-        # Also check inside an images/ subdirectory
-        if not img_path.exists():
-            img_path = img_dir / "images" / img_info["file_name"]
+        file_name = img_info["file_name"]
+        img_path = next(
+            (root / file_name for root in search_roots if (root / file_name).exists()),
+            img_dir / file_name,
+        )
         id_to_path[img_info["id"]] = img_path
 
     # Index widths/heights for polygon rasterisation

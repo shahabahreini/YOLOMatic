@@ -23,7 +23,7 @@ class AugmentationProgressAndMoveTest(unittest.TestCase):
         for i in range(5):
             img = np.full((20, 20, 3), 100 + i * 10, dtype=np.uint8)
             cv2.imwrite(str(train_img_dir / f"img_{i:02d}.jpg"), img)
-            (train_lbl_dir / f"img_{i:02d}.txt").write_text(f"0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+            (train_lbl_dir / f"img_{i:02d}.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
 
     def test_run_augmentation_reports_granular_writing_progress_and_moves_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

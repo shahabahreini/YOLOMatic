@@ -3,12 +3,19 @@ import shutil
 import yaml
 from pathlib import Path
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
-from rich.table import Table
+from rich.markup import escape
 from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.utils.cli import NAV_BACK, get_user_choice, get_parameter_value_input
+from src.utils.fs import UnsafePathError, ensure_safe_destructive_target, safe_directory_swap
 
 console = Console()
 
@@ -126,15 +133,61 @@ def process_single_image(task: tuple) -> tuple[bool, str]:
         return False, f"Failed {new_name}: {str(e)[:100]}"
 
 
-def merge_datasets(selected_datasets: list, output_name: str, normalize_classes: bool):
-    output_path = Path(output_name)
+def validate_output_name(output_name: str) -> str:
+    """Return a clean single-folder name or raise ``ValueError``."""
+    name = output_name.strip()
+    if not name or name in {".", ".."} or name.startswith("."):
+        raise ValueError("Output name must be a plain folder name (not empty, '.' or '..').")
+    if Path(name).name != name or "/" in name or "\\" in name:
+        raise ValueError("Output name must be a single folder name, without path separators.")
+    return name
+
+
+def resolve_output_path(selected_datasets: list, output_name: str, datasets_root: Path) -> Path:
+    """Resolve the merge destination under ``datasets_root`` and refuse unsafe targets."""
+    name = validate_output_name(output_name)
+    return ensure_safe_destructive_target(
+        datasets_root / name,
+        datasets_root,
+        forbidden=[ds["path"] for ds in selected_datasets],
+    )
+
+
+def merge_datasets(
+    selected_datasets: list,
+    output_name: str,
+    normalize_classes: bool,
+    *,
+    datasets_root: Path | str = "datasets",
+    overwrite: bool = False,
+) -> Path:
+    """Merge ``selected_datasets`` into ``datasets_root/output_name``.
+
+    The merge is built in a hidden staging folder and swapped into place only
+    once it is complete, so a crash or Ctrl-C never destroys an existing
+    dataset or leaves a half-written one behind.
+    """
+    datasets_root = Path(datasets_root)
+    datasets_root.mkdir(parents=True, exist_ok=True)
+    final_path = resolve_output_path(selected_datasets, output_name, datasets_root)
+    if final_path.exists() and not overwrite:
+        raise FileExistsError(f"{final_path} already exists.")
+
+    output_path = final_path.parent / f".{final_path.name}.staging-{os.getpid()}"
     if output_path.exists():
-        if not Confirm.ask(f"[yellow]'{output_name}' already exists. Delete and overwrite?[/yellow]"):
-            return
         shutil.rmtree(output_path)
+    output_path.mkdir(parents=True)
+    try:
+        _merge_into(selected_datasets, output_path, final_path, normalize_classes)
+        safe_directory_swap(output_path, final_path)
+    finally:
+        if output_path.exists():
+            shutil.rmtree(output_path, ignore_errors=True)
+    return final_path
 
-    output_path.mkdir(parents=True, exist_ok=True)
 
+def _merge_into(selected_datasets: list, output_path: Path, final_path: Path, normalize_classes: bool) -> None:
+    output_name = final_path.name
     # === Build unified class list (with optional normalization) ===
     class_set = {}
     for ds in selected_datasets:
@@ -213,7 +266,7 @@ def merge_datasets(selected_datasets: list, output_name: str, normalize_classes:
 
     # === Generate data.yaml ===
     new_yaml = {
-        "path": str(output_path.absolute()),
+        "path": str(final_path),
         "train": "train/images",
         "val": "val/images",
         "test": "test/images",
@@ -245,7 +298,7 @@ Automatically created by the **Robust YOLO Dataset Combiner** (parallel + hard-l
 
     readme += f"| **TOTAL** | **{sum(s['train'] for s in stats.values())}** | **{sum(s['val'] for s in stats.values())}** | **{sum(s['test'] for s in stats.values())}** | **{sum(s['skipped'] for s in stats.values())}** | **{grand_total}** |\n\n"
 
-    readme += """## Folder Structure
+    readme += f"""## Folder Structure
     {output_name}/
 ├── data.yaml
 ├── README.md
@@ -263,11 +316,15 @@ Automatically created by the **Robust YOLO Dataset Combiner** (parallel + hard-l
     with open(output_path / "README.md", "w", encoding="utf-8") as f:
         f.write(readme)
 
-    console.print("\n[bold green]✅ PERFECT MERGE COMPLETE![/bold green]")
-    console.print(f"   Location: [blue]{output_path.absolute()}[/blue]")
+    console.print("\n[bold green]✅ Merge complete[/bold green]")
+    console.print(f"   Location: [blue]{escape(str(final_path))}[/blue]")
     console.print(f"   Classes : [cyan]{len(all_classes)}[/cyan]")
     if errors:
-        console.print(f"[yellow]⚠️  {len(errors)} files had issues (logged above)[/yellow]")
+        console.print(f"[yellow]⚠️  {len(errors)} files could not be merged:[/yellow]")
+        for message in errors[:10]:
+            console.print(f"   [dim]{escape(message)}[/dim]")
+        if len(errors) > 10:
+            console.print(f"   [dim]... and {len(errors) - 10} more[/dim]")
 
 
 def main():
@@ -349,22 +406,56 @@ def main():
         return
     normalize = normalize_choice.startswith("Yes")
 
-    output_raw = get_parameter_value_input(
-        name="output_name",
-        current_value="combined_yolo_dataset",
-        value_type="str",
-        description="Name of the output dataset folder in datasets/",
-    )
-    if output_raw in (NAV_BACK, None):
-        return
-    output_name = str(output_raw).strip() or "combined_yolo_dataset"
+    datasets_root = Path("datasets")
+    while True:
+        output_raw = get_parameter_value_input(
+            name="output_name",
+            current_value="combined_yolo_dataset",
+            value_type="str",
+            description="Name of the output dataset folder (created inside datasets/)",
+        )
+        if output_raw in (NAV_BACK, None):
+            return
+        output_name = str(output_raw).strip() or "combined_yolo_dataset"
+        try:
+            final_path = resolve_output_path(selected, output_name, datasets_root)
+        except (ValueError, UnsafePathError) as error:
+            console.print(f"[red]{escape(str(error))}[/red]")
+            continue
+        break
 
-    merge_datasets(selected, output_name, normalize_classes=normalize)
+    overwrite = False
+    if final_path.exists():
+        decision = get_user_choice(
+            ["Cancel", "Replace existing dataset"],
+            allow_back=True,
+            title="Output Already Exists",
+            text=(
+                f"'{escape(str(final_path))}' already exists. Replacing it swaps in the new merge "
+                "only after it finishes successfully."
+            ),
+            breadcrumbs=["YOLOmatic", "Dataset Combiner", "Overwrite"],
+        )
+        if decision != "Replace existing dataset":
+            return
+        overwrite = True
+
+    try:
+        merge_datasets(
+            selected,
+            output_name,
+            normalize_classes=normalize,
+            datasets_root=datasets_root,
+            overwrite=overwrite,
+        )
+    except KeyboardInterrupt:
+        console.print("[yellow]Merge cancelled. No existing dataset was modified.[/yellow]")
+    except Exception as error:  # noqa: BLE001 - surface any failure to the user
+        console.print(f"[bold red]Merge failed:[/bold red] {escape(str(error))}")
     try:
         input("\nPress Enter to return to main menu...")
     except (EOFError, KeyboardInterrupt):
         pass
-
 
 if __name__ == "__main__":
     main()

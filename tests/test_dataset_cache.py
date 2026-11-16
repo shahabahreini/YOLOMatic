@@ -2,6 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
 from src.datasets.cache import (
     clean_dataset_image_cache,
     inspect_dataset_cache,
@@ -20,9 +23,16 @@ class DatasetCacheTest(unittest.TestCase):
             labels = root / "train" / "labels"
             images.mkdir(parents=True)
             labels.mkdir(parents=True)
-            (images / "sample.jpg").write_bytes(b"jpeg")
-            (images / "sample.npy").write_bytes(b"cache-data")
+            image = np.zeros((6, 10, 3), dtype=np.uint8)
+            Image.fromarray(image).save(images / "sample.jpg")
+            np.save(images / "sample.npy", image)  # what Ultralytics cache=disk writes
+            cache_size = (images / "sample.npy").stat().st_size
             (images / "user-array.npy").write_bytes(b"keep")
+            # Regression: user arrays sitting beside an image used to be deleted.
+            Image.fromarray(image).save(images / "depth.png")
+            np.save(images / "depth.npy", np.zeros((6, 10), dtype=np.float32))
+            Image.fromarray(image).save(images / "other.png")
+            np.save(images / "other.npy", np.zeros((3, 3, 3), dtype=np.uint8))
             (labels / "labels.cache").write_bytes(b"metadata")
 
             before = inspect_dataset_cache(root)
@@ -31,9 +41,11 @@ class DatasetCacheTest(unittest.TestCase):
             self.assertEqual(before.image_cache_files, 1)
             self.assertEqual(before.metadata_cache_files, 1)
             self.assertEqual(result.removed_files, 1)
-            self.assertEqual(result.reclaimed_bytes, len(b"cache-data"))
+            self.assertEqual(result.reclaimed_bytes, cache_size)
             self.assertFalse((images / "sample.npy").exists())
             self.assertTrue((images / "user-array.npy").exists())
+            self.assertTrue((images / "depth.npy").exists())
+            self.assertTrue((images / "other.npy").exists())
             self.assertTrue((labels / "labels.cache").exists())
 
     def test_dataset_summary_excludes_runtime_cache_size(self) -> None:

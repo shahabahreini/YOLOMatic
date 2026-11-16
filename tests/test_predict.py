@@ -43,7 +43,7 @@ class PredictBatchTests(unittest.TestCase):
         self.assertEqual(summary["failed"], 1)
         self.assertEqual(summary["elapsed_seconds"], 1.25)
         self.assertEqual(summary["workers"], 3)
-        self.assertEqual(summary["output_dirs"], ["runs/predict"])
+        self.assertEqual([Path(p) for p in summary["output_dirs"]], [Path("runs/predict")])
 
     def test_input_dir_alias_populates_source(self) -> None:
         args = parse_args(["--mode", "folder", "--input-dir", "images"])

@@ -11,22 +11,35 @@ on:
       - "CONTRIBUTING.md"
       - "pyproject.toml"
       - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: uv sync --extra docs
-      - run: uv run mkdocs build --strict
+      # Docs only need the mkdocs toolchain, not the ML stack the project depends on.
+      - name: Build docs
+        run: uvx --from "mkdocs>=1.6" --with "mkdocs-material[imaging]>=9.5" --with "pymdown-extensions>=10.8" mkdocs build --strict
       - name: Deploy
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: uv run mkdocs gh-deploy --force
+        run: uvx --from "mkdocs>=1.6" --with "mkdocs-material[imaging]>=9.5" --with "pymdown-extensions>=10.8" mkdocs gh-deploy --force

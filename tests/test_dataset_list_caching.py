@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import src.cli.run as run
@@ -43,7 +44,7 @@ class DatasetListCachingTest(unittest.TestCase):
 
         # 1. First call: Should scan directories
         choice = run.list_datasets()
-        self.assertEqual(choice, "datasets/test_ds")
+        self.assertEqual(Path(choice), Path("datasets/test_ds"))
         self.assertEqual(mock_list_dataset_dirs.call_count, 1)
         self.assertEqual(mock_summarize_dataset.call_count, 1)
         self.assertIsNotNone(run._CACHED_DATASETS)
@@ -54,7 +55,7 @@ class DatasetListCachingTest(unittest.TestCase):
         mock_get_user_choice.return_value = "test_ds"
 
         choice2 = run.list_datasets()
-        self.assertEqual(choice2, "datasets/test_ds")
+        self.assertEqual(Path(choice2), Path("datasets/test_ds"))
         # Call count remains 1 because it loaded from cache
         self.assertEqual(mock_list_dataset_dirs.call_count, 1)
         self.assertEqual(mock_summarize_dataset.call_count, 1)
@@ -87,7 +88,7 @@ class DatasetListCachingTest(unittest.TestCase):
 
         # Call list_datasets: it should loop, clear cache, and run a second scan
         choice = run.list_datasets()
-        self.assertEqual(choice, "datasets/test_ds")
+        self.assertEqual(Path(choice), Path("datasets/test_ds"))
         # Should be called twice due to the refresh
         self.assertEqual(mock_list_dataset_dirs.call_count, 2)
         self.assertEqual(mock_summarize_dataset.call_count, 2)

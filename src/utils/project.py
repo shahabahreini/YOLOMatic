@@ -30,7 +30,7 @@ def project_root() -> Path:
 
 def format_weight_label(project_root: Path, weight_path: Path) -> str:
     try:
-        return str(weight_path.relative_to(project_root))
+        return weight_path.relative_to(project_root).as_posix()
     except ValueError:
         return str(weight_path)
 

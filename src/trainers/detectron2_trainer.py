@@ -78,7 +78,9 @@ def _register_datasets(config: dict[str, Any], symbols: dict[str, Any]) -> tuple
             ann = str(candidate) if candidate.exists() else None
         if not ann:
             continue
-        image_root = split_info.get("images_path") or split_info.get("images")
+        # COCO file_name values are relative to image_root (for converted datasets
+        # they include "<split>/images/"), so prefer it over the images folder.
+        image_root = split_info.get("image_root") or split_info.get("images_path") or split_info.get("images")
         if not image_root:
             image_root = str(prepared_dir / split / "images")
         name = f"yolomatic_{dataset.get('name', prepared_dir.name)}_{split}_{abs(hash(str(prepared_dir))) % 100000}"

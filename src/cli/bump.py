@@ -7,35 +7,54 @@ from pathlib import Path
 PYPROJECT_FILE = Path("pyproject.toml")
 
 
+_PROJECT_VERSION_RE = re.compile(r'^(version\s*=\s*)(["\'])([^"\']+)\2', re.MULTILINE)
+
+
+def _project_table_span(content: str) -> tuple[int, int] | None:
+    """Return the ``[project]`` table's character span in a pyproject.toml."""
+    header = re.search(r"^\[project\]\s*$", content, re.MULTILINE)
+    if header is None:
+        return None
+    next_table = re.search(r"^\[", content[header.end():], re.MULTILINE)
+    end = header.end() + next_table.start() if next_table else len(content)
+    return header.end(), end
+
+
+def read_project_version(content: str) -> str | None:
+    span = _project_table_span(content)
+    if span is None:
+        return None
+    match = _PROJECT_VERSION_RE.search(content, span[0], span[1])
+    return match.group(3) if match else None
+
+
+def replace_project_version(content: str, new_version: str) -> str:
+    """Replace only ``[project].version``.
+
+    The previous implementation substituted every ``version = "..."`` in the
+    file, which also rewrote ``target-version``, ``required-version`` and the
+    pinned ``[[tool.uv.dependency-metadata]]`` versions.
+    """
+    span = _project_table_span(content)
+    if span is None:
+        raise ValueError("pyproject.toml has no [project] table.")
+    match = _PROJECT_VERSION_RE.search(content, span[0], span[1])
+    if match is None:
+        raise ValueError("[project] table has no version field.")
+    replacement = f"{match.group(1)}{match.group(2)}{new_version}{match.group(2)}"
+    return content[: match.start()] + replacement + content[match.end():]
+
+
 def get_current_version():
     if not PYPROJECT_FILE.exists():
         print(f"Error: Could not find {PYPROJECT_FILE}", file=sys.stderr)
         sys.exit(1)
 
-    content = PYPROJECT_FILE.read_text("utf-8")
-    match = re.search(r'^\s*version\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
-    if not match:
-        print(f"Error: Could not parse version from {PYPROJECT_FILE}", file=sys.stderr)
+    version = read_project_version(PYPROJECT_FILE.read_text("utf-8"))
+    if version is None:
+        print(f"Error: Could not parse [project] version from {PYPROJECT_FILE}", file=sys.stderr)
         sys.exit(1)
-
-    return match.group(1)
-
-
-def write_version_to_file(
-    file_path: Path, pattern: str, replacement_template: str, new_version: str
-):
-    if not file_path.exists():
-        return False
-
-    content = file_path.read_text("utf-8")
-    new_content, count = re.subn(
-        pattern, replacement_template.format(new_version), content
-    )
-
-    if count > 0:
-        file_path.write_text(new_content, "utf-8")
-        return True
-    return False
+    return version
 
 
 def bump_version(current_version: str, bump_type: str) -> str:
@@ -110,18 +129,19 @@ def main():
 
     print_info(f"Bumping version: {current_version} -> {new_version}")
 
-    # Update only pyproject.toml (single source of truth). `src/__version__.py` reads pyproject at runtime.
-    p_pattern = r'version\s*=\s*["\'][^"\']+["\']'
-    p_replacement = f'version = "{new_version}"'
-    if write_version_to_file(PYPROJECT_FILE, p_pattern, p_replacement, new_version):
-        print_info(f"Updated {PYPROJECT_FILE}")
-    else:
-        print(f"Failed to update {PYPROJECT_FILE}", file=sys.stderr)
+    # Update only [project].version (single source of truth). `src/__version__.py`
+    # reads the installed metadata / pyproject at runtime.
+    try:
+        content = PYPROJECT_FILE.read_text("utf-8")
+        PYPROJECT_FILE.write_text(replace_project_version(content, new_version), "utf-8")
+    except (OSError, ValueError) as error:
+        print(f"Failed to update {PYPROJECT_FILE}: {error}", file=sys.stderr)
         sys.exit(1)
+    print_info(f"Updated {PYPROJECT_FILE}")
 
     print_success(f"✓ Version successfully bumped to {new_version}")
     print_info(
-        "Don't forget to run 'uv sync' to lock the new version in your environment if necessary."
+        "Run 'uv lock' to record the new version in uv.lock."
     )
 
 

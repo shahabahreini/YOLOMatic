@@ -13,6 +13,7 @@ import yaml
 
 from src.cli.prepare_dataset import _discover_ndjson_files
 from src.datasets.core import DatasetValidationError
+from src.utils.fs import UnsafePathError
 from src.datasets.prepare import (
     PrepareDatasetConfig,
     PrepareSplitConfig,
@@ -86,6 +87,57 @@ class PrepareDatasetTest(unittest.TestCase):
         self.assertEqual(data["task"], "detect")
         self.assertEqual(stats.split_counts, {"train": 3, "valid": 1, "test": 2})
         self.assertEqual(len(list((out / "train" / "labels").glob("*.txt"))), 3)
+
+    def test_overwrite_never_deletes_source_named_like_a_version(self) -> None:
+        # Regression: a source called datasets/foo_v001 resolved to itself as the
+        # versioned output, and --overwrite ran rmtree on it.
+        output_root = self.tmp / "datasets"
+        source = output_root / "foo_v001"
+        source.mkdir(parents=True)
+        self._write_yolo_dataset(source, count=4)
+        before = sorted(p.relative_to(source) for p in source.rglob("*"))
+
+        with self.assertRaises(UnsafePathError):
+            prepare_dataset(
+                PrepareDatasetConfig(
+                    source_path=source,
+                    output_root=output_root,
+                    output_format="YOLO Detection",
+                    split_config=PrepareSplitConfig(0.50, 0.25, 0.25),
+                    overwrite=True,
+                )
+            )
+        self.assertEqual(sorted(p.relative_to(source) for p in source.rglob("*")), before)
+
+    def test_overwrite_replaces_latest_version(self) -> None:
+        output_root = self.tmp / "datasets"
+        for version in (1, 3):
+            (output_root / f"plants_v{version:03d}").mkdir(parents=True)
+        path, version = resolve_versioned_output(output_root, "plants", overwrite=True)
+        self.assertEqual((path.name, version), ("plants_v003", 3))
+
+    def test_failed_write_leaves_no_partial_version_and_data_yaml_has_final_path(self) -> None:
+        source = self.tmp / "source"
+        source.mkdir()
+        self._write_yolo_dataset(source, count=6)
+        output_root = self.tmp / "datasets"
+        config = PrepareDatasetConfig(
+            source_path=source,
+            output_root=output_root,
+            output_slug="prepared",
+            output_format="YOLO Detection",
+            split_config=PrepareSplitConfig(0.50, 0.25, 0.25),
+        )
+        with patch("src.datasets.prepare._write_readme", side_effect=RuntimeError("disk full")):
+            with self.assertRaises(RuntimeError):
+                prepare_dataset(config)
+        self.assertEqual(list(output_root.iterdir()), [])
+
+        stats = prepare_dataset(config)
+        out = Path(stats.output_path)
+        self.assertEqual(out.name, "prepared_v001")
+        data = yaml.safe_load((out / "data.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(Path(data["path"]), out.resolve())
 
     def test_prepare_yolo_to_coco(self) -> None:
         source = self.tmp / "source"

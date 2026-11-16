@@ -647,8 +647,13 @@ def upload_model(
         "filename": staged_candidate.filename,
     }
     output_buffer = io.StringIO()
-    with contextlib.redirect_stdout(output_buffer):
-        deployment_response = workspace.deploy_model(**deploy_kwargs)
+    try:
+        with contextlib.redirect_stdout(output_buffer):
+            deployment_response = workspace.deploy_model(**deploy_kwargs)
+    finally:
+        if staged_candidate.model_path != candidate.model_path:
+            # stage_upload_candidate copied the checkpoint into a private temp dir.
+            shutil.rmtree(staged_candidate.model_path.parent, ignore_errors=True)
 
     captured_output = output_buffer.getvalue().strip()
     if (

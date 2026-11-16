@@ -4,30 +4,33 @@ on:
   push:
     branches:
       - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ruff:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
-      - name: Sync environment
-        run: uv sync --group dev --python 3.12
-
       - name: Run Ruff
-        run: uv run ruff check src tests
+        # Ruff is self-contained; no need to install the ML stack for linting.
+        run: uvx ruff@0.16.9 check src tests
 
   test:
     name: Tests (${{ matrix.os }})
@@ -39,6 +42,7 @@ jobs:
           - macos-15
           - windows-latest
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -55,10 +59,18 @@ jobs:
           enable-cache: true
 
       - name: Sync environment
-        run: uv sync --python 3.12
+        run: uv sync --locked --group dev --python 3.12
 
       - name: Compile sources
-        run: uv run python -m compileall src
+        run: uv run python -m compileall -q src
 
       - name: Run tests
-        run: uv run python -m unittest discover -s tests -v
+        run: uv run pytest -q --cov=src --cov-report=term --cov-report=xml
+
+      - name: Upload coverage report
+        if: always() && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore

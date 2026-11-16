@@ -33,6 +33,8 @@ class SplitSummary:
     images_path: str | None = None
     labels_path: str | None = None
     annotations_path: str | None = None
+    # COCO only: base folder that each image ``file_name`` is relative to.
+    image_root: str | None = None
     image_count: int = 0
     annotation_count: int = 0
     labeled_image_count: int = 0
@@ -438,6 +440,8 @@ def _stat_aggregate(path: Path, *, max_depth: int = 2) -> tuple[int, int, int]:
 def _dataset_signature(root: Path) -> str:
     """Generate a quick signature for the dataset directory without scanning images/labels."""
     hasher = hashlib.sha256()
+    # Bump the schema tag whenever SplitSummary gains fields so stale caches are ignored.
+    hasher.update(b"summary-schema-2")
     hasher.update(str(root.resolve()).encode("utf-8"))
 
     queue = [(root, 0)]
@@ -694,6 +698,33 @@ def _summarize_yolo(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         summary.task = "detection"
 
 
+def _resolve_coco_image_locations(
+    root: Path, ann_path: Path, split_name: str, images: list[dict[str, Any]]
+) -> tuple[Path | None, Path | None]:
+    """Return ``(image_root, images_dir)`` for a COCO split.
+
+    ``image_root`` is the base that each ``file_name`` is relative to (what
+    Detectron2's ``register_coco_instances`` expects). ``images_dir`` is the
+    folder that actually holds this split's images (what YOLO-style consumers
+    such as the benchmark expect).
+    """
+    names = [str(image.get("file_name", "")) for image in images[:5] if image.get("file_name")]
+    if not names:
+        return None, None
+    split_aliases = [split_name] + (["valid"] if split_name == "val" else [])
+    candidates: list[Path] = [ann_path.parent, ann_path.parent / "images"]
+    for alias in split_aliases:
+        candidates += [root / alias / "images", root / alias, root / "images" / alias]
+    candidates += [root / "images", root, ann_path.parent.parent]
+    for candidate in candidates:
+        resolved = [candidate / name for name in names]
+        if all(path.is_file() for path in resolved):
+            parents = {path.parent for path in resolved}
+            images_dir = parents.pop() if len(parents) == 1 else candidate
+            return candidate.resolve(), images_dir.resolve()
+    return None, None
+
+
 def _summarize_coco(root: Path, summary: DatasetSummary, sample_limit: int) -> None:
     for split_name, ann_path in find_coco_annotation_files(root).items():
         data = _read_json(ann_path)
@@ -711,6 +742,11 @@ def _summarize_coco(root: Path, summary: DatasetSummary, sample_limit: int) -> N
         
         split = summary.splits.get(split_name, SplitSummary(split_name))
         split.annotations_path = str(ann_path)
+        image_root, images_dir = _resolve_coco_image_locations(root, ann_path, split_name, all_images)
+        if image_root is not None:
+            split.image_root = str(image_root)
+        if images_dir is not None and split.images_path is None:
+            split.images_path = str(images_dir)
         split.image_count = total_images
         split.annotation_count = total_annotations
         split.labeled_image_count = len(image_ids & labeled)

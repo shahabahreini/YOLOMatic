@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from rich import box
+from rich.console import Console
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,

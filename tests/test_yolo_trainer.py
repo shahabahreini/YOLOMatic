@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from src.cli.upload import EnvConfig
 from src.trainers.yolo_trainer import (
     configure_ultralytics_runtime,
     disable_ultralytics_clearml_callbacks,
@@ -101,32 +103,59 @@ class TestRoboflowUpload(unittest.TestCase):
         mock_build.assert_not_called()
         mock_upload.assert_not_called()
 
-    @patch("src.trainers.yolo_trainer.upload_model")
-    @patch("src.trainers.yolo_trainer.build_candidate")
-    @patch("src.trainers.yolo_trainer.stage_upload_candidate")
-    @patch("pathlib.Path.exists", return_value=True)
-    def test_upload_called_if_configured(self, mock_exists, mock_stage, mock_build, mock_upload):
-        config = {"roboflow": {"upload": True, "weight": "best.pt"}}
-        dataset_config = {"roboflow": {"workspace": "ws", "project": "proj", "version": "1"}}
-        run_dir = Path("/tmp/run")
-        
-        # Setup mock candidate
-        mock_candidate = MagicMock()
-        mock_build.return_value = mock_candidate
-        mock_stage.return_value = mock_candidate
-        
-        upload_to_roboflow_if_configured(config, dataset_config, run_dir, "yolov11", MagicMock())
-        
-        # Verify the candidate is built with the right path
-        expected_path = run_dir / "weights" / "best.pt"
-        mock_build.assert_called_once_with(expected_path)
-        
-        # Verify candidate overrides are set
-        self.assertEqual(mock_candidate.workspace, "ws")
-        self.assertEqual(mock_candidate.project_ids, "proj")
-        
-        mock_stage.assert_called_once_with(mock_candidate, "yolov11")
-        mock_upload.assert_called_once_with(mock_candidate, "yolov11")
+    def test_upload_called_with_real_upload_model_signature(self):
+        # Regression: the trainer used to mutate a frozen UploadCandidate and call
+        # upload_model() with 2 of its 6 arguments, so auto-upload never worked.
+        # autospec=True makes the mock enforce the real signature.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir) / "train"
+            (run_dir / "weights").mkdir(parents=True)
+            (run_dir / "weights" / "best.pt").write_bytes(b"weights")
+            (run_dir / "args.yaml").write_text("model: yolo11n.pt\ntask: detect\n", encoding="utf-8")
+
+            config = {"roboflow": {"upload": True, "weight": "best.pt"}}
+            dataset_config = {"roboflow": {"workspace": "ws", "project": "proj-a, proj-b"}}
+            env = EnvConfig(api_key="secret", workspace=None, project_ids=[])
+            console = MagicMock()
+
+            with patch(
+                "src.trainers.yolo_trainer.upload_model", autospec=True
+            ) as mock_upload, patch(
+                "src.trainers.yolo_trainer.load_env_config", autospec=True, return_value=env
+            ):
+                upload_to_roboflow_if_configured(config, dataset_config, run_dir, "yolo11n", console)
+
+            mock_upload.assert_called_once()
+            api_key, candidate, workspace, project_ids, model_type, model_name = mock_upload.call_args.args
+            self.assertEqual(api_key, "secret")
+            self.assertEqual(candidate.weight_path, run_dir / "weights" / "best.pt")
+            self.assertEqual(workspace, "ws")
+            self.assertEqual(project_ids, ["proj-a", "proj-b"])
+            self.assertEqual(model_type, "yolov11")
+            self.assertEqual(model_name, "train-best")
+            printed = " ".join(str(call.args[0]) for call in console.print.call_args_list)
+            self.assertIn("completed successfully", printed)
+            self.assertNotIn("upload failed", printed)
+
+    def test_upload_reports_missing_api_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run_dir = Path(temp_dir) / "train"
+            (run_dir / "weights").mkdir(parents=True)
+            (run_dir / "weights" / "best.pt").write_bytes(b"weights")
+            config = {"roboflow": {"upload": True, "weight": "best.pt"}}
+            dataset_config = {"roboflow": {"workspace": "ws", "project": "proj"}}
+            console = MagicMock()
+            with patch(
+                "src.trainers.yolo_trainer.upload_model", autospec=True
+            ) as mock_upload, patch(
+                "src.trainers.yolo_trainer.load_env_config",
+                autospec=True,
+                side_effect=RuntimeError("ROBOFLOW_API_KEY is missing."),
+            ):
+                upload_to_roboflow_if_configured(config, dataset_config, run_dir, "yolo11n", console)
+            mock_upload.assert_not_called()
+            printed = " ".join(str(call.args[0]) for call in console.print.call_args_list)
+            self.assertIn("ROBOFLOW_API_KEY is missing", printed)
 
 if __name__ == "__main__":
     unittest.main()

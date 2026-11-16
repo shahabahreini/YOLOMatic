@@ -726,8 +726,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         from ultralytics import YOLO
         
         try:
-            import shutil
-
             def _is_trt_tactic_error(exc: Exception) -> bool:
                 return "engine build failed" in str(exc).lower()
 
@@ -867,12 +865,17 @@ def main(argv: Sequence[str] | None = None) -> None:
 
                 # Move/rename the exported file or directory
                 if exported_path.exists():
-                    # Handle if target exists
-                    if renamed_path.exists():
+                    # Replace a previous export with identical settings, but never the
+                    # source weights or the export we just produced.
+                    if renamed_path.exists() and renamed_path.resolve() not in {
+                        weight_path.resolve(),
+                        exported_path.resolve(),
+                    }:
                         if renamed_path.is_dir():
                             shutil.rmtree(renamed_path)
                         else:
                             renamed_path.unlink()
+                        console.print(f"[dim]Replaced previous export at {renamed_path}[/dim]")
 
                     shutil.move(exported_path, renamed_path)
                     console.print("\n[bold green]Success![/bold green] Exported model saved to:")

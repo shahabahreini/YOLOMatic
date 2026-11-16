@@ -13,8 +13,16 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from src.cli.upload import build_candidate, stage_upload_candidate, upload_model
-from src.config.settings import DEFAULT_SETTINGS, deep_merge, load_settings
+from src.cli.upload import (
+    build_candidate,
+    infer_model_type_from_text,
+    is_rfdetr_upload,
+    load_env_config,
+    parse_project_ids,
+    suggest_model_name,
+    upload_model,
+)
+from src.config.settings import DEFAULT_SETTINGS
 from src.trainers.common import effective_clearml_settings
 
 from src.utils.cli import NAV_BACK, get_user_choice
@@ -26,6 +34,7 @@ from src.utils.ml_dependencies import (
 from src.utils.project import (
     format_size,
     list_config_files,
+    project_root,
     resolve_config_path,
     verify_dataset_directories,
     write_resolved_data_yaml,
@@ -439,16 +448,31 @@ def upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_type
             console.print("[bold yellow]Skipping Roboflow upload: dataset Roboflow metadata is missing.[/bold yellow]")
         return
 
+    project_ids = parse_project_ids(project) if isinstance(project, str) else [str(p) for p in project]
     try:
+        env_config = load_env_config(project_root())
         candidate = build_candidate(weight_path)
-        candidate.workspace = workspace
-        candidate.project_ids = project
-        
-        upload_type = model_type
-        
-        staged = stage_upload_candidate(candidate, upload_type)
-        console.print(f"[bold]Uploading to workspace '{workspace}', project '{project}'...[/bold]")
-        upload_model(staged, upload_type)
+        upload_type = candidate.detected_model_type or infer_model_type_from_text(str(model_type))
+        if not upload_type:
+            raise RuntimeError(
+                f"Could not determine the Roboflow model type for '{model_type}'. "
+                "Upload manually with yolomatic-upload."
+            )
+        if is_rfdetr_upload(candidate, upload_type):
+            raise RuntimeError(
+                "RF-DETR checkpoints are uploaded by the RF-DETR trainer, not the YOLO trainer."
+            )
+        console.print(
+            f"[bold]Uploading to workspace '{workspace}', project(s) '{', '.join(project_ids)}'...[/bold]"
+        )
+        upload_model(
+            env_config.api_key,
+            candidate,
+            str(workspace),
+            project_ids,
+            upload_type,
+            suggest_model_name(weight_path),
+        )
         console.print("[bold green]Roboflow upload completed successfully![/bold green]")
     except Exception as error:
         console.print(f"[bold red]Roboflow upload failed: {error}[/bold red]")

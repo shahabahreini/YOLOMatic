@@ -32,6 +32,7 @@ from src.datasets.core import (
     summarize_dataset,
 )
 from src.datasets.ndjson import pose_metadata_from_rows
+from src.utils.fs import ensure_safe_destructive_target, safe_directory_swap
 
 OUTPUT_FORMATS = {
     "YOLO Detection",
@@ -139,10 +140,21 @@ def resolve_versioned_output(output_root: Path, slug: str, *, overwrite: bool = 
             raise FileExistsError(f"Output dataset already exists: {path}")
         return path, requested_version
 
+    if overwrite:
+        # Overwrite replaces the newest existing version (or creates v001).
+        pattern = re.compile(rf"^{re.escape(base_slug)}_v(\d+)$")
+        existing = [
+            int(m.group(1))
+            for child in output_root.iterdir()
+            if child.is_dir() and (m := pattern.match(child.name))
+        ]
+        version = max(existing, default=1)
+        return output_root / f"{base_slug}_v{version:03d}", version
+
     version = 1
     while True:
         path = output_root / f"{base_slug}_v{version:03d}"
-        if overwrite or not path.exists():
+        if not path.exists():
             return path, version
         version += 1
 
@@ -1190,7 +1202,10 @@ def _write_yolo_dataset(
     classes: list[str],
     output_format: str,
     pose_meta: dict[str, Any] | None = None,
+    dataset_path: Path | None = None,
 ) -> int:
+    """Write a YOLO dataset into ``output``; ``dataset_path`` is its final location
+    (recorded in data.yaml) when ``output`` is a staging folder."""
     total_annotations = 0
     for split_name, records in split_records_by_name.items():
         if not records:
@@ -1204,7 +1219,7 @@ def _write_yolo_dataset(
             _copy_or_link(record.image_path, target_image)
             total_annotations += _write_yolo_label(label_dir / f"{Path(record.file_name).stem}.txt", record, output_format)
     data_yaml: dict[str, Any] = {
-        "path": str(output.resolve()),
+        "path": str((dataset_path or output).resolve()),
         "train": "train/images",
         "val": "valid/images",
     }
@@ -1397,12 +1412,51 @@ def prepare_dataset(
         )
 
     slug = slugify(config.output_slug or Path(config.source_path).stem)
-    output, version = resolve_versioned_output(config.output_root, slug, overwrite=config.overwrite)
+    final_output, version = resolve_versioned_output(config.output_root, slug, overwrite=config.overwrite)
+    # Never write over (or inside) the dataset being read: with --overwrite and a
+    # source named like ``foo_v001`` the versioned output resolves to the source.
+    final_output = ensure_safe_destructive_target(
+        final_output, config.output_root, forbidden=[config.source_path]
+    )
+    if final_output.exists() and not config.overwrite:
+        raise FileExistsError(f"Output dataset already exists: {final_output}")
+    # Build in a hidden staging folder and swap it in at the end so a failure or
+    # Ctrl-C never leaves a half-written version that later runs mistake for real.
+    output = final_output.parent / f".{final_output.name}.staging-{os.getpid()}"
     if output.exists():
-        if not config.overwrite:
-            raise FileExistsError(f"Output dataset already exists: {output}")
         shutil.rmtree(output)
-    output.mkdir(parents=True, exist_ok=True)
+    output.mkdir(parents=True)
+    try:
+        stats = _write_prepared_output(
+            config, records, classes, pose_meta, task, source_format, warnings,
+            output, final_output, version, started, progress_callback,
+        )
+        safe_directory_swap(output, final_output)
+    finally:
+        if output.exists():
+            shutil.rmtree(output, ignore_errors=True)
+        if source_format == "ndjson" and records:
+            # Records share a single tempfile.mkdtemp parent; remove that root once.
+            download_root = records[0].image_path.parent
+            if download_root.name.startswith(Path(config.source_path).stem + "_yolomatic_"):
+                shutil.rmtree(download_root, ignore_errors=True)
+    return stats
+
+
+def _write_prepared_output(
+    config: PrepareDatasetConfig,
+    records: list,
+    classes: list[str],
+    pose_meta: Any,
+    task: str,
+    source_format: str,
+    warnings: list[str],
+    output: Path,
+    final_output: Path,
+    version: int,
+    started: float,
+    progress_callback: Any,
+) -> PrepareDatasetStats:
 
     if progress_callback:
         progress_callback(0, len(records), f"Splitting dataset with {config.split_strategy.replace('_', ' ')}...")
@@ -1426,20 +1480,17 @@ def prepare_dataset(
             require_keypoints=config.output_format == "COCO Pose",
         )
     else:
-        total_annotations = _write_yolo_dataset(output, split_records_by_name, classes, config.output_format, pose_meta)
-    if source_format == "ndjson" and records:
-        # Records share a single tempfile.mkdtemp parent; remove that root once.
-        download_root = records[0].image_path.parent
-        if download_root.name.startswith(Path(config.source_path).stem + "_yolomatic_"):
-            shutil.rmtree(download_root, ignore_errors=True)
-
+        total_annotations = _write_yolo_dataset(
+            output, split_records_by_name, classes, config.output_format, pose_meta,
+            dataset_path=final_output,
+        )
     split_counts = {name: len(items) for name, items in split_records_by_name.items()}
     diagnostics = split_diagnostics(split_records_by_name, classes)
     diagnostics["strategy"] = config.split_strategy
     stats = PrepareDatasetStats(
         source_path=str(Path(config.source_path).resolve()),
         source_format=source_format,
-        output_path=str(output.resolve()),
+        output_path=str(final_output),
         output_format=config.output_format,
         version=version,
         classes=classes,
