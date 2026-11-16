@@ -70,7 +70,11 @@ jobs:
       - name: Audit locked dependencies
         run: |
           uv export --locked --all-extras --no-hashes --no-emit-project --format requirements-txt > requirements-audit.txt
-          uvx pip-audit --requirement requirements-audit.txt --no-deps --disable-pip --progress-spinner off
+          # setuptools is held below 82 by torch 2.11+cu128; these advisories affect
+          # setuptools' packaging/index code, not YOLOmatic at runtime. Revisit
+          # when torch allows a newer setuptools.
+          uvx pip-audit --requirement requirements-audit.txt --no-deps --disable-pip --progress-spinner off \
+            --ignore-vuln PYSEC-2026-3447 --ignore-vuln GHSA-xmj3-9gf7-h52w
 
   lockfile:
     runs-on: ubuntu-latest

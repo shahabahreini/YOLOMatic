@@ -71,6 +71,12 @@ changes; see **Migrating from 6.x** below.
   after server errors, NDJSON class-id order, GPU probe timeouts, Gemini key
   leaking into error text, UTF-8 file I/O on Windows, stale conversion caches.
 
+### Security
+- Locked dependencies updated to clear 82 known advisories (aiohttp, certifi,
+  filelock, GitPython, mlflow, OpenTelemetry, Pillow 13, pyasn1, Werkzeug).
+  setuptools stays at 81 because torch 2.11+cu128 requires `setuptools<82`;
+  its 3 advisories concern packaging code, not YOLOmatic at runtime.
+
 ### Changed
 - Upper bounds on the major ML dependencies; `scikit-learn`, `requests`,
   `platformdirs` and `keyring` declared; unused `termcolor`, `tabulate` and
