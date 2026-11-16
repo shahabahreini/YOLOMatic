@@ -808,7 +808,7 @@ def _run_with_progress(ndjson_path: Path, output_format: str, output_dir: Path, 
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
-    with Live(refresh_per_second=4) as live:
+    with Live(refresh_per_second=4, console=console) as live:
         while not done.is_set():
             total = progress_state["total"]
             current = progress_state["done"]

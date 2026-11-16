@@ -12,11 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
+from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.utils.cli import get_user_choice
 from yolomatic.utils.ml_dependencies import prepare_ml_runtime
 
-console = Console()
+console = CONSOLE
 DEFAULT_TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 DEFAULT_NUMPY_CONSTRAINT = "numpy>=1.24.4"
 _IS_WINDOWS = platform.system() == "Windows"
@@ -730,7 +731,7 @@ def validate_export_config(
         (is_valid, list of error messages)
     """
     if console is None:
-        console = Console()
+        console = CONSOLE
 
     errors: list[str] = []
     warnings: list[str] = []

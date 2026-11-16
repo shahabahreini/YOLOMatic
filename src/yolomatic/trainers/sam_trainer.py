@@ -8,12 +8,12 @@ from typing import Any
 
 import numpy as np
 import torch
-from rich.console import Console
 from rich.panel import Panel
+from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
 
-console = Console()
+console = CONSOLE
 logger = logging.getLogger(__name__)
 
 

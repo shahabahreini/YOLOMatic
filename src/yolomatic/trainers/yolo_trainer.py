@@ -9,9 +9,9 @@ from pathlib import Path
 os.environ["YOLO_AUTOINSTALL"] = "false"
 
 import yaml
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.cli.upload import (
     build_candidate,
@@ -53,7 +53,7 @@ from yolomatic.utils.training_preflight import resolve_training_device, validate
 from yolomatic.models.rfdetr import is_rfdetr_model
 
 # Initialize Rich console
-console = Console()
+console = CONSOLE
 
 
 def configure_ultralytics_runtime():

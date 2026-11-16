@@ -2,7 +2,6 @@ import os
 import shutil
 import yaml
 from pathlib import Path
-from rich.console import Console
 from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
@@ -12,12 +11,13 @@ from rich.progress import (
     TaskProgressColumn,
     TextColumn,
 )
+from yolomatic.ui.theme import CONSOLE
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from yolomatic.utils.cli import NAV_BACK, get_user_choice, get_parameter_value_input
-from yolomatic.utils.fs import UnsafePathError, ensure_safe_destructive_target, safe_directory_swap
+from yolomatic.utils.fs import UnsafePathError, ensure_safe_destructive_target, staging_dir
 
-console = Console()
+console = CONSOLE
 
 # Supported image extensions (case-insensitive)
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
@@ -26,7 +26,7 @@ def find_datasets(root_dir: str = ".") -> list:
     datasets = []
     root = Path(root_dir)
     for item in root.iterdir():
-        if not item.is_dir():
+        if not item.is_dir() or item.name.startswith("."):
             continue
         yaml_path = item / "data.yaml"
         if yaml_path.exists():
@@ -173,16 +173,8 @@ def merge_datasets(
     if final_path.exists() and not overwrite:
         raise FileExistsError(f"{final_path} already exists.")
 
-    output_path = final_path.parent / f".{final_path.name}.staging-{os.getpid()}"
-    if output_path.exists():
-        shutil.rmtree(output_path)
-    output_path.mkdir(parents=True)
-    try:
+    with staging_dir(final_path, overwrite=overwrite) as output_path:
         _merge_into(selected_datasets, output_path, final_path, normalize_classes)
-        safe_directory_swap(output_path, final_path)
-    finally:
-        if output_path.exists():
-            shutil.rmtree(output_path, ignore_errors=True)
     return final_path
 
 

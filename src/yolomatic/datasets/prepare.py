@@ -32,7 +32,7 @@ from yolomatic.datasets.core import (
     summarize_dataset,
 )
 from yolomatic.datasets.ndjson import pose_metadata_from_rows
-from yolomatic.utils.fs import ensure_safe_destructive_target, safe_directory_swap
+from yolomatic.utils.fs import ensure_safe_destructive_target, staging_dir
 
 OUTPUT_FORMATS = {
     "YOLO Detection",
@@ -1422,19 +1422,13 @@ def prepare_dataset(
         raise FileExistsError(f"Output dataset already exists: {final_output}")
     # Build in a hidden staging folder and swap it in at the end so a failure or
     # Ctrl-C never leaves a half-written version that later runs mistake for real.
-    output = final_output.parent / f".{final_output.name}.staging-{os.getpid()}"
-    if output.exists():
-        shutil.rmtree(output)
-    output.mkdir(parents=True)
     try:
-        stats = _write_prepared_output(
-            config, records, classes, pose_meta, task, source_format, warnings,
-            output, final_output, version, started, progress_callback,
-        )
-        safe_directory_swap(output, final_output)
+        with staging_dir(final_output, overwrite=config.overwrite) as output:
+            stats = _write_prepared_output(
+                config, records, classes, pose_meta, task, source_format, warnings,
+                output, final_output, version, started, progress_callback,
+            )
     finally:
-        if output.exists():
-            shutil.rmtree(output, ignore_errors=True)
         if source_format == "ndjson" and records:
             # Records share a single tempfile.mkdtemp parent; remove that root once.
             download_root = records[0].image_path.parent

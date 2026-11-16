@@ -4,7 +4,6 @@ import signal
 import threading
 import time
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Sequence
 
 from blessed import Terminal
@@ -17,8 +16,15 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-# Initialize shared resources
-TUI_CONSOLE = Console()
+from yolomatic.ui.theme import (  # noqa: F401 - TUIState/PANEL_BORDER_STYLES re-exported
+    CONSOLE,
+    PANEL_BORDER_STYLES,
+    TUIState,
+    gpu_badge_markup,
+)
+
+# Initialize shared resources. The console is the app-wide themed console.
+TUI_CONSOLE = CONSOLE
 TUI_TERM = Terminal()
 
 # Terminal dimension cache — updated on SIGWINCH to avoid per-frame syscalls
@@ -50,26 +56,6 @@ _SIDEBAR_LABEL_OFFSET = 8     # columns reserved for selection prefix / borders
 NAV_BACK = "__BACK__"
 NAV_LIST = "__LIST__"
 
-
-class TUIState(str, Enum):
-    """Shared visual states for TUI panels and status messages."""
-
-    NORMAL = "normal"
-    INFO = "info"
-    SUCCESS = "success"
-    WARNING = "warning"
-    ERROR = "error"
-    CONFIRMATION = "confirmation"
-
-
-PANEL_BORDER_STYLES: dict[TUIState, str] = {
-    TUIState.NORMAL: "blue",
-    TUIState.INFO: "cyan",
-    TUIState.SUCCESS: "green",
-    TUIState.WARNING: "yellow",
-    TUIState.ERROR: "red",
-    TUIState.CONFIRMATION: "yellow",
-}
 
 STATUS_HINTS: dict[str, list[tuple[str, str]]] = {
     "menu": [("↑↓", "Move"), ("Enter", "Select"), ("B", "Back"), ("Q", "Quit")],
@@ -590,13 +576,7 @@ class MenuRenderer:
                 )
             )
 
-        gpu_status = get_gpu_status()
-        if gpu_status == "Detecting...":
-            gpu_markup = "[dim]GPU: 🔍[/dim]"
-        elif gpu_status == "CPU":
-            gpu_markup = "[dim]GPU: CPU[/dim]"
-        else:
-            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
+        gpu_markup = gpu_badge_markup(get_gpu_status())
 
         status_text = Text.from_markup(f"v{__version__}  •  {gpu_markup}")
 
@@ -1368,13 +1348,7 @@ class MultiSelectRenderer:
             else:
                 hints_text = render_hints("parameter_input")
 
-        gpu_status = get_gpu_status()
-        if gpu_status == "Detecting...":
-            gpu_markup = "[dim]GPU: 🔍[/dim]"
-        elif gpu_status == "CPU":
-            gpu_markup = "[dim]GPU: CPU[/dim]"
-        else:
-            gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
+        gpu_markup = gpu_badge_markup(get_gpu_status())
 
         selected_count = len(self.selected)
         right_text = Text.from_markup(f"{gpu_markup}  •  [bold cyan]Selected: {selected_count}[/bold cyan]")

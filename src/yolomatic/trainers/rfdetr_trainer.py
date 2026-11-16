@@ -5,16 +5,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.cli.upload import build_candidate, deploy_rfdetr_model, load_env_config
 from yolomatic.models.rfdetr import get_rfdetr_variant
 from yolomatic.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_rfdetr_model_class
 
-console = Console()
+console = CONSOLE
 
 
 def _validate_local_weights(value: Any, *, label: str) -> None:

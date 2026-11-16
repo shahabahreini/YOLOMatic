@@ -191,7 +191,8 @@ def list_dataset_directories(
 
     folders = sorted(
         folder for folder in root.iterdir()
-        if folder.is_dir() and folder.name != ".yolomatic_cache"
+        # Hidden folders are caches or transient staging/backup dirs, never datasets.
+        if folder.is_dir() and not folder.name.startswith(".")
     )
 
     def _process(folder: Path) -> dict[str, Any]:

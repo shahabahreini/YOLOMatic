@@ -544,7 +544,7 @@ def _run_batch(
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
 
-    with Live(refresh_per_second=4) as live:
+    with Live(refresh_per_second=4, console=console) as live:
         while not done.is_set():
             lines = log_lines[-20:]
             live.update(Panel(

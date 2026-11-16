@@ -1,4 +1,3 @@
-import logging
 import os
 import sys
 import time
@@ -11,10 +10,9 @@ from typing import Any, Callable, Iterator
 import yaml
 from rich import box
 from rich.align import Align
-from rich.console import Console
-from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.table import Table
+from yolomatic.ui.theme import CONSOLE
 from ruamel.yaml import YAML
 
 from yolomatic.config.generator import (
@@ -308,17 +306,6 @@ from yolomatic.config.parameters import (  # noqa: E402
     parameters_for,
 )
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(message)s",
-    handlers=[RichHandler(rich_tracebacks=True)],
-)
-logging.getLogger("yolomatic.config.generator").setLevel(logging.WARNING)
-# matplotlib (pulled in by ultralytics during training) logs font-cache build
-# details at INFO, e.g. "Failed to extract font properties from NotoColorEmoji.ttf:
-# Non-scalable fonts are not supported". These are harmless cache-build notices, so
-# force the logger to WARNING regardless of the active root level.
-logging.getLogger("matplotlib").setLevel(logging.WARNING)
 _CACHED_DATASETS = None
 _CACHED_DATASET_DESCRIPTIONS = None
 
@@ -823,7 +810,7 @@ def dataset_path_rows_for_config(
 
 def display_paths_info(dataset_info):
     """Display dataset paths in a clean format"""
-    console = Console()
+    console = CONSOLE
 
     paths_table = Table(
         title="Dataset Paths", title_style="bold green", box=box.ROUNDED
@@ -2423,7 +2410,7 @@ _GOODBYE_ART = (
     "█▀▀ █▀█ █▀█ █▀▄ █▄▄ █▄█ █▀▀",
     "█▄█ █▄█ █▄█ █▄▀ █▄█ ░█░ █▄▄",
 )
-_GOODBYE_GRADIENT = ("bold #8FBCBB", "bold #81A1C1")
+_GOODBYE_GRADIENT = ("nord.frost0.bold", "nord.frost2.bold")
 
 
 def _render_goodbye() -> None:
@@ -2466,6 +2453,9 @@ def _exit_now(code: int = 0) -> None:
 
 
 def main():
+    from yolomatic.utils.logging_setup import configure_logging
+
+    configure_logging()
     while True:
         try:
             _main_loop_iteration()
@@ -2481,14 +2471,20 @@ def main():
         except Exception as error:
             # Last-resort safety net — report and re-enter the menu rather than
             # crashing the whole TUI.
+            from yolomatic.ui.theme import safe
+            from yolomatic.utils.logging_setup import log_exception
+
+            log_path = log_exception(error, "Unhandled error in the main menu")
+            details = f"\n\n[dim]Full traceback: {safe(log_path)}[/dim]" if log_path else ""
             console.print(
                 Panel(
-                    f"[bold red]An unexpected error occurred:[/bold red] {error}",
+                    f"[bold red]An unexpected error occurred:[/bold red] {safe(error)}{details}",
                     border_style="red",
                     padding=(1, 2),
                 )
             )
-            console.print(traceback.format_exc(), style="dim")
+            if os.environ.get("YOLOMATIC_DEBUG"):
+                console.print(traceback.format_exc(), style="dim")
             try:
                 input("\nPress Enter to return to the main menu...")
             except (EOFError, KeyboardInterrupt):
@@ -2831,6 +2827,7 @@ def settings_ai_page() -> None:
         is_enter_key,
         get_gpu_status,
     )
+    from yolomatic.ui.theme import gpu_badge_markup
     from yolomatic.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS, is_free_tier_gemini_model
 
     def _order_models(models: list[str], prov: str) -> list[str]:
@@ -3209,13 +3206,7 @@ def settings_ai_page() -> None:
             status_table.add_column(justify="left", ratio=1)
             status_table.add_column(justify="right")
 
-            gpu_status = get_gpu_status()
-            if gpu_status == "Detecting...":
-                gpu_markup = "[dim]GPU: 🔍[/dim]"
-            elif gpu_status == "CPU":
-                gpu_markup = "[dim]GPU: CPU[/dim]"
-            else:
-                gpu_markup = f"[bold green]GPU: {gpu_status}[/bold green]"
+            gpu_markup = gpu_badge_markup(get_gpu_status())
 
             status_table.add_row(
                 Text.from_markup("  " + "  │  ".join(hints), style="bold white"),
@@ -3883,32 +3874,32 @@ def _main_loop_iteration():
                 import torch
                 if torch.cuda.is_available():
                     gpu_name = torch.cuda.get_device_name(0)
-                    gpu_info = f"[#A3BE8C]Active[/#A3BE8C] ({gpu_name})"
+                    gpu_info = f"[nord.green]Active[/nord.green] ({gpu_name})"
                 elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    gpu_info = "[#A3BE8C]Active[/#A3BE8C] (Apple MPS)"
+                    gpu_info = "[nord.green]Active[/nord.green] (Apple MPS)"
                 else:
-                    gpu_info = "[#EBCB8B]Inactive[/#EBCB8B]"
+                    gpu_info = "[nord.yellow]Inactive[/nord.yellow]"
             except Exception:
-                gpu_info = "[#BF616A]Not Available[/#BF616A]"
+                gpu_info = "[nord.red]Not Available[/nord.red]"
 
             # --- Integrations Status ---
             try:
                 rf_status = roboflow_credential_status()
-                rf_info = "[#A3BE8C]Connected[/#A3BE8C]" if rf_status.get("api_key") else "[dim]Not Configured[/dim]"
+                rf_info = "[nord.green]Connected[/nord.green]" if rf_status.get("api_key") else "[dim]Not Configured[/dim]"
             except Exception:
-                rf_info = "[#BF616A]Error[/#BF616A]"
+                rf_info = "[nord.red]Error[/nord.red]"
 
             try:
                 ultralytics_status = ultralytics_credential_status()
-                ult_info = "[#A3BE8C]Connected[/#A3BE8C]" if ultralytics_status.get("api_key") else "[dim]Not Configured[/dim]"
+                ult_info = "[nord.green]Connected[/nord.green]" if ultralytics_status.get("api_key") else "[dim]Not Configured[/dim]"
             except Exception:
-                ult_info = "[#BF616A]Error[/#BF616A]"
+                ult_info = "[nord.red]Error[/nord.red]"
 
             try:
                 hf_token = check_hf_auth()
-                hf_info = "[#A3BE8C]Connected[/#A3BE8C]" if hf_token else "[dim]Not Configured[/dim]"
+                hf_info = "[nord.green]Connected[/nord.green]" if hf_token else "[dim]Not Configured[/dim]"
             except Exception:
-                hf_info = "[#BF616A]Error[/#BF616A]"
+                hf_info = "[nord.red]Error[/nord.red]"
 
             # --- Centered Logo & Subtitle ---
             banner_lines = [
@@ -3921,17 +3912,17 @@ def _main_loop_iteration():
 
             if term_w >= logo_width + 8:
                 gradient_styles = [
-                    "bold #8FBCBB",
-                    "bold #88C0D0",
-                    "bold #81A1C1",
-                    "bold #5E81AC"
+                    "nord.frost0.bold",
+                    "nord.frost1.bold",
+                    "nord.frost2.bold",
+                    "nord.frost3.bold"
                 ]
                 banner_str = ""
                 for line, style in zip(banner_lines, gradient_styles):
                     banner_str += f"[{style}]{line}[/{style}]\n"
                 header_element = Align.center(banner_str.strip())
             else:
-                header_element = Align.center("[bold #8FBCBB]YOLOmatic[/bold #8FBCBB]")
+                header_element = Align.center("[nord.frost0.bold]YOLOmatic[/nord.frost0.bold]")
 
             subtitle_element = Align.center(
                 "[dim]Automated computer-vision training, configuration, and dataset management.[/dim]"
@@ -3939,23 +3930,23 @@ def _main_loop_iteration():
 
             # --- Quiet, Minimalist Table Layout ---
             left_table = Table.grid(padding=(0, 2))
-            left_table.add_column(style="bold #81A1C1", justify="right", width=12)
+            left_table.add_column(style="nord.frost2.bold", justify="right", width=12)
             left_table.add_column(style="white", width=28)
 
             left_table.add_row("Product:", "YOLOmatic")
-            left_table.add_row("Version:", f"[bold #A3BE8C]{__version__}[/bold #A3BE8C]")
+            left_table.add_row("Version:", f"[nord.green.bold]{__version__}[/nord.green.bold]")
             left_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
-            left_table.add_row("Contact:", "[#88C0D0]shahabahreini@hotmail.com[/#88C0D0]")
-            left_table.add_row("License:", "[#EBCB8B]Apache-2.0[/#EBCB8B]")
+            left_table.add_row("Contact:", "[nord.frost1]shahabahreini@hotmail.com[/nord.frost1]")
+            left_table.add_row("License:", "[nord.yellow]Apache-2.0[/nord.yellow]")
 
             right_table = Table.grid(padding=(0, 2))
-            right_table.add_column(style="bold #81A1C1", justify="right", width=14)
+            right_table.add_column(style="nord.frost2.bold", justify="right", width=14)
             right_table.add_column(style="white", width=26)
 
             right_table.add_row("OS:", os_display)
             right_table.add_row("Python:", py_display)
             right_table.add_row("PyTorch GPU:", gpu_info)
-            right_table.add_row("Virtual Env:", f"[#88C0D0]{venv_display}[/#88C0D0]")
+            right_table.add_row("Virtual Env:", f"[nord.frost1]{venv_display}[/nord.frost1]")
             right_table.add_row("Roboflow:", rf_info)
             right_table.add_row("Ultralytics:", ult_info)
             right_table.add_row("Hugging Face:", hf_info)
@@ -3987,7 +3978,7 @@ def _main_loop_iteration():
             console.print(
                 Panel(
                     dashboard_content,
-                    title="[bold #8FBCBB]About[/bold #8FBCBB]",
+                    title="[nord.frost0.bold]About[/nord.frost0.bold]",
                     border_style="grey37",
                     padding=(2, 4),
                     box=box.ROUNDED,

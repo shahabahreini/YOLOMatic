@@ -16,7 +16,6 @@ from yolomatic.models.rfdetr import get_rfdetr_variant
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_torch
 from yolomatic.utils.project import resolve_split_paths
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {

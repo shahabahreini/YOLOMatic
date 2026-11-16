@@ -444,7 +444,7 @@ def _run_with_progress(config: PrepareDatasetConfig) -> PrepareDatasetStats | No
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
     try:
-        with Live(refresh_per_second=8) as live:
+        with Live(refresh_per_second=8, console=console) as live:
             while not done.is_set():
                 total = progress_state["total"]
                 current = progress_state["done"]

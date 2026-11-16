@@ -7,10 +7,13 @@ import errno
 import logging
 import os
 import shutil
+import stat
 import sys
+import tempfile
 import time
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, TypeVar
 
@@ -294,3 +297,73 @@ def ensure_overwritable_dir(
         if _same_or_inside(inner, resolved):
             raise UnsafePathError(f"Refusing to delete {resolved}: it contains the input {inner}.")
     return resolved
+
+
+# ---------------------------------------------------------------------------
+# Atomic files and staged directories
+# ---------------------------------------------------------------------------
+
+COMPLETION_MARKER = ".yolomatic-complete"
+
+
+def atomic_write_bytes(path: Path | str, data: bytes, *, private: bool = False) -> Path:
+    """Write ``data`` so readers see either the old file or the new one, never half.
+
+    The bytes go to a temporary file in the same folder, are flushed to disk,
+    and then replace ``path`` with ``os.replace`` (atomic on POSIX and NTFS).
+    Existing permissions are kept; new files get 0644 (0600 when ``private``).
+    """
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        mode = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        mode = 0o600 if private else 0o644
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, mode)
+        retry_filesystem_op(lambda: os.replace(tmp, target))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return target
+
+
+def atomic_write_text(path: Path | str, text: str, *, encoding: str = "utf-8", private: bool = False) -> Path:
+    """Text variant of :func:`atomic_write_bytes` (UTF-8 by default, never the locale)."""
+    return atomic_write_bytes(path, text.encode(encoding), private=private)
+
+
+def is_staging_name(name: str) -> bool:
+    """True for transient folders created by :func:`staging_dir` / swaps."""
+    return name.startswith(".") and (".staging-" in name or ".backup-" in name or ".partial-" in name)
+
+
+@contextmanager
+def staging_dir(final: Path | str, *, overwrite: bool = False, mark_complete: bool = False) -> Iterator[Path]:
+    """Build a directory beside ``final`` and swap it into place only on success.
+
+    ``final`` is untouched if the block raises (including Ctrl-C), and no
+    half-written output is ever visible under its real name. With
+    ``mark_complete`` a :data:`COMPLETION_MARKER` file is written before the swap
+    so recovery tools can tell finished output from abandoned output.
+    """
+    target = Path(final)
+    if target.exists() and not overwrite:
+        raise FileExistsError(f"{target} already exists.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.parent / f".{target.name}.staging-{uuid.uuid4().hex[:8]}"
+    staging.mkdir()
+    try:
+        yield staging
+        if mark_complete:
+            (staging / COMPLETION_MARKER).write_text("ok\n", encoding="utf-8")
+        safe_directory_swap(staging, target)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)

@@ -5,14 +5,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_detectron2
 
-console = Console()
+console = CONSOLE
 
 
 def _import_detectron2_training_symbols() -> dict[str, Any]:
