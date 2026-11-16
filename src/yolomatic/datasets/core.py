@@ -774,9 +774,57 @@ def _rollup(summary: DatasetSummary) -> None:
     summary.missing_file_count = sum(split.missing_file_count for split in summary.splits.values())
 
 
+_ANNOTATION_SUFFIXES = {".txt", ".json", ".yaml", ".yml"}
+
+
+def _annotation_signature(source: Path) -> str:
+    """Hash annotation files (path, size, mtime) plus the image count.
+
+    The cache key used to be the dataset folder's own mtime, which does not
+    change when labels are edited in place, so stale conversions were reused.
+    Only ``stat`` calls are made; file contents are never read.
+    """
+    hasher = hashlib.sha1()
+    image_count = 0
+    for dirpath, dirnames, filenames in os.walk(source):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith("."))
+        for name in sorted(filenames):
+            suffix = os.path.splitext(name)[1].lower()
+            if suffix in IMAGE_EXTENSIONS:
+                image_count += 1
+                continue
+            if suffix not in _ANNOTATION_SUFFIXES:
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                info = os.stat(path)
+            except OSError:
+                continue
+            hasher.update(f"{os.path.relpath(path, source)}:{info.st_size}:{info.st_mtime_ns};".encode())
+    hasher.update(f"images:{image_count}".encode())
+    return hasher.hexdigest()
+
+
 def _cache_dir(source: Path, family: str, prepared_format: str) -> Path:
-    digest = hashlib.sha1(f"{source.resolve()}:{source.stat().st_mtime_ns}:{prepared_format}".encode()).hexdigest()[:12]
-    return project_root() / "datasets" / ".yolomatic_cache" / family / source.name / digest
+    digest = hashlib.sha1(
+        f"{source.resolve()}:{_annotation_signature(source)}:{prepared_format}".encode()
+    ).hexdigest()[:12]
+    parent = project_root() / "datasets" / ".yolomatic_cache" / family / source.name
+    # Each change used to add another full copy of the dataset that was never
+    # removed; keep only the current conversion.
+    if parent.is_dir():
+        for stale in parent.iterdir():
+            if stale.is_dir() and stale.name != digest:
+                shutil.rmtree(stale, ignore_errors=True)
+    return parent / digest
+
+
+def _link_or_copy(source: Path, target: Path) -> None:
+    """Hard-link when possible (same filesystem) to avoid duplicating images."""
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
 
 
 def prepared_format_for_family(family: str | None, task: str | None = None) -> str:
@@ -892,7 +940,7 @@ def convert_yolo_to_coco(source_dir: str | Path, output_dir: str | Path, *, summ
             width, height = _image_size(image_path)
             target = target_images / file_name
             if not target.exists():
-                shutil.copy2(image_path, target)
+                _link_or_copy(image_path, target)
             coco["images"].append(
                 {
                     "id": image_id,
@@ -1010,7 +1058,7 @@ def convert_coco_to_yolo(source_dir: str | Path, output_dir: str | Path, *, summ
             if not source_image.exists():
                 source_image = ann_path.parent.parent / file_name
             if source_image.exists():
-                shutil.copy2(source_image, img_dir / Path(file_name).name)
+                _link_or_copy(source_image, img_dir / Path(file_name).name)
             else:
                 manifest["warnings"].append(f"Missing image referenced by COCO JSON: {file_name}")
             rows: list[str] = []

@@ -21,12 +21,13 @@ from yolomatic.utils.cli import (
     ParameterDefinition,
     clear_screen,
     console,
-    expected_error_panel,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
     render_table,
 )
+from yolomatic.cli.result import CommandResult, coerce_result
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_torch
 from yolomatic.utils.ml_dependencies import import_rfdetr_model_class
 from yolomatic.utils.project import (
@@ -167,7 +168,7 @@ def read_args_metadata(weight_path: Path) -> dict[str, Any]:
     args_path = weight_path.parent.parent / "args.yaml"
     if not args_path.exists():
         return {}
-    with open(args_path, "r") as file:
+    with open(args_path, "r", encoding="utf-8") as file:
         loaded = yaml.safe_load(file) or {}
     if isinstance(loaded, dict):
         return loaded
@@ -241,20 +242,9 @@ def is_rfdetr_upload(candidate: UploadCandidate, model_type: str) -> bool:
 
 
 def infer_rfdetr_class_from_weight(weight_path: Path, model_type: str) -> str:
-    text = f"{weight_path} {model_type}".lower()
-    is_seg = "seg" in text
-    prefix = "RFDETRSeg" if is_seg else "RFDETR"
-    if "2xlarge" in text or "2xl" in text:
-        return f"{prefix}2XLarge"
-    if "xlarge" in text or "xl" in text:
-        return f"{prefix}XLarge"
-    if "large" in text:
-        return f"{prefix}Large"
-    if "small" in text:
-        return f"{prefix}Small"
-    if "nano" in text:
-        return f"{prefix}Nano"
-    return f"{prefix}Medium"
+    from yolomatic.models.rfdetr import infer_rfdetr_class
+
+    return infer_rfdetr_class(weight_path, hint=model_type)
 
 
 def format_timestamp(timestamp: float) -> str:
@@ -751,7 +741,7 @@ def resolve_workspace(
             breadcrumbs=["YOLOmatic", "Roboflow Upload", "Workspace Error"],
         )
         if use_default_workspace in (NAV_BACK, "Back"):
-            return NAV_BACK  # type: ignore
+            return rf, NAV_BACK, ""
 
         if use_default_workspace == "Use Default Workspace":
             workspace = try_get_workspace(rf, default_workspace_name)
@@ -770,7 +760,7 @@ def resolve_workspace(
                 breadcrumbs=["YOLOmatic", "Roboflow Upload", "Workspace Entry"],
             )
             if manual_workspace_name in (NAV_BACK, "Back"):
-                return NAV_BACK  # type: ignore
+                return rf, NAV_BACK, ""
 
             manual_workspace_name = normalize_workspace_value(str(manual_workspace_name))
             if manual_workspace_name is None:
@@ -781,21 +771,20 @@ def resolve_workspace(
                     f"Workspace '{manual_workspace_name}' could not be loaded. Use your workspace slug, not the project name."
                 )
             return rf, workspace, manual_workspace_name
-        return NAV_BACK  # type: ignore
+        return rf, NAV_BACK, ""
 
     raise RuntimeError(
         f"Workspace '{normalized_requested_workspace}' could not be loaded. Use your workspace slug, not the project name."
     )
 
 
-def main() -> None:
+def main() -> CommandResult:
     args = parse_args()
     root = project_root()
 
     if args.dataset:
         from yolomatic.cli.upload_dataset import main as upload_dataset_main
-        upload_dataset_main(_dataset_delegate_argv(args))
-        return
+        return coerce_result(upload_dataset_main(_dataset_delegate_argv(args)))
 
     # If invoked interactively without --weight or other weight args, prompt choice
     if not args.weight and not args.model_name and not args.model_type and not args.version:
@@ -820,11 +809,10 @@ def main() -> None:
             breadcrumbs=["YOLOmatic", "Roboflow Upload"],
         )
         if mode_choice in (NAV_BACK, "Back"):
-            return
+            return CommandResult.cancelled()
         if mode_choice == "Upload Dataset":
             from yolomatic.cli.upload_dataset import main as upload_dataset_main
-            upload_dataset_main(_dataset_delegate_argv(args))
-            return
+            return coerce_result(upload_dataset_main(_dataset_delegate_argv(args)))
 
     # Shared state for the wizard
     context = {
@@ -871,17 +859,14 @@ def main() -> None:
                         if is_uploadable_weight(wp)
                     ]
                     if not candidates:
-                        console.print(
-                            Panel(
-                                "[bold red]No uploadable model checkpoints found.[/bold red]",
-                                border_style="red",
-                            )
+                        return CommandResult.failed(
+                            "No uploadable model checkpoints found.",
+                            hint="Train a model first; checkpoints live under runs/.",
                         )
-                        return
                     render_candidate_table(root, candidates)
                     res = resolve_candidate(root, None, candidates)
                     if res in (NAV_BACK, "Back"):
-                        return  # Exit to main menu
+                        return CommandResult.cancelled()
                     context["candidate"] = res
                     current_step_idx += 1
 
@@ -990,7 +975,7 @@ def main() -> None:
                     current_step_idx -= 1
                     continue
                 if confirmation == "Cancel":
-                    return
+                    return CommandResult.cancelled("Upload cancelled.")
 
                 # Perform the upload
                 with console.status("[bold]Uploading model to Roboflow...", spinner="dots"):
@@ -1023,22 +1008,17 @@ def main() -> None:
                         border_style="green",
                     )
                 )
-                input("\nPress Enter to return to main menu...")
-                return
+                return CommandResult.ok("Model uploaded to Roboflow.", review=True)
 
         except KeyboardInterrupt:
-            console.print("\n[bold yellow]Upload cancelled.[/bold yellow]")
-            return
-        except Exception as error:
-            console.print(
-                expected_error_panel(
-                    str(error),
-                    title="Upload Failed",
-                    next_step="Review the workspace, project ID, version, and selected weights before retrying.",
-                )
+            return CommandResult.cancelled("Upload cancelled.")
+        except Exception as error:  # noqa: BLE001 - shown to the user with a hint
+            log_exception(error, "Roboflow model upload")
+            return CommandResult.failed(
+                str(error),
+                hint="Review the workspace, project ID, version, and selected weights before retrying.",
             )
-            input("\nPress Enter to return...")
-            return
+    return CommandResult.cancelled()
 
 
 if __name__ == "__main__":

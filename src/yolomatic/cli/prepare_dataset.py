@@ -2,18 +2,17 @@
 from __future__ import annotations
 
 import argparse
-import threading
-import time
 from pathlib import Path
 from typing import Any
 
-from rich.live import Live
 from rich.panel import Panel
 
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.jobs import JobStatus, ProgressState, run_with_progress
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.datasets.prepare import (
     OUTPUT_FORMATS,
     PrepareDatasetConfig,
-    PrepareDatasetStats,
     PrepareSplitConfig,
     SPLIT_STRATEGIES,
     prepare_dataset,
@@ -421,78 +420,23 @@ def _collect_output_settings(
     return slugify(str(raw_slug)), int(raw_seed), max_workers, use_multiprocessing
 
 
-def _run_with_progress(config: PrepareDatasetConfig) -> PrepareDatasetStats | None:
-    progress_state: dict[str, Any] = {"done": 0, "total": 0, "message": "Initializing..."}
-    stats_holder: list[PrepareDatasetStats] = []
-    errors: list[Exception] = []
-    done = threading.Event()
-
-    def worker() -> None:
-        try:
-            def callback(current: int, total: int, message: str) -> None:
-                progress_state.update({"done": current, "total": total, "message": message})
-
-            stats_holder.append(prepare_dataset(config, progress_callback=callback))
-        except Exception as exc:
-            errors.append(exc)
-        finally:
-            done.set()
-
-    spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    spinner_idx = 0
-
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    try:
-        with Live(refresh_per_second=8, console=console) as live:
-            while not done.is_set():
-                total = progress_state["total"]
-                current = progress_state["done"]
-                message = progress_state["message"]
-
-                if total > 0:
-                    pct_val = min(100.0, (current / total) * 100)
-                    pct = f"{pct_val:.0f}%"
-                    bar_width = 30
-                    filled = min(bar_width, int(bar_width * (current / total)))
-                    bar_str = "█" * filled + "░" * (bar_width - filled)
-                    body = (
-                        f"[bold white]{message}[/bold white]\n\n"
-                        f"[cyan]{bar_str}[/cyan]  [bold cyan]{current:,}/{total:,}[/bold cyan] ([dim]{pct}[/dim])"
-                    )
-                    title = f"[cyan]Preparing Dataset [{pct}][/cyan]"
-                else:
-                    frame = spinner_frames[spinner_idx % len(spinner_frames)]
-                    spinner_idx += 1
-                    body = (
-                        f"[bold cyan]{frame}[/bold cyan] [bold white]{message}[/bold white]\n\n"
-                        f"[dim]Discovering files and loading dataset annotations...[/dim]"
-                    )
-                    title = "[cyan]Preparing Dataset [...][/cyan]"
-
-                live.update(
-                    Panel(
-                        body,
-                        title=title,
-                        border_style="cyan",
-                    )
-                )
-                time.sleep(0.125)
-    except KeyboardInterrupt:
-        console.print(Panel(
-            "[bold yellow]Interrupted.[/bold yellow] Waiting for in-flight work to finish so output stays consistent...",
-            border_style="yellow",
-        ))
-    thread.join()
-
-    if errors:
-        exc = errors[0]
-        console.print(Panel(
-            f"[bold red]Dataset preparation failed:[/bold red]\n\n{type(exc).__name__}: {exc}",
-            border_style="red",
-        ))
-        return None
-    stats = stats_holder[0]
+def _run_with_progress(config: PrepareDatasetConfig) -> CommandResult:
+    state = ProgressState()
+    outcome = run_with_progress(
+        lambda token: prepare_dataset(config, progress_callback=state.callback(token)),
+        render=lambda: state.panel(
+            "Preparing Dataset", idle_hint="Discovering files and loading dataset annotations..."
+        ),
+        console=console,
+    )
+    if outcome.status is JobStatus.CANCELLED:
+        return CommandResult.cancelled("Preparation cancelled. No dataset version was written.")
+    if outcome.status is JobStatus.FAILED:
+        assert outcome.error is not None
+        log_exception(outcome.error, "Dataset preparation")
+        return CommandResult.failed(f"{type(outcome.error).__name__}: {outcome.error}")
+    stats = outcome.value
+    assert stats is not None
     summary_fields: dict[str, Any] = {
         "Output Path": stats.output_path,
         "Output Format": stats.output_format,
@@ -513,38 +457,32 @@ def _run_with_progress(config: PrepareDatasetConfig) -> PrepareDatasetStats | No
         if len(stats.warnings) > 8:
             preview += f"\n[dim]... and {len(stats.warnings) - 8} more (see manifest.json)[/dim]"
         console.print(Panel(preview, title="[yellow]Warnings[/yellow]", border_style="yellow"))
-    return stats
+    return CommandResult.ok("Dataset prepared.", outputs={"Dataset": stats.output_path})
 
 
-def interactive_main() -> None:
+def interactive_main() -> CommandResult:
     source = _select_source()
     if source is None:
-        return
+        return CommandResult.cancelled()
     output_format = _select_output_format(source)
     if output_format is None:
-        return
+        return CommandResult.cancelled()
     split_config = _select_split(source, output_format)
     if split_config is None:
-        return
+        return CommandResult.cancelled()
     split_strategy = _select_split_strategy(source, split_config)
     if split_strategy is None:
-        return
+        return CommandResult.cancelled()
 
     output_settings = _collect_output_settings(source, split_config, split_strategy)
     if output_settings is None:
-        return
+        return CommandResult.cancelled()
     slug, seed, max_workers, use_multiprocessing = output_settings
 
     try:
         output_path, version = resolve_versioned_output(Path("datasets"), slug)
     except FileExistsError as exc:
-        console.print(Panel(
-            f"[bold red]{exc}[/bold red]\n\n"
-            "[dim]Pick a different name, or remove the existing directory and try again.[/dim]",
-            border_style="red",
-        ))
-        input("\nPress Enter to return to main menu...")
-        return
+        return CommandResult.failed(str(exc), hint="Pick a different name, or remove the existing directory.")
 
     clear_screen()
     print_stylized_header("Prepare Dataset — Confirm")
@@ -574,8 +512,8 @@ def interactive_main() -> None:
         **_wizard_kwargs(5),
     )
     if confirm in (NAV_BACK, "Back"):
-        return
-    _run_with_progress(
+        return CommandResult.cancelled()
+    return _run_with_progress(
         PrepareDatasetConfig(
             source_path=source,
             output_format=output_format,
@@ -588,7 +526,6 @@ def interactive_main() -> None:
             use_multiprocessing=use_multiprocessing,
         )
     )
-    input("\nPress Enter to return to main menu...")
 
 
 def parse_args() -> argparse.Namespace:
@@ -621,11 +558,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> CommandResult:
     args = parse_args()
     if args.source is None:
-        interactive_main()
-        return
+        return interactive_main()
     stats = prepare_dataset(
         PrepareDatasetConfig(
             source_path=args.source,
@@ -645,6 +581,7 @@ def main() -> None:
         f"Images: {stats.total_images}  Train: {stats.split_counts.get('train', 0)}  "
         f"Valid: {stats.split_counts.get('valid', 0)}  Test: {stats.split_counts.get('test', 0)}"
     )
+    return CommandResult.ok("Dataset prepared.", outputs={"Dataset": stats.output_path})
 
 
 if __name__ == "__main__":

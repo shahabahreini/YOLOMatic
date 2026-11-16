@@ -198,18 +198,18 @@ exclude-dependencies = [
 
 [project.scripts]
 yolomatic = "yolomatic.cli.run:main"
-yolomatic-predict = "yolomatic.cli.predict:main"
-yolomatic-tensorboard = "yolomatic.cli.tensorboard_launcher:main"
-yolomatic-train = "yolomatic.trainers.yolo_trainer:main"
-yolomatic-upload = "yolomatic.cli.upload:main"
-yolomatic-upload-dataset = "yolomatic.cli.upload_dataset:main"
-yolomatic-benchmark = "yolomatic.cli.benchmark:main"
-yolomatic-sam = "yolomatic.cli.sam_predict:main"
-yolomatic-convert = "yolomatic.cli.convert_ndjson:main"
-yolomatic-prepare = "yolomatic.cli.prepare_dataset:main"
-yolomatic-ultralytics = "yolomatic.cli.ultralytics_platform:main"
-yolomatic-export = "yolomatic.cli.export:main"
-yolomatic-augment = "yolomatic.cli.augment:main"
+yolomatic-predict = "yolomatic.cli.entrypoints:predict"
+yolomatic-tensorboard = "yolomatic.cli.entrypoints:tensorboard"
+yolomatic-train = "yolomatic.cli.entrypoints:train"
+yolomatic-upload = "yolomatic.cli.entrypoints:upload"
+yolomatic-upload-dataset = "yolomatic.cli.entrypoints:upload_dataset"
+yolomatic-benchmark = "yolomatic.cli.entrypoints:benchmark"
+yolomatic-sam = "yolomatic.cli.entrypoints:sam"
+yolomatic-convert = "yolomatic.cli.entrypoints:convert"
+yolomatic-prepare = "yolomatic.cli.entrypoints:prepare"
+yolomatic-ultralytics = "yolomatic.cli.entrypoints:ultralytics"
+yolomatic-export = "yolomatic.cli.entrypoints:export"
+yolomatic-augment = "yolomatic.cli.entrypoints:augment"
 
 [tool.pyrefly]
 project-includes = [

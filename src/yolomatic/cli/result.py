@@ -35,10 +35,24 @@ class CommandResult:
     message: str = ""
     hint: str | None = None
     outputs: Mapping[str, Path] = field(default_factory=dict)
+    # True when the command printed a summary the user should read before the
+    # menu redraws (the TUI runner pauses for it).
+    review: bool = False
 
     @classmethod
-    def ok(cls, message: str = "", *, outputs: Mapping[str, Path | str] | None = None) -> CommandResult:
-        return cls(CommandStatus.OK, message, outputs={k: Path(v) for k, v in (outputs or {}).items()})
+    def ok(
+        cls,
+        message: str = "",
+        *,
+        outputs: Mapping[str, Path | str] | None = None,
+        review: bool = False,
+    ) -> CommandResult:
+        return cls(
+            CommandStatus.OK,
+            message,
+            outputs={k: Path(v) for k, v in (outputs or {}).items()},
+            review=review,
+        )
 
     @classmethod
     def cancelled(cls, message: str = "Cancelled.") -> CommandResult:

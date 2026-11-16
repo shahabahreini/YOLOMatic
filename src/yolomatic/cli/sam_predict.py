@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import json
 import os
-import time
-import threading
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 import torch
-from rich.live import Live
+from rich.markup import escape
 from rich.panel import Panel
 
 from yolomatic.utils.cli import (
@@ -22,6 +20,9 @@ from yolomatic.utils.cli import (
     print_stylized_header,
     render_summary_panel,
 )
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.jobs import CancelToken, JobStatus, run_with_progress
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
 from yolomatic.utils.project import is_sam_checkpoint, project_root
 
@@ -262,22 +263,29 @@ def _select_source() -> Path | None:
     if source_choice in (NAV_BACK, "Back"):
         return None
 
-    raw = get_parameter_value_input(
-        name="source_path",
-        current_value="",
-        value_type="str",
-        description=(
-            "Path to image file" if source_choice == "Single Image"
-            else "Path to folder containing images"
-        ),
-    )
-    if raw is None or raw == NAV_BACK:
-        return None
-    p = Path(str(raw).strip())
-    if not p.exists():
-        console.print(f"[yellow]  Path not found: {p}[/yellow]")
-        return None
-    return p
+    want_file = source_choice == "Single Image"
+    while True:
+        raw = get_parameter_value_input(
+            name="source_path",
+            current_value="",
+            value_type="str",
+            description="Path to image file" if want_file else "Path to folder containing images",
+        )
+        if raw is None or raw == NAV_BACK:
+            return None
+        text = str(raw).strip()
+        # Path("") is "." -- an empty answer used to run SAM over the current folder.
+        if not text:
+            console.print("[yellow]  Enter a path (or go back).[/yellow]")
+            continue
+        p = Path(text).expanduser()
+        if want_file and not p.is_file():
+            console.print(f"[yellow]  Not an image file: {p}[/yellow]")
+            continue
+        if not want_file and not p.is_dir():
+            console.print(f"[yellow]  Not a folder: {p}[/yellow]")
+            continue
+        return p
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +457,7 @@ def _load_yolo_boxes(txt_path: Path, img_w: int, img_h: int) -> list[list[float]
     boxes: list[list[float]] = []
     if not txt_path.exists():
         return boxes
-    for line in txt_path.read_text().splitlines():
+    for line in txt_path.read_text(encoding="utf-8").splitlines():
         parts = line.strip().split()
         if len(parts) < 5:
             continue
@@ -508,25 +516,24 @@ def _run_batch(
     source: Path,
     output_dir: Path,
     token: str,
-) -> None:
+) -> CommandResult:
     images: list[Path] = (
         [source] if source.is_file()
         else sorted(p for p in source.rglob("*") if p.suffix.lower() in _IMAGE_EXTS)
     )
     if not images:
-        console.print("[yellow]  No images found.[/yellow]")
-        return
+        return CommandResult.failed(f"No images found in {source}.")
 
     model, processor, device = _load_model_and_processor(model_id, token)
     total = len(images)
-    total_masks = 0
-    errors = 0
+    counters = {"masks": 0, "errors": 0, "done": 0}
     log_lines: list[str] = []
-    done = threading.Event()
 
-    def _worker() -> None:
-        nonlocal total_masks, errors
+    def job(cancel: CancelToken) -> None:
         for i, img_path in enumerate(images, 1):
+            # Stop between images: the worker used to keep writing outputs after
+            # Ctrl-C had already returned the user to the menu.
+            cancel.raise_if_cancelled()
             try:
                 if mode == "Auto (segment everything)":
                     n = _run_auto(img_path, model, processor, device, output_dir)
@@ -534,44 +541,33 @@ def _run_batch(
                     n = _run_text(img_path, mode_config, model, processor, device, output_dir)
                 else:
                     n = _run_box(img_path, mode_config, model, processor, device, output_dir)
-                total_masks += n
-                log_lines.append(f"  [{i}/{total}] {img_path.name} → {n} masks")
-            except Exception as exc:
-                errors += 1
-                log_lines.append(f"  [{i}/{total}] [red]ERROR[/red] {img_path.name}: {exc}")
-        done.set()
+                counters["masks"] += n
+                log_lines.append(f"  [{i}/{total}] {escape(img_path.name)} → {n} masks")
+            except Exception as exc:  # noqa: BLE001 - per-image failures are reported, not fatal
+                counters["errors"] += 1
+                log_lines.append(f"  [{i}/{total}] [red]ERROR[/red] {escape(img_path.name)}: {escape(str(exc))}")
+            counters["done"] = i
 
-    thread = threading.Thread(target=_worker, daemon=True)
-    thread.start()
-
-    with Live(refresh_per_second=4, console=console) as live:
-        while not done.is_set():
-            lines = log_lines[-20:]
-            live.update(Panel(
-                "\n".join(lines) or "[dim]Starting...[/dim]",
-                title="SAM Inference",
-                border_style="cyan",
-            ))
-            time.sleep(0.25)
-        # Final update
-        lines = log_lines[-20:]
-        live.update(Panel(
-            "\n".join(lines) or "[dim]Done.[/dim]",
+    def render() -> Panel:
+        body = "\n".join(log_lines[-20:]) or "[dim]Starting...[/dim]"
+        return Panel(
+            f"{body}\n\n[dim]{counters['done']}/{total} images · Ctrl+C to stop[/dim]",
             title="SAM Inference",
             border_style="cyan",
-        ))
-    thread.join()
-
-    console.print(
-        Panel(
-            f"[bold green]Done.[/bold green]  "
-            f"{total_masks} masks generated across {total} images.  "
-            f"{errors} errors.\n\n"
-            f"[dim]Outputs saved to:[/dim]  {output_dir}",
-            border_style="green",
-            padding=(1, 2),
         )
+
+    outcome = run_with_progress(job, render=render, console=console, refresh_per_second=4)
+    summary = (
+        f"{counters['masks']} masks across {counters['done']}/{total} images, "
+        f"{counters['errors']} errors."
     )
+    if outcome.status is JobStatus.CANCELLED:
+        return CommandResult.cancelled(f"SAM inference stopped. {summary} Partial outputs: {output_dir}")
+    if outcome.status is JobStatus.FAILED:
+        assert outcome.error is not None
+        log_exception(outcome.error, "SAM inference")
+        return CommandResult.failed(str(outcome.error))
+    return CommandResult.ok(summary, outputs={"Outputs": output_dir})
 
 
 # ---------------------------------------------------------------------------
@@ -612,56 +608,47 @@ def _confirm(model_id: str, mode: str, mode_config: object, source: Path, output
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main() -> CommandResult:
     clear_screen()
     print_stylized_header("SAM 3.1 Segmentation")
 
     token = _ensure_hf_auth()
     if not token:
-        console.print("[yellow]  Authentication cancelled. Returning to main menu.[/yellow]")
-        input("\nPress Enter to continue...")
-        return
+        return CommandResult.cancelled("Authentication cancelled.")
 
     model_id = _select_model(token)
     if model_id is None:
-        return
+        return CommandResult.cancelled()
 
     mode = _select_mode()
     if mode is None:
-        return
+        return CommandResult.cancelled()
 
     mode_config: object = None
     if mode == "Text-prompted":
         mode_config = _configure_text_mode()
         if mode_config is None:
-            return
+            return CommandResult.cancelled()
     elif mode.startswith("Box-prompted"):
         mode_config = _configure_box_mode()
         if mode_config is None:
-            return
+            return CommandResult.cancelled()
 
     source = _select_source()
     if source is None:
-        return
+        return CommandResult.cancelled()
 
     output_dir = _configure_output()
     if output_dir is None:
-        return
+        return CommandResult.cancelled()
 
     if not _confirm(model_id, mode, mode_config, source, output_dir):
-        return
+        return CommandResult.cancelled()
 
     try:
-        _run_batch(model_id, mode, mode_config, source, output_dir, token)
+        return _run_batch(model_id, mode, mode_config, source, output_dir, token)
     except MLDependencyError as exc:
-        console.print(Panel(
-            f"[bold red]Dependency error:[/bold red] {exc}",
-            border_style="red", padding=(1, 2),
-        ))
-    except Exception as exc:
-        console.print(Panel(
-            f"[bold red]Error:[/bold red] {exc}",
-            border_style="red", padding=(1, 2),
-        ))
-
-    input("\nPress Enter to return to main menu...")
+        return CommandResult.failed(f"Dependency error: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        log_exception(exc, "SAM inference setup")
+        return CommandResult.failed(str(exc))

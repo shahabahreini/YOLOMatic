@@ -123,6 +123,16 @@ class ImageRecord:
         return [object_size_bucket(ann, self.width, self.height) for ann in self.annotations]
 
 
+_SKIPPED_FILE_PREFIXES = (
+    "Skipped COCO image",
+    "Skipped Ultralytics NDJSON row",
+    "Skipped NDJSON row",
+    "Skipped Labelbox row",
+    "Skipped image",
+    "Skipped row",
+)
+
+
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", value.strip()).strip("_").lower()
     return slug or "prepared_dataset"
@@ -1492,7 +1502,8 @@ def _write_prepared_output(
         total_annotations=total_annotations,
         split_counts=split_counts,
         warnings=warnings,
-        skipped_files=len(warnings),
+        # Count skipped *images/rows*, not every warning (bad label rows are not files).
+        skipped_files=sum(1 for w in warnings if w.startswith(_SKIPPED_FILE_PREFIXES)),
         elapsed_seconds=time.time() - started,
         split_diagnostics=diagnostics,
     )

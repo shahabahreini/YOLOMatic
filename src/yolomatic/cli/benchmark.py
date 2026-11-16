@@ -13,6 +13,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.jobs import CancelToken, JobCancelled
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.cli import (
     NAV_BACK,
     TUI_TERM,
@@ -895,7 +898,7 @@ def _render_benchmark_live_screen(
 
 def _run_with_live_log(
     weights: list[Path], val_dir: Path, options: dict, split_dirs: dict[str, Path]
-) -> Path | None:
+) -> CommandResult | Path:
     from rich.live import Live
 
     from yolomatic.benchmark import BenchmarkConfig, run_benchmark, write_benchmark_report
@@ -903,9 +906,12 @@ def _run_with_live_log(
     log_lines: list[str] = []
     result_holder: dict = {}
     error_holder: dict = {}
+    token = CancelToken()
 
     def _logger(msg: str) -> None:
         log_lines.append(msg)
+        # Cancellation point: the engine reports progress through this logger.
+        token.raise_if_cancelled()
 
     def _worker():
         try:
@@ -922,13 +928,13 @@ def _run_with_live_log(
                 max_workers=options.get("max_workers", 0),
             )
             result = run_benchmark(config, logger_fn=_logger)
+            token.raise_if_cancelled()
             report_path = write_benchmark_report(result, options["output_dir"])
             result_holder["path"] = report_path
-        except Exception as exc:
-            import traceback
-
-            error_holder["error"] = str(exc)
-            error_holder["tb"] = traceback.format_exc()
+        except JobCancelled:
+            result_holder["cancelled"] = True
+        except Exception as exc:  # noqa: BLE001 - reported through CommandResult
+            error_holder["error"] = exc
 
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
@@ -942,25 +948,29 @@ def _run_with_live_log(
         vertical_overflow="ellipsis",
     ) as live:
         while thread.is_alive():
-            thread.join(timeout=0.25)
+            try:
+                thread.join(timeout=0.25)
+            except KeyboardInterrupt:
+                if token.cancelled:
+                    raise
+                # Stop the GPU work instead of abandoning it in the background.
+                token.cancel()
+                log_lines.append("[yellow]Stopping... waiting for the current model step to finish.[/yellow]")
             live.update(_render_benchmark_live_screen(weights, log_lines))
         live.update(
             _render_benchmark_live_screen(weights, log_lines or ["[dim]Done.[/dim]"])
         )
 
+    if result_holder.get("cancelled") or token.cancelled:
+        return CommandResult.cancelled("Benchmark cancelled. No report was written.")
     if "error" in error_holder:
-        console.print(
-            Panel(
-                f"[bold red]Benchmark failed:[/bold red] {error_holder['error']}\n\n"
-                f"[dim]{error_holder.get('tb', '')}[/dim]",
-                border_style="red",
-                padding=(1, 2),
-            )
+        error = error_holder["error"]
+        log_path = log_exception(error, "Benchmark")
+        return CommandResult.failed(
+            f"Benchmark failed: {error}",
+            hint=f"Full traceback in {log_path}" if log_path else None,
         )
-        input("\nPress Enter to return to the main menu...")
-        return None
-
-    return result_holder.get("path")
+    return result_holder["path"]
 
 
 # ---------------------------------------------------------------------------
@@ -1007,38 +1017,37 @@ def _handle_completion(report_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def main() -> None:
+def main() -> CommandResult:
     clear_screen()
     print_stylized_header("YOLOmatic — Benchmark & Evaluate")
 
     weights = _select_weights()
     if weights == NAV_BACK or not isinstance(weights, list):
-        return
+        return CommandResult.cancelled()
 
     from yolomatic.benchmark.planning import BenchmarkCompatibilityError, resolve_selected_model_task
 
     try:
         task = resolve_selected_model_task(weights)
     except BenchmarkCompatibilityError as exc:
-        console.print(Panel(str(exc), border_style="red", padding=(1, 2)))
-        input("\nPress Enter to return to the main menu...")
-        return
+        return CommandResult.failed(str(exc))
 
     split_dirs = _select_dataset_splits(task)
     if split_dirs == NAV_BACK or not isinstance(split_dirs, dict):
-        return
+        return CommandResult.cancelled()
     val_dir = next(iter(split_dirs.values()))
 
     options = _configure_options(val_dir)
     if options == NAV_BACK:
-        return
+        return CommandResult.cancelled()
     options["task"] = task
 
     if not _confirm(weights, val_dir, options, split_dirs):
-        return
+        return CommandResult.cancelled()
 
-    report_path = _run_with_live_log(weights, val_dir, options, split_dirs)
-    if report_path is None:
-        return
+    outcome = _run_with_live_log(weights, val_dir, options, split_dirs)
+    if isinstance(outcome, CommandResult):
+        return outcome
 
-    _handle_completion(report_path)
+    _handle_completion(outcome)
+    return CommandResult.ok("Benchmark complete.", outputs={"Report": outcome})

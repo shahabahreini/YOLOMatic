@@ -357,8 +357,9 @@ def write_resolved_data_yaml(dataset_path: str | Path, data_yaml_path: str | Pat
         Path(tempfile.gettempdir()) / f"yolomatic-{dataset_dir.name}-{RESOLVED_DATA_YAML_NAME}",
     ):
         try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(payload, encoding="utf-8")
+            from yolomatic.utils.fs import atomic_write_text
+
+            atomic_write_text(destination, payload)
             return str(destination)
         except OSError:
             continue

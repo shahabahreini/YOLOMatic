@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +10,9 @@ from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.cli.upload import build_candidate, deploy_rfdetr_model, load_env_config
 from yolomatic.models.rfdetr import get_rfdetr_variant
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.logging_setup import log_exception
+from yolomatic.trainers.common import PostTrainingSteps, timestamp_for_run, unique_run_dir
 from yolomatic.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_rfdetr_model_class
 
@@ -155,8 +157,8 @@ def train_from_config(config_file: str | Path) -> Path | None:
     output_dir = Path(training.get("output_dir") or "runs/rfdetr")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    run_name = f"{settings['model_type']}-{datetime.now().strftime('%Y-%m-%d-%H-%M')}"
-    run_dir = output_dir / run_name
+    run_dir = unique_run_dir(output_dir, f"{settings['model_type']}-{timestamp_for_run()}")
+    run_name = run_dir.name
 
     print_config_summary(config)
     _validate_local_weights(training.get("resume"), label="resume checkpoint")
@@ -177,13 +179,15 @@ def train_from_config(config_file: str | Path) -> Path | None:
         console.print("\n[bold green]Starting RF-DETR training...[/bold green]")
         model.train(dataset_dir=str(dataset_dir), **training_params)
 
+        # Follow-up steps are independent: an export or upload failure must not
+        # turn a finished training run into "RF-DETR training failed".
+        steps = PostTrainingSteps(console)
         if config.get("export", {}).get("enabled", True):
             export_params = prepare_export_params(config)
             export_output_dir = export_params.get("output_dir")
             if export_output_dir:
                 export_params["output_dir"] = str(Path(export_output_dir))
-            console.print("\n[bold green]Exporting RF-DETR model...[/bold green]")
-            model.export(**export_params)
+            steps.run("Export", lambda: model.export(**export_params))
         checkpoint = find_rfdetr_checkpoint(run_dir)
         if checkpoint is None:
             console.print(
@@ -193,23 +197,31 @@ def train_from_config(config_file: str | Path) -> Path | None:
             console.print(
                 f"[bold green]RF-DETR training completed. Best checkpoint: {checkpoint}[/bold green]"
             )
-        maybe_upload_clearml_checkpoint(task, checkpoint, config, console)
-        deploy_to_roboflow_if_configured(config, checkpoint)
+        steps.run("ClearML checkpoint upload", lambda: maybe_upload_clearml_checkpoint(task, checkpoint, config, console))
+        steps.run("Roboflow deploy", lambda: deploy_to_roboflow_if_configured(config, checkpoint))
+        if steps.failed:
+            console.print(
+                f"[bold yellow]Training finished; these follow-up steps failed: {', '.join(steps.failed)}. "
+                "See the log for details.[/bold yellow]"
+            )
         return checkpoint
     finally:
         if task is not None:
             task.close()
 
 
-def main(config_file: str | Path) -> None:
+def main(config_file: str | Path) -> CommandResult:
     try:
-        train_from_config(config_file)
+        checkpoint = train_from_config(config_file)
+    except KeyboardInterrupt:
+        return CommandResult.cancelled("RF-DETR training interrupted.")
     except MLDependencyError as error:
-        console.print(f"[bold red]{error}[/bold red]")
-        raise SystemExit(1)
-    except Exception as error:
-        console.print(f"[bold red]RF-DETR training failed: {error}[/bold red]")
-        import traceback
-
-        console.print(traceback.format_exc())
-        raise SystemExit(1)
+        return CommandResult.failed(str(error))
+    except Exception as error:  # noqa: BLE001
+        log_path = log_exception(error, "RF-DETR training")
+        return CommandResult.failed(
+            f"RF-DETR training failed: {error}",
+            hint=f"Full traceback in {log_path}" if log_path else None,
+        )
+    outputs = {"Checkpoint": checkpoint} if checkpoint else {}
+    return CommandResult.ok("RF-DETR training completed.", outputs=outputs, review=True)

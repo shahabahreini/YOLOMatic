@@ -31,7 +31,7 @@ import numpy as np
 import yaml
 
 from yolomatic.datasets.cache import clean_dataset_image_cache
-from yolomatic.utils.fs import safe_directory_swap
+from yolomatic.utils.fs import COMPLETION_MARKER, safe_directory_swap
 from yolomatic.utils.ml_dependencies import import_cv2
 from yolomatic.utils.semantic import (
     semantic_background_index,
@@ -97,6 +97,10 @@ class AugmentationStats:
     elapsed_seconds: float = 0.0
     cache_files_removed: int = 0
     cache_bytes_reclaimed: int = 0
+    # Requested augmented variants that the pipeline failed to produce (for
+    # example an Albumentations API mismatch). Previously only logged at DEBUG,
+    # so a run could "succeed" with originals only.
+    variants_failed: int = 0
 
 
 def resolve_augmentation_workers(requested: int) -> int:
@@ -187,6 +191,17 @@ def assign_groups_to_splits(
         split_name = max(candidates, key=lambda name: targets[name] - filled[name])
         assignment[key] = split_name
         filled[split_name] += group_sizes[key]
+
+    # Ties go to train, so tiny datasets could end up with an empty validation
+    # split; Ultralytics then fails on the empty "val:" folder. Move the
+    # smallest train group across when there is more than one group.
+    if "valid" in candidates and filled["valid"] == 0 and len(keys) > 1:
+        donors = [key for key in keys if assignment[key] == "train"]
+        if len(donors) > 1:
+            smallest = min(donors, key=lambda key: (group_sizes[key], key))
+            assignment[smallest] = "valid"
+            filled["train"] -= group_sizes[smallest]
+            filled["valid"] += group_sizes[smallest]
     return assignment
 
 
@@ -1099,7 +1114,7 @@ def run_augmentation(
     for error in cache_cleanup.errors:
         logger.warning("Could not remove dataset cache artifact: %s", error)
 
-    from yolomatic.datasets.core import convert_yolo_to_coco, read_yaml_file
+    from yolomatic.datasets.core import convert_yolo_to_coco
 
     ann_format = detect_annotation_format(source_dataset_path)
     all_pairs = collect_all_images(source_dataset_path)
@@ -1172,7 +1187,7 @@ def run_augmentation(
     build_root = stage_root / "output"
     tmp_root = build_root if output_format != "COCO" else stage_root / "yolo"
     groups_root.mkdir(parents=True)
-    skipped = discarded = 0
+    skipped = discarded = variants_failed = 0
     completed_groups: dict[int, list[Path]] = {}
     worker_context = multiprocessing.get_context("spawn")
     split_data: dict[str, list[Path]] = {name: [] for name in _SPLIT_NAMES}
@@ -1220,6 +1235,8 @@ def run_augmentation(
                     else:
                         group_dir = Path(group_text)
                         item_paths = sorted(group_dir.glob("*.jpg"))
+                        produced = sum(1 for path in item_paths if path.stem != "original")
+                        variants_failed += max(0, variants_for_split[pair_splits[result_index]] - produced)
                         if not keep_original_for_split[pair_splits[result_index]]:
                             item_paths = [path for path in item_paths if path.stem != "original"]
                         if item_paths:
@@ -1230,7 +1247,12 @@ def run_augmentation(
                 submit_next()
                 if progress_callback and done_count % max(1, total_source // 100) == 0:
                     progress_callback(done_count, total_source, image_path.name)
-    except Exception:
+    except BaseException:
+        # BaseException: Ctrl-C and cancellation (JobCancelled raised from the
+        # progress callback) must also clean up, and queued jobs must not keep
+        # running after the user stopped the run.
+        for future in pending:
+            future.cancel()
         shutil.rmtree(stage_root, ignore_errors=True)
         raise
 
@@ -1244,13 +1266,83 @@ def run_augmentation(
     if progress_callback:
         progress_callback(0, total_out, "Writing output dataset...")
 
-    # Read source class info
-    data_yaml_path = source_dataset_path / "data.yaml"
-    class_names: list[str] = []
-    if data_yaml_path.exists():
-        data = read_yaml_file(str(data_yaml_path))
-        if data:
-            class_names = data.get("names", [])
+    try:
+        split_counts = _write_augmented_output(
+            dict(
+                split_data=split_data, total_out=total_out, tmp_root=tmp_root, build_root=build_root,
+                out_root=out_root, stage_root=stage_root, source_dataset_path=source_dataset_path,
+                output_format=output_format, ann_format=ann_format, kpt_shape=kpt_shape,
+                profile=profile, split_config=split_config, augment_splits=augment_splits,
+                group_split=group_split, group_keys=group_keys, all_pairs=all_pairs,
+                pair_splits=pair_splits, progress_callback=progress_callback,
+                convert_yolo_to_coco=convert_yolo_to_coco,
+            )
+        )
+    except _FinalizationError:
+        raise
+    except BaseException:
+        # A failure or Ctrl-C while writing leaves a half-built dataset: never offer
+        # it for recovery (it has no completion marker) and clean up the staging.
+        shutil.rmtree(stage_root, ignore_errors=True)
+        raise
+    if variants_failed:
+        logger.warning(
+            "%d requested augmentation variant(s) could not be produced; see the debug log for causes.",
+            variants_failed,
+        )
+    return AugmentationStats(
+        source_dataset=source_dataset_path.name,
+        output_path=str(out_root),
+        profile_name=profile.name,
+        annotation_format=ann_format,
+        output_format=output_format,
+        total_source_images=total_source,
+        total_output_images=total_out,
+        split_counts=split_counts,
+        images_skipped=skipped,
+        annotations_discarded=discarded,
+        elapsed_seconds=time.time() - t0,
+        cache_files_removed=cache_cleanup.removed_files,
+        cache_bytes_reclaimed=cache_cleanup.reclaimed_bytes,
+        variants_failed=variants_failed,
+    )
+
+
+class _FinalizationError(RuntimeError):
+    """The dataset was fully written but could not be moved into place."""
+
+
+def _write_augmented_output(ctx: dict[str, Any]) -> dict[str, int]:
+    """Write labels/images/data.yaml from staged groups and swap them into place.
+
+    Returns per-split image counts. Raises :class:`_FinalizationError` (with the
+    staged output preserved and marked complete) when only the final swap fails.
+    """
+    split_data = ctx["split_data"]
+    total_out = ctx["total_out"]
+    tmp_root: Path = ctx["tmp_root"]
+    build_root: Path = ctx["build_root"]
+    out_root: Path = ctx["out_root"]
+    stage_root: Path = ctx["stage_root"]
+    source_dataset_path: Path = ctx["source_dataset_path"]
+    output_format = ctx["output_format"]
+    ann_format = ctx["ann_format"]
+    kpt_shape = ctx["kpt_shape"]
+    profile = ctx["profile"]
+    split_config = ctx["split_config"]
+    augment_splits = ctx["augment_splits"]
+    group_split = ctx["group_split"]
+    group_keys = ctx["group_keys"]
+    all_pairs = ctx["all_pairs"]
+    pair_splits = ctx["pair_splits"]
+    progress_callback = ctx["progress_callback"]
+    convert_yolo_to_coco = ctx["convert_yolo_to_coco"]
+
+    # Read source class info (data.yaml or dataset.yaml; names may be a list or
+    # an {index: name} dict -- a dict used to leak integer keys into the output).
+    from yolomatic.datasets.core import _normalize_names
+
+    class_names: list[str] = _normalize_names(_read_dataset_yaml(source_dataset_path).get("names"))
 
     # Determine output label writer based on requested output_format
     # (independent of the source annotation format). Pose source + COCO output keeps
@@ -1431,6 +1523,10 @@ def run_augmentation(
     if progress_callback:
         progress_callback(total_out, total_out, "Finalizing output dataset...")
 
+    # Mark the staged output complete *before* the swap: recovery only offers
+    # runs carrying this marker, so a half-written staging folder is never
+    # mistaken for a finished dataset.
+    (build_root / COMPLETION_MARKER).write_text("ok\n", encoding="utf-8")
     try:
         safe_directory_swap(build_root, out_root)
     except Exception as exc:
@@ -1439,25 +1535,11 @@ def run_augmentation(
             exc,
             build_root,
         )
-        raise RuntimeError(
+        raise _FinalizationError(
             f"Augmentation completed successfully, but moving dataset to destination failed: {exc}\n"
             f"Your augmented files are safely preserved at: {build_root}"
         ) from exc
+    (out_root / COMPLETION_MARKER).unlink(missing_ok=True)
 
     shutil.rmtree(stage_root, ignore_errors=True)
-
-    return AugmentationStats(
-        source_dataset=source_dataset_path.name,
-        output_path=str(out_root),
-        profile_name=profile.name,
-        annotation_format=ann_format,
-        output_format=output_format,
-        total_source_images=total_source,
-        total_output_images=total_out,
-        split_counts=split_counts,
-        images_skipped=skipped,
-        annotations_discarded=discarded,
-        elapsed_seconds=time.time() - t0,
-        cache_files_removed=cache_cleanup.removed_files,
-        cache_bytes_reclaimed=cache_cleanup.reclaimed_bytes,
-    )
+    return split_counts

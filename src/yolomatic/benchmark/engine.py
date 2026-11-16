@@ -164,7 +164,7 @@ def _load_gt_from_yolo_txt(
     """
     gts: list[GTObject] = []
     try:
-        lines = label_path.read_text().splitlines()
+        lines = label_path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return gts
 
@@ -339,12 +339,19 @@ def _load_coco_data(annotations_file: Path) -> tuple[dict[int, Path], dict[int, 
 
     id_to_gts: dict[int, list[GTObject]] = {img_id: [] for img_id in id_to_path}
 
+    # COCO category ids are arbitrary (usually 1-based); model predictions are the
+    # contiguous 0-based indices YOLOmatic's COCO->YOLO conversion produces from
+    # categories sorted by id. Map them the same way so classes line up.
+    category_ids = sorted({int(cat["id"]) for cat in coco.get("categories", []) if "id" in cat})
+    category_index = {cat_id: index for index, cat_id in enumerate(category_ids)}
+
     for ann in coco.get("annotations", []):
         img_id = ann["image_id"]
         if img_id not in id_to_path:
             continue
         w, h = id_to_size.get(img_id, (640, 640))
-        cls = ann.get("category_id", 0)
+        raw_cls = int(ann.get("category_id", 0))
+        cls = category_index.get(raw_cls, raw_cls)
 
         # Bounding box (COCO format: x, y, width, height)
         bbox = ann.get("bbox", [0, 0, 0, 0])
@@ -375,8 +382,18 @@ def _load_coco_data(annotations_file: Path) -> tuple[dict[int, Path], dict[int, 
 # Task auto-detection
 # ---------------------------------------------------------------------------
 
+_MODEL_TASKS = {"detect": "detection", "segment": "segmentation", "pose": "pose", "semantic": "semantic"}
+
+
 def _detect_task(model, probe_image: Path, conf: float, device: str) -> str:
-    """Run one inference to decide if the model returns masks (seg), keypoints (pose), or boxes."""
+    """Return the model's task, from its metadata when available.
+
+    Probing one image is only a fallback: a segmentation model that happens to
+    find nothing in the probe image was scored as detection.
+    """
+    declared = _MODEL_TASKS.get(str(getattr(model, "task", "") or "").lower())
+    if declared:
+        return declared
     try:
         results = model(str(probe_image), conf=conf, device=device, verbose=False)
         if results:

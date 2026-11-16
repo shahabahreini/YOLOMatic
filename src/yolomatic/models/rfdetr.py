@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -92,3 +93,58 @@ def rfdetr_table_rows(task: str | None = None) -> list[dict[str, object]]:
             }
         )
     return rows
+
+
+_SIZE_TOKENS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("2xlarge", "2xl"), "2XLarge"),
+    (("xlarge", "xl"), "XLarge"),
+    (("large",), "Large"),
+    (("medium",), "Medium"),
+    (("small",), "Small"),
+    (("nano",), "Nano"),
+)
+
+
+def _class_from_checkpoint_args(weight_path: Path) -> str | None:
+    """Identify the variant from the args RF-DETR stores inside its checkpoint."""
+    try:
+        from yolomatic.utils.ml_dependencies import import_torch
+
+        torch = import_torch()
+        checkpoint = torch.load(str(weight_path), map_location="cpu", weights_only=False)
+    except Exception:  # noqa: BLE001 - missing torch, foreign or corrupt checkpoint
+        return None
+    args = checkpoint.get("args") if isinstance(checkpoint, dict) else None
+    if args is None:
+        return None
+    get = args.get if isinstance(args, dict) else (lambda key, default=None: getattr(args, key, default))
+    resolution = get("resolution")
+    if resolution is None:
+        return None
+    task = "segmentation" if get("segmentation_head", False) else "detection"
+    matches = [v.class_name for v in RFDETR_VARIANTS.values() if v.task == task and v.resolution == int(resolution)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def infer_rfdetr_class(weight_path: Path | str, hint: str = "") -> str:
+    """Return the RF-DETR model class name (e.g. ``RFDETRSegLarge``) for a checkpoint.
+
+    Checkpoint metadata wins. The name-based fallback only looks at the run
+    folder, the file name and ``hint``, split into whole tokens: matching
+    substrings of the full path picked ``XLarge`` for ``/pixel_data/`` and the
+    Seg class for any path under ``/segments/``.
+    """
+    path = Path(weight_path)
+    from_checkpoint = _class_from_checkpoint_args(path) if path.is_file() else None
+    if from_checkpoint:
+        return from_checkpoint
+
+    import re
+
+    names = [path.stem, path.parent.name, path.parent.parent.name, hint]
+    tokens = {token for name in names for token in re.split(r"[^a-z0-9]+", name.lower()) if token}
+    prefix = "RFDETRSeg" if tokens & {"seg", "segment", "segmentation"} else "RFDETR"
+    for aliases, size in _SIZE_TOKENS:
+        if tokens.intersection(aliases):
+            return f"{prefix}{size}"
+    return f"{prefix}Medium"

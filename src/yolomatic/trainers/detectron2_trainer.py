@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +8,9 @@ from rich.panel import Panel
 from rich.table import Table
 from yolomatic.ui.theme import CONSOLE
 
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.logging_setup import log_exception
+from yolomatic.trainers.common import timestamp_for_run, unique_run_dir
 from yolomatic.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_detectron2
 
@@ -190,8 +192,8 @@ def train_from_config(config_file: str | Path) -> Path | None:
         config = yaml.safe_load(file) or {}
     print_config_summary(config)
     cfg = build_detectron2_cfg(config)
-    run_name = datetime.now().strftime("%Y-%m-%d-%H-%M")
-    run_dir = Path(cfg.OUTPUT_DIR) / run_name
+    run_dir = unique_run_dir(Path(cfg.OUTPUT_DIR), timestamp_for_run())
+    run_name = run_dir.name
     cfg.OUTPUT_DIR = str(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     task = initialize_clearml_task(config, run_name)
@@ -216,15 +218,18 @@ def train_from_config(config_file: str | Path) -> Path | None:
             task.close()
 
 
-def main(config_file: str | Path) -> None:
+def main(config_file: str | Path) -> CommandResult:
     try:
-        train_from_config(config_file)
+        result = train_from_config(config_file)
+    except KeyboardInterrupt:
+        return CommandResult.cancelled("Detectron2 training interrupted.")
     except MLDependencyError as error:
-        console.print(f"[bold red]{error}[/bold red]")
-        raise SystemExit(1)
-    except Exception as error:
-        console.print(f"[bold red]Detectron2 training failed: {error}[/bold red]")
-        import traceback
-
-        console.print(traceback.format_exc())
-        raise SystemExit(1)
+        return CommandResult.failed(str(error))
+    except Exception as error:  # noqa: BLE001
+        log_path = log_exception(error, "Detectron2 training")
+        return CommandResult.failed(
+            f"Detectron2 training failed: {error}",
+            hint=f"Full traceback in {log_path}" if log_path else None,
+        )
+    outputs = {"Checkpoint": result} if isinstance(result, (str, Path)) and result else {}
+    return CommandResult.ok("Detectron2 training completed.", outputs=outputs, review=True)

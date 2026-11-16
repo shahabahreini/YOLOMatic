@@ -1,4 +1,6 @@
 import argparse
+from collections.abc import Callable
+from typing import Any
 import os
 from datetime import datetime
 from pathlib import Path
@@ -11,7 +13,9 @@ os.environ["YOLO_AUTOINSTALL"] = "false"
 import yaml
 from rich.panel import Panel
 from rich.table import Table
-from yolomatic.ui.theme import CONSOLE
+from yolomatic.ui.theme import CONSOLE, safe
+from yolomatic.cli.result import CommandResult, coerce_result
+from yolomatic.utils.logging_setup import log_exception
 
 from yolomatic.cli.upload import (
     build_candidate,
@@ -244,7 +248,15 @@ def verify_model_file(model_name):
                 "conflicts with RF-DETR training dependencies."
             )
 
-        if model_name.lower().startswith("yolo"):
+        # A local checkpoint path (e.g. "yolo_runs/best.pt" or "yolov8n_ft.pt")
+        # must be loaded as-is, never rewritten into a hub model name.
+        looks_like_path = (
+            os.path.exists(model_name)
+            or model_name.lower().endswith((".pt", ".pth", ".yaml", ".yml", ".onnx", ".engine"))
+            or "/" in model_name
+            or "\\" in model_name
+        )
+        if model_name.lower().startswith("yolo") and not looks_like_path:
             # Extract version and size from model name (e.g., YOLO26n -> version="26", size="n")
             # Handle both 1-digit (v8, v9) and 2-digit (v10, v11, v12, v26) versions
             remaining = model_name[4:]  # Remove "YOLO" prefix
@@ -478,19 +490,34 @@ def upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_type
         console.print(f"[bold red]Roboflow upload failed: {error}[/bold red]")
 
 
-def main():
+def _trainer_run_dir(model: Any) -> Path | None:
+    save_dir = getattr(getattr(model, "trainer", None), "save_dir", None)
+    return Path(save_dir) if save_dir else None
+
+
+def _print_post_training_summary(steps: list[tuple[str, str, str]]) -> None:
+    if not steps:
+        return
+    table = Table(title="Post-training steps", show_header=True, header_style="bold cyan")
+    table.add_column("Step")
+    table.add_column("Status")
+    table.add_column("Details", overflow="fold")
+    styles = {"ok": "[green]done[/green]", "failed": "[red]failed[/red]", "cancelled": "[yellow]cancelled[/yellow]"}
+    for name, status, detail in steps:
+        table.add_row(name, styles.get(status, status), safe(detail))
+    console.print(table)
+
+
+def main() -> CommandResult:
     task = None
     try:
         args = parse_args()
         config_file = select_config(args.config)
         if config_file is None:
-            console.print(
-                "[bold yellow]No configuration selected. Exiting.[/bold yellow]"
-            )
-            return
+            return CommandResult.cancelled("No configuration selected.")
 
         # Load configuration from selected YAML file
-        with open(config_file, "r") as file:
+        with open(config_file, "r", encoding="utf-8") as file:
             config = yaml.safe_load(file)
 
         if "experiment" in config:
@@ -500,7 +527,7 @@ def main():
                 "so YOLOmatic no longer installs or routes YOLO-NAS training. "
                 "Create a YOLO or RF-DETR config instead."
             )
-            return
+            return CommandResult.failed("YOLO-NAS configs are no longer supported.")
 
         # Extract parameters from config based on type
         if config.get("settings", {}).get("model_family") == "rfdetr":
@@ -509,24 +536,21 @@ def main():
             )
             from yolomatic.trainers.rfdetr_trainer import main as rfdetr_main
 
-            rfdetr_main(config_file)
-            return
+            return coerce_result(rfdetr_main(config_file))
         if config.get("settings", {}).get("model_family") == "detectron2":
             console.print(
                 "\n[bold green]Routing Detectron2 configuration to Detectron2 trainer...[/bold green]"
             )
             from yolomatic.trainers.detectron2_trainer import main as detectron2_main
 
-            detectron2_main(config_file)
-            return
+            return coerce_result(detectron2_main(config_file))
         if config.get("settings", {}).get("model_family") == "sam3.1":
             console.print(
                 "\n[bold green]Routing SAM 3.1 configuration to SAM trainer...[/bold green]"
             )
             from yolomatic.trainers.sam_trainer import main as sam_main
 
-            sam_main(config_file)
-            return
+            return coerce_result(sam_main(config_file))
         settings = config["settings"]
         clearml_settings = effective_clearml_settings(config.get("clearml", {}))
         training_params = dict(config["training"])
@@ -578,15 +602,13 @@ def main():
             )
             from yolomatic.trainers.rfdetr_trainer import main as rfdetr_main
 
-            rfdetr_main(config_file)
-            return
+            return coerce_result(rfdetr_main(config_file))
         current_time = datetime.now().strftime(clearml_settings["task_name_format"])
         task_name = f"{model_name}-{current_time}"
 
         device_resolution = resolve_training_device(training_params.get("device"))
         if device_resolution.cancelled:
-            console.print("[bold yellow]Training cancelled.[/bold yellow]")
-            return
+            return CommandResult.cancelled("Training cancelled.")
         if device_resolution.device != training_params.get("device"):
             training_params = dict(training_params)
             training_params["device"] = device_resolution.device
@@ -599,8 +621,7 @@ def main():
 
         model = verify_model_file(model_name)
         if model is None:
-            console.print("[bold red]Model verification failed. Exiting.[/bold red]")
-            return
+            return CommandResult.failed("Model verification failed.")
         disable_ultralytics_clearml_callbacks(model)
 
         # Initialize ClearML Task
@@ -611,8 +632,7 @@ def main():
             clearml_settings=clearml_settings,
         )
         if task is False:
-            console.print("[bold yellow]Training cancelled.[/bold yellow]")
-            return
+            return CommandResult.cancelled("Training cancelled.")
 
         if task is not None and clearml_settings.get("log_hyperparameters", True):
             task.connect(
@@ -635,83 +655,104 @@ def main():
 
         # Start training
         console.print("\n[bold green]Starting training...[/bold green]")
-        model.train(data=resolved_data_yaml, **training_params)
-        save_dir = getattr(getattr(model, "trainer", None), "save_dir", None)
-        run_dir = Path(save_dir) if save_dir else None
+        try:
+            model.train(data=resolved_data_yaml, **training_params)
+        except KeyboardInterrupt:
+            run_dir = _trainer_run_dir(model)
+            last = run_dir / "weights" / "last.pt" if run_dir else None
+            where = f" The latest checkpoint is {last}." if last and last.exists() else ""
+            return CommandResult.cancelled(f"Training interrupted.{where}")
+        run_dir = _trainer_run_dir(model)
 
-        # Start validation
-        console.print("\n[bold green]Starting validation...[/bold green]")
-        model.val(data=resolved_data_yaml)
+        # Each post-training step runs independently: an export failure (for
+        # example TensorRT not installed) must not skip the ClearML/Roboflow
+        # uploads or the TensorBoard backfill after hours of training.
+        steps: list[tuple[str, str, str]] = []
+        outputs: dict[str, Path] = {}
 
-        # Export the model
-        console.print("\n[bold green]Exporting model...[/bold green]")
-        model.export(**export_params)
+        def post_step(name: str, action: Callable[[], Any]) -> Any:
+            console.print(f"\n[bold green]{name}...[/bold green]")
+            try:
+                value = action()
+            except KeyboardInterrupt:
+                steps.append((name, "cancelled", ""))
+                raise
+            except Exception as error:  # noqa: BLE001 - reported in the summary
+                log_exception(error, f"Post-training step '{name}'")
+                console.print(f"[bold red]{name} failed:[/bold red] {safe(error)}")
+                steps.append((name, "failed", str(error)))
+                return None
+            steps.append((name, "ok", ""))
+            return value
 
-        upload_clearml_final_model(task, run_dir, clearml_settings)
+        try:
+            post_step("Validation", lambda: model.val(data=resolved_data_yaml))
+            exported = post_step("Export", lambda: model.export(**export_params))
+            if exported:
+                outputs["Export"] = Path(str(exported))
+            post_step("ClearML model upload", lambda: upload_clearml_final_model(task, run_dir, clearml_settings))
+            post_step(
+                "Roboflow upload",
+                lambda: upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_name, console),
+            )
+            if run_dir is not None:
+                def _tensorboard() -> None:
+                    metadata = build_tensorboard_metadata(
+                        model_name=model_name,
+                        dataset_name=settings["dataset"],
+                        config_path=config_file,
+                        run_name=task_name,
+                        device=training_params.get("device"),
+                        training_params=training_params,
+                    )
+                    backfill_ultralytics_tensorboard(
+                        run_dir=run_dir,
+                        metadata=metadata,
+                        device=training_params.get("device"),
+                    )
+                    emit_tensorboard_report(console, validate_tensorboard_run(run_dir))
 
-        upload_to_roboflow_if_configured(config, dataset_config, run_dir, model_name, console)
+                post_step("TensorBoard logs", _tensorboard)
+        except KeyboardInterrupt:
+            pass
 
         if run_dir is not None:
-            metadata = build_tensorboard_metadata(
-                model_name=model_name,
-                dataset_name=settings["dataset"],
-                config_path=config_file,
-                run_name=task_name,
-                device=training_params.get("device"),
-                training_params=training_params,
-            )
-            backfill_ultralytics_tensorboard(
-                run_dir=run_dir,
-                metadata=metadata,
-                device=training_params.get("device"),
-            )
-            emit_tensorboard_report(console, validate_tensorboard_run(run_dir))
-
-        console.print("\n[bold green]Training completed successfully![/bold green]")
-        try:
-            input("\nPress Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            pass
+            outputs = {"Run folder": run_dir, **outputs}
+            for weight in ("best.pt", "last.pt"):
+                weight_path = run_dir / "weights" / weight
+                if weight_path.exists():
+                    outputs[weight] = weight_path
+        _print_post_training_summary(steps)
+        failed_steps = [name for name, status, _ in steps if status != "ok"]
+        message = "Training completed."
+        if failed_steps:
+            message += f" Some follow-up steps did not finish: {', '.join(failed_steps)}."
+        return CommandResult.ok(message, outputs=outputs, review=True)
 
     except FileNotFoundError as e:
-        console.print(f"[bold red]Error: {str(e)}[/bold red]")
-        try:
-            input("\nPress Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            pass
+        return CommandResult.failed(str(e))
     except yaml.YAMLError as e:
-        console.print(f"[bold red]Invalid YAML configuration: {str(e)}[/bold red]")
-        try:
-            input("\nPress Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            pass
+        return CommandResult.failed(f"Invalid YAML configuration: {e}")
     except MLDependencyError as e:
-        console.print(f"[bold red]{str(e)}[/bold red]")
-        try:
-            input("\nPress Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            pass
+        return CommandResult.failed(str(e))
     except ValueError as e:
         if "Invalid CUDA 'device" in str(e):
-            console.print(f"[bold red]{str(e)}[/bold red]")
-            console.print(
-                "[bold yellow]PyTorch cannot see a CUDA device in this environment. If `nvidia-smi` works, reinstall a CUDA-enabled torch build in this `.venv`.[/bold yellow]"
+            return CommandResult.failed(
+                str(e),
+                hint=(
+                    "PyTorch cannot see a CUDA device in this environment. If `nvidia-smi` works, "
+                    "reinstall a CUDA-enabled torch build in this `.venv`."
+                ),
             )
-        else:
-            console.print(f"[bold red]Error: {str(e)}[/bold red]")
-        try:
-            input("\nPress Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            pass
-    except Exception as e:
-        console.print(f"[bold red]An unexpected error occurred: {str(e)}[/bold red]")
-        import traceback
-
-        console.print(traceback.format_exc())
-        try:
-            input("\nPress Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            pass
+        return CommandResult.failed(str(e))
+    except KeyboardInterrupt:
+        return CommandResult.cancelled("Training cancelled.")
+    except Exception as e:  # noqa: BLE001 - last line of defence for a long run
+        log_path = log_exception(e, "YOLO training")
+        return CommandResult.failed(
+            f"An unexpected error occurred: {e}",
+            hint=f"Full traceback in {log_path}" if log_path else None,
+        )
     finally:
         if task not in (None, False):
             task.close()

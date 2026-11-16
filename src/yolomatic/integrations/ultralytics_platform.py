@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -83,18 +83,36 @@ class UltralyticsPlatformClient:
     def _url(self, path: str) -> str:
         return urljoin(self.base_url, path.lstrip("/"))
 
+    _IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PUT", "DELETE"})
+
     def request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
-        retries = int(kwargs.pop("retries", 1))
+        """Send an authenticated request with bounded retries.
+
+        429 is retried for any method; 5xx and connection failures only for
+        idempotent methods (retrying a POST could create duplicates). Network
+        errors surface as :class:`UltralyticsPlatformError`, never raw
+        ``requests`` exceptions.
+        """
+        retries = int(kwargs.pop("retries", 2))
+        timeout = kwargs.pop("timeout", self.timeout)
+        url = self._url(path)
+        if urlparse(url).netloc != urlparse(self.base_url).netloc:
+            # Pagination "next" links are followed with the Authorization header
+            # attached; never send the token to another host.
+            raise UltralyticsPlatformError(f"Refusing to send credentials to a different host: {url}")
+        idempotent = method.upper() in self._IDEMPOTENT_METHODS
         for attempt in range(retries + 1):
-            response = self.session.request(
-                method,
-                self._url(path),
-                timeout=kwargs.pop("timeout", self.timeout),
-                **kwargs,
-            )
-            if response.status_code == 429 and attempt < retries:
-                retry_after = self._retry_after(response)
-                time.sleep(retry_after or min(2.0, 0.5 * (attempt + 1)))
+            backoff = min(8.0, 0.5 * (2**attempt))
+            try:
+                response = self.session.request(method, url, timeout=timeout, **kwargs)
+            except (requests.ConnectionError, requests.Timeout) as error:
+                if idempotent and attempt < retries:
+                    time.sleep(backoff)
+                    continue
+                raise UltralyticsPlatformError(f"Could not reach the Ultralytics Platform: {error}") from error
+            retryable = response.status_code == 429 or (idempotent and response.status_code >= 500)
+            if retryable and attempt < retries:
+                time.sleep(self._retry_after(response) or backoff)
                 continue
             if response.status_code >= 400:
                 raise self._error_from_response(response)
@@ -208,20 +226,42 @@ class UltralyticsPlatformClient:
         return completed if isinstance(completed, dict) else {"result": completed}
 
     def download_signed_url(self, url: str, output_path: Path) -> DownloadedFile:
+        """Stream a signed URL to ``output_path`` via a ``.partial`` file.
+
+        An interrupted download used to leave a truncated file under the final
+        name that looked complete; now the final name only appears once every
+        byte has arrived.
+        """
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with requests.get(url, stream=True, timeout=self.timeout) as response:
-            if response.status_code >= 400:
+        partial = output_path.with_name(output_path.name + ".partial")
+        try:
+            with requests.get(url, stream=True, timeout=self.timeout) as response:
+                if response.status_code >= 400:
+                    raise UltralyticsPlatformError(
+                        f"Signed download failed with HTTP {response.status_code}.",
+                        status_code=response.status_code,
+                        response_body=response.text,
+                    )
+                # Content-Length counts encoded bytes; iter_content yields decoded
+                # ones, so only compare for uncompressed responses.
+                raw_length = response.headers.get("Content-Length")
+                encoding = str(response.headers.get("Content-Encoding") or "identity").lower()
+                expected = int(raw_length) if isinstance(raw_length, (str, int)) and str(raw_length).isdigit() and encoding == "identity" else 0
+                bytes_written = 0
+                with partial.open("wb") as file:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            file.write(chunk)
+                            bytes_written += len(chunk)
+            if expected and bytes_written != expected:
                 raise UltralyticsPlatformError(
-                    f"Signed download failed with HTTP {response.status_code}.",
-                    status_code=response.status_code,
-                    response_body=response.text,
+                    f"Download incomplete: received {bytes_written} of {expected} bytes."
                 )
-            bytes_written = 0
-            with output_path.open("wb") as file:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        file.write(chunk)
-                        bytes_written += len(chunk)
+            os.replace(partial, output_path)
+        except requests.RequestException as error:
+            raise UltralyticsPlatformError(f"Download failed: {error}") from error
+        finally:
+            partial.unlink(missing_ok=True)
         return DownloadedFile(output_path, bytes_written)
 
     @staticmethod

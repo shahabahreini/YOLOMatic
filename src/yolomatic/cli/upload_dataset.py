@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import logging
 import concurrent.futures
 import contextlib
@@ -45,7 +46,9 @@ from yolomatic.datasets.validate_roboflow import (
     RoboflowValidationResult,
     validate_roboflow_dataset,
 )
+from yolomatic.cli.result import CommandResult
 from yolomatic.integrations.roboflow_dataset import (
+    ServerProcessingError,
     create_batch_zip_archive,
     partition_dataset_into_batches,
     poll_zip_status,
@@ -77,15 +80,21 @@ def _wizard_kwargs(step_index: int) -> Dict[str, Any]:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="yolomatic-upload-dataset", description="Upload dataset to Roboflow with validation and progress tracking.")
-    parser.add_argument("--api-key", help="Roboflow Private API Key (if omitted, will use .env or prompt).")
+    parser.add_argument(
+        "--api-key",
+        help=(
+            "Deprecated: visible in shell history and the process list. "
+            "Set ROBOFLOW_API_KEY in the environment or .env instead."
+        ),
+    )
     parser.add_argument("--workspace", help="Roboflow workspace slug.")
     parser.add_argument("--project", help="Roboflow project slug / ID.")
     parser.add_argument("--dataset", help="Path to dataset directory.")
     parser.add_argument(
         "--type",
-        default="instance-segmentation",
+        default=None,
         choices=[TASK_OBJECT_DETECT, TASK_INSTANCE_SEG, TASK_SEMANTIC_SEG, TASK_CLASSIFY, TASK_POSE],
-        help="Roboflow project type when creating a new project.",
+        help="Roboflow project type when creating a new project (default: detected from the dataset).",
     )
     parser.add_argument(
         "--license",
@@ -322,13 +331,16 @@ def step_resolve_auth(root_dir: Path, cli_key: Optional[str]) -> Tuple[Roboflow,
     api_key = cli_key or env_key
 
     while not api_key:
-        prompt_val = prompt_tui_text(
-            "Roboflow API Key",
-            "Enter your Roboflow Private API Key",
-            "Your Private API Key from app.roboflow.com/settings/api.",
-            breadcrumbs=["YOLOmatic", "Roboflow Upload", "API Key"],
+        # getpass keeps the key off the screen and out of terminal scrollback.
+        console.print(
+            "[cyan]Enter your Roboflow Private API Key[/cyan] "
+            "[dim](app.roboflow.com/settings/api; input is hidden, empty to cancel)[/dim]"
         )
-        if prompt_val in (NAV_BACK, "Back") or not prompt_val:
+        try:
+            prompt_val = getpass.getpass("API key: ")
+        except (EOFError, KeyboardInterrupt):
+            prompt_val = ""
+        if not prompt_val.strip():
             raise RuntimeError("API key is required.")
         api_key = prompt_val.strip()
 
@@ -677,6 +689,9 @@ def execute_zip_upload(
                 console.print(f"[green][OK] Batch {batch_label} uploaded and processed successfully.[/green]\n")
                 break
 
+            except ServerProcessingError:
+                # The archive is already on Roboflow; uploading it again would duplicate it.
+                raise
             except (requests.exceptions.RequestException, TimeoutError, RoboflowError, OSError) as exc:
                 console.print(f"[bold red][!] Batch {batch_label} upload error (attempt {attempt}/{max_retries}): {exc}[/bold red]")
                 if attempt < max_retries:
@@ -846,9 +861,75 @@ def display_final_report(
     console.print(link_panel)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> None:
+_UPLOAD_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+# Folders that hold images which are *not* dataset samples.
+_SKIP_DIR_NAMES = {"masks", "labels", "annotations"}
+
+
+def _split_for(relative_parts: Sequence[str]) -> str:
+    for part in relative_parts:
+        lowered = part.lower()
+        if lowered in ("train", "training"):
+            return "train"
+        if lowered in ("val", "valid", "validation"):
+            return "val"
+        if lowered in ("test", "testing"):
+            return "test"
+    return "train"
+
+
+def find_label_for_image(dataset_path: Path, image_path: Path, split: str) -> Optional[Path]:
+    """Locate the YOLO label for ``image_path`` across the common layouts.
+
+    * ``<split>/images/x.jpg`` -> ``<split>/labels/x.txt`` (Roboflow/Ultralytics; was missed)
+    * ``images/<split>/x.jpg`` -> ``labels/<split>/x.txt``
+    * ``x.jpg`` -> ``x.txt`` beside the image
+    """
+    parts = list(image_path.relative_to(dataset_path).parts)
+    candidates: List[Path] = []
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index].lower() == "images":
+            swapped = parts[:index] + ["labels"] + parts[index + 1:]
+            candidates.append((dataset_path / Path(*swapped)).with_suffix(".txt"))
+            break
+    candidates.append(dataset_path / "labels" / split / f"{image_path.stem}.txt")
+    if split == "val":
+        candidates.append(dataset_path / "labels" / "valid" / f"{image_path.stem}.txt")
+    candidates.append(image_path.with_suffix(".txt"))
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def collect_upload_items(dataset_path: Path, class_names: Sequence[str]) -> List[Dict[str, Any]]:
+    """Build the per-image upload descriptors for a local dataset."""
+    classes = {i: name for i, name in enumerate(class_names)}
+    items: List[Dict[str, Any]] = []
+    for root_dir_p, dirnames, files in os.walk(dataset_path):
+        dirnames[:] = sorted(
+            d for d in dirnames if not d.startswith(".") and d.lower() not in _SKIP_DIR_NAMES
+        )
+        for name in sorted(files):
+            fp = Path(root_dir_p) / name
+            if fp.suffix.lower() not in _UPLOAD_IMAGE_EXTS:
+                continue
+            split = _split_for(fp.relative_to(dataset_path).parts)
+            label = find_label_for_image(dataset_path, fp, split)
+            items.append({
+                "file": str(fp.resolve()),
+                "split": "valid" if split == "val" else split,
+                "annotationfile": {"file": str(label.resolve()), "labelmap": classes} if label else None,
+                "index": len(items),
+            })
+    return items
+
+
+def main(argv: Optional[Sequence[str]] = None) -> CommandResult:
     args = parse_args(argv)
     root = project_root()
+    if args.api_key:
+        console.print(
+            "[yellow]Warning: --api-key exposes the key in shell history and the process list; "
+            "prefer ROBOFLOW_API_KEY in the environment or .env.[/yellow]"
+        )
 
     clear_screen()
     print_stylized_header("Roboflow Dataset Upload")
@@ -856,23 +937,26 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     # Step 0: Dataset Selection
     dataset_path = step_select_dataset(root, args.dataset)
     if not dataset_path:
-        return
+        return CommandResult.cancelled()
 
-    # Step 1: Validation
+    # Step 1: Validation. Without --type, validate against the detected task;
+    # the old "instance-segmentation" default overrode detection for box datasets.
     validation_res = step_validate_dataset(dataset_path, target_task=args.type)
     if not validation_res:
-        return
+        return CommandResult.cancelled()
 
     # Step 2: Authentication & Workspace Selection
     try:
         rf, api_key = step_resolve_auth(root, args.api_key)
-    except Exception as exc:
-        console.print(expected_error_panel(f"Authentication failed: {exc}"))
-        return
+    except Exception as exc:  # noqa: BLE001 - auth errors come in many shapes
+        return CommandResult.failed(
+            f"Authentication failed: {exc}",
+            hint="Check ROBOFLOW_API_KEY (app.roboflow.com/settings/api).",
+        )
 
     ws, ws_slug = step_select_workspace(rf, root, args.workspace)
     if ws == NAV_BACK or not ws_slug:
-        return
+        return CommandResult.cancelled()
 
     # Step 3: Project Selection / Creation
     project_name, project_type, project_license = step_select_or_create_project(
@@ -884,7 +968,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         cli_license=args.license,
     )
     if project_name == NAV_BACK or not project_name:
-        return
+        return CommandResult.cancelled()
 
     # Initialize project on server
     with console.status(f"[cyan]Initializing project '{project_name}' on Roboflow...[/cyan]", spinner="dots"):
@@ -894,15 +978,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 license=project_license,
                 type=project_type,
             )
-        except Exception as exc:
-            console.print(expected_error_panel(f"Failed to initialize project '{project_name}': {exc}"))
-            return
+        except Exception as exc:  # noqa: BLE001
+            return CommandResult.failed(f"Failed to initialize project '{project_name}': {exc}")
 
     # Step 4: Configure Upload Parameters
     if not args.yes:
         use_zip, batch_name, max_batch_mb, chunk_images, workers, max_retries = step_configure_settings(args, validation_res)
         if not batch_name:
-            return
+            return CommandResult.cancelled()
     else:
         use_zip = args.zip
         batch_name = args.batch_name
@@ -936,49 +1019,13 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             **_wizard_kwargs(5),
         )
         if choice in (NAV_BACK, "Cancel"):
-            console.print("[yellow]Upload cancelled by user.[/yellow]")
-            return
+            return CommandResult.cancelled("Upload cancelled by user.")
 
     console.print("\n[bold cyan]Starting upload process...[/bold cyan]\n")
     start_time = time.monotonic()
 
     # Build image descriptors for upload
-    image_items: List[Dict[str, Any]] = []
-    classes = {i: name for i, name in enumerate(validation_res.class_names)}
-    for root_dir_p, _, files in os.walk(dataset_path):
-        for f in files:
-            fp = Path(root_dir_p) / f
-            if fp.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}:
-                split = "train"
-                for p in fp.relative_to(dataset_path).parts:
-                    p_lower = p.lower()
-                    if p_lower in ("train", "training"):
-                        split = "train"
-                        break
-                    if p_lower in ("val", "valid", "validation"):
-                        split = "val"
-                        break
-                    if p_lower in ("test", "testing"):
-                        split = "test"
-                        break
-
-                stem = fp.stem
-                lbl_cand = dataset_path / "labels" / split / f"{stem}.txt"
-                if not lbl_cand.exists() and split == "val":
-                    lbl_cand = dataset_path / "labels" / "valid" / f"{stem}.txt"
-                if not lbl_cand.exists():
-                    lbl_cand = fp.with_suffix(".txt")
-
-                annot_desc = None
-                if lbl_cand.exists():
-                    annot_desc = {"file": str(lbl_cand.resolve()), "labelmap": classes}
-
-                image_items.append({
-                    "file": str(fp.resolve()),
-                    "split": "valid" if split == "val" else split,
-                    "annotationfile": annot_desc,
-                    "index": len(image_items),
-                })
+    image_items = collect_upload_items(dataset_path, validation_res.class_names)
 
     try:
         if use_zip:
@@ -1003,21 +1050,20 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 num_workers=workers,
             )
     except KeyboardInterrupt:
-        console.print("\n[yellow]Upload interrupted. Images already sent remain in the Roboflow project.[/yellow]")
-        return
-    except Exception as exc:
+        return CommandResult.cancelled(
+            "Upload interrupted. Images already sent remain in the Roboflow project."
+        )
+    except Exception as exc:  # noqa: BLE001
         # A failure here can leave earlier batches already committed server-side,
         # so say so plainly rather than surfacing a bare traceback.
         logger.exception("Roboflow dataset upload failed")
-        console.print(
-            expected_error_panel(
-                f"Upload failed: {type(exc).__name__}: {exc}\n\n"
-                f"Any batches that completed before this point are already in the "
-                f"Roboflow project. Review the project before retrying to avoid duplicates:\n"
-                f"  https://app.roboflow.com/{ws_slug}/{project_name}"
-            )
+        return CommandResult.failed(
+            f"Upload failed: {type(exc).__name__}: {exc}",
+            hint=(
+                "Batches that completed before this point are already in the Roboflow project. "
+                f"Review https://app.roboflow.com/{ws_slug}/{project_name} before retrying to avoid duplicates."
+            ),
         )
-        return
 
     duration = time.monotonic() - start_time
     display_final_report(
@@ -1028,6 +1074,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         duration=duration,
         stats=stats,
     )
+    return CommandResult.ok("Dataset uploaded to Roboflow.", review=True)
 
 
 if __name__ == "__main__":

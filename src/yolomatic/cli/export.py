@@ -13,7 +13,6 @@ from yolomatic.utils.cli import (
     get_user_choice,
     get_user_multi_select,
     ParameterDefinition,
-    expected_error_panel,
     NAV_BACK,
 )
 from yolomatic.utils.project import (
@@ -21,7 +20,9 @@ from yolomatic.utils.project import (
     format_weight_label,
     project_root,
 )
-from yolomatic.utils.ml_dependencies import import_ultralytics_yolo
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.logging_setup import log_exception
+from yolomatic.utils.ml_dependencies import import_torch, import_ultralytics_yolo
 from yolomatic.utils.export_config import (
     ExportModelDetails,
     build_export_kwargs,
@@ -182,7 +183,7 @@ def _export_definitions() -> list[ParameterDefinition]:
         ParameterDefinition(
             name="device",
             category="Configuration",
-            default="0",
+            default=default_export_device(),
             value_type="str",
             description="Export Target Device",
             help_text="Specifies the hardware accelerator (e.g. '0' for CUDA GPU, 'cpu' for CPU) to compile the model on. For TensorRT, the engine MUST be compiled on the exact GPU model (e.g., Jetson vs desktop RTX) intended for deployment, as compilation is device-specific.",
@@ -230,6 +231,62 @@ def _export_definitions() -> list[ParameterDefinition]:
     ]
 
 
+def default_export_device() -> str:
+    """``"0"`` when a CUDA GPU is present, otherwise ``"cpu"``.
+
+    Ultralytics rejects ``device=0`` without CUDA ("Invalid CUDA 'device=0'"), so
+    the old hard-coded default broke CoreML/OpenVINO/ONNX exports on Macs and
+    CPU-only machines. MPS is not used for export.
+    """
+    try:
+        torch = import_torch()
+        if torch.cuda.is_available():
+            return "0"
+    except Exception:  # noqa: BLE001 - torch missing or broken: CPU is always valid
+        pass
+    return "cpu"
+
+
+def build_engine_metadata(yolo_model: Any, kwargs: dict[str, Any], *, max_batch: int) -> dict[str, Any]:
+    """Ultralytics-style metadata for engines built by the custom TRT compiler."""
+    from datetime import datetime
+
+    try:
+        from ultralytics import __version__ as ultralytics_version
+    except Exception:  # noqa: BLE001
+        ultralytics_version = "unknown"
+    model = getattr(yolo_model, "model", None)
+    stride_value = getattr(model, "stride", 32)
+    try:
+        stride = int(max(stride_value))
+    except TypeError:
+        stride = int(stride_value)
+    imgsz = kwargs.get("imgsz", 640)
+    imgsz_list = list(imgsz) if isinstance(imgsz, (list, tuple)) else [int(imgsz), int(imgsz)]
+    metadata: dict[str, Any] = {
+        "description": "Ultralytics model exported by YOLOmatic (dynamic batch TensorRT)",
+        "author": "Ultralytics",
+        "date": datetime.now().isoformat(),
+        "version": ultralytics_version,
+        "license": "AGPL-3.0 License (https://ultralytics.com/license)",
+        "docs": "https://docs.ultralytics.com",
+        "stride": stride,
+        "task": getattr(yolo_model, "task", "detect"),
+        "batch": max_batch,
+        "imgsz": imgsz_list,
+        "names": {int(k): str(v) for k, v in dict(getattr(yolo_model, "names", {}) or {}).items()},
+        "args": {"batch": max_batch, "half": bool(kwargs.get("half")), "dynamic": True,
+                 "int8": False, "nms": bool(kwargs.get("nms", False))},
+        "channels": int((getattr(model, "yaml", None) or {}).get("channels", 3)),
+    }
+    if metadata["task"] == "pose":
+        try:
+            metadata["kpt_shape"] = list(model.model[-1].kpt_shape)
+        except Exception:  # noqa: BLE001
+            pass
+    return metadata
+
+
 def _get_defaults_for_format(fmt: str) -> dict[str, Any]:
     defaults = {
         "half": False,
@@ -241,7 +298,7 @@ def _get_defaults_for_format(fmt: str) -> dict[str, Any]:
         "imgsz": 640,
         "batch": 1,
         "opset": 17,
-        "device": "0",
+        "device": default_export_device(),
         "keras": False,
         "optimize": False,
         "data": "",
@@ -606,238 +663,218 @@ def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: i
     )
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None) -> CommandResult:
     args = parse_args(argv)
     root = project_root()
 
     try:
-        if args.weight:
-            weight_path = Path(args.weight).expanduser()
-            if not weight_path.is_absolute():
-                weight_path = root / weight_path
-            if not weight_path.exists():
-                raise FileNotFoundError(f"Weight file not found: {weight_path}")
-        else:
-            available_weights = [w for w in find_available_weights(root) if w.suffix == ".pt"]
-            if not available_weights:
-                console.print(
-                    expected_error_panel(
-                        "No .pt weights found in the project. Please train a model first.",
-                        title="No Weights Found",
-                    )
-                )
-                input("\nPress Enter to return...")
-                return
+        return _run_export(args, root)
+    except KeyboardInterrupt:
+        return CommandResult.cancelled("Export cancelled.")
 
-            weight_path = select_weight(root, available_weights)
-            if not weight_path:
-                return
 
-        try:
-            model_details = load_model_details(weight_path)
-        except Exception as error:
-            console.print(
-                expected_error_panel(
-                    f"Could not load model details from {weight_path}: {error}",
-                    title="Model Details Error",
-                )
+def _run_export(args: argparse.Namespace, root: Path) -> CommandResult:
+    if args.weight:
+        weight_path = Path(args.weight).expanduser()
+        if not weight_path.is_absolute():
+            weight_path = root / weight_path
+        if not weight_path.exists():
+            return CommandResult.failed(
+                f"Weight file not found: {weight_path}",
+                hint="Pass an existing .pt file with --weight, or omit it to pick one interactively.",
             )
-            return
+    else:
+        available_weights = [w for w in find_available_weights(root) if w.suffix == ".pt"]
+        if not available_weights:
+            return CommandResult.failed(
+                "No .pt weights found in the project.", hint="Train a model first, then export it."
+            )
+        weight_path = select_weight(root, available_weights)
+        if not weight_path:
+            return CommandResult.cancelled()
 
-        print_model_details(model_details)
+    try:
+        model_details = load_model_details(weight_path)
+    except Exception as error:  # noqa: BLE001 - corrupt or foreign checkpoint
+        log_exception(error, f"Loading model details from {weight_path}")
+        return CommandResult.failed(f"Could not load model details from {weight_path}: {error}")
 
-        # Select Format
-        descriptions = {
-            "TensorRT (engine)": "Best for NVIDIA GPUs. Expected Boost: 3x-5x faster inference. Ideal for local workstations and Jetson devices. Requires TRT runtime matching export version.",
-            "ONNX": "Universal standard. Expected Boost: 1.5x-2x faster. Great middle-ground for cross-platform deployment and flexible inference engines.",
-            "OpenVINO": "Best for Intel CPUs/iGPUs. Expected Boost: 2x-3x faster CPU inference. Highly optimized for systems without discrete GPUs.",
-            "CoreML": "Best for Apple Silicon (M1/M2/M3) and iOS. Expected Boost: 2x-4x faster leveraging the dedicated Apple Neural Engine (ANE).",
-            "NCNN": "Best for mobile and ARM edge devices. Highly optimized lightweight C++ inference, great for Raspberry Pi and similar edge nodes.",
-            "TorchScript": "PyTorch's native JIT format. Modest speedup but offers excellent portability and deployment ease across PyTorch C++ environments.",
-            "TF SavedModel": "Standard TensorFlow format. Good for TF Serving or enterprise TensorFlow pipelines.",
-            "TF Lite": "Best for Android and embedded devices. Expected Boost: 2x-3x faster, especially when paired with INT8 quantization.",
-            "TF.js": "Best for web deployment. Runs directly in the browser via WebGL or WebGPU for zero-install client-side inference.",
-            "Paddle": "Export to PaddlePaddle format for deployment specifically inside the Baidu ecosystem.",
-            "Edge TPU": "Targeted specifically for Google Coral Edge TPUs. Delivers exceptional speed-per-watt hardware acceleration.",
-            "MNN": "Alibaba's Mobile Neural Network. Highly efficient inference framework for iOS and Android.",
-            "RKNN": "Rockchip NPU specific format. Essential for running accelerated inference on boards like the RK3588 or RK3568.",
-            "Cancel": "Return to the previous menu."
-        }
-        
-        supported_formats = supported_formats_for_model(SUPPORTED_FORMATS, model_details)
-        format_label = get_user_choice(
-            list(supported_formats.keys()) + ["Cancel"],
-            title="Export Format",
-            text="Select the target architecture format. (See expected boosting metrics below):",
-            descriptions=descriptions,
-            breadcrumbs=["YOLOmatic", "Export", "Format Selection"],
-            back_option="Cancel",
-        )
-        if format_label == "Cancel" or format_label == NAV_BACK:
-            return
-            
-        target_format = supported_formats[format_label]
-        
-        # Configure Options
-        definitions = filter_export_definitions(
-            _export_definitions(),
-            target_format,
-            model_details,
-        )
-        defaults = filter_export_defaults(
-            _get_defaults_for_format(target_format),
-            target_format,
-            model_details,
-        )
-        
-        # Only select arguments that make sense for the chosen format
-        pre_selected = set(defaults.keys())
-        
-        result = get_user_multi_select(
-            parameters=definitions,
-            title=f"Configure {format_label} Export Options",
-            instruction="[Space] Toggle  [Enter] Edit Value  [F] Start Export  [Q] Cancel",
-            pre_selected=pre_selected,
-            pre_values=defaults,
-        )
-        
-        if result is None:
-            return
-            
-        selected_params, values = result
-        export_kwargs = build_export_kwargs(
-            target_format,
-            definitions,
-            selected_params,
-            values,
-            warn=console.print,
-            model_details=model_details,
-        )
-        
-        console.print(Panel(
-            f"[bold cyan]Exporting {weight_path.name}[/bold cyan]\n"
-            f"[dim]Format:[/dim] {format_label}\n"
-            f"[dim]Options:[/dim] {export_kwargs}",
-            border_style="cyan"
-        ))
 
-        # Import YOLO and Export
-        import_ultralytics_yolo()
-        from ultralytics import YOLO
-        
-        try:
-            def _is_trt_tactic_error(exc: Exception) -> bool:
-                return "engine build failed" in str(exc).lower()
+    print_model_details(model_details)
 
-            def _cleanup_onnx(weight_path: Path) -> None:
-                """Remove the intermediate ONNX produced by a failed TRT export."""
-                onnx_path = weight_path.with_suffix(".onnx")
-                if onnx_path.exists():
+    # Select Format
+    descriptions = {
+        "TensorRT (engine)": "Best for NVIDIA GPUs. Expected Boost: 3x-5x faster inference. Ideal for local workstations and Jetson devices. Requires TRT runtime matching export version.",
+        "ONNX": "Universal standard. Expected Boost: 1.5x-2x faster. Great middle-ground for cross-platform deployment and flexible inference engines.",
+        "OpenVINO": "Best for Intel CPUs/iGPUs. Expected Boost: 2x-3x faster CPU inference. Highly optimized for systems without discrete GPUs.",
+        "CoreML": "Best for Apple Silicon (M1/M2/M3) and iOS. Expected Boost: 2x-4x faster leveraging the dedicated Apple Neural Engine (ANE).",
+        "NCNN": "Best for mobile and ARM edge devices. Highly optimized lightweight C++ inference, great for Raspberry Pi and similar edge nodes.",
+        "TorchScript": "PyTorch's native JIT format. Modest speedup but offers excellent portability and deployment ease across PyTorch C++ environments.",
+        "TF SavedModel": "Standard TensorFlow format. Good for TF Serving or enterprise TensorFlow pipelines.",
+        "TF Lite": "Best for Android and embedded devices. Expected Boost: 2x-3x faster, especially when paired with INT8 quantization.",
+        "TF.js": "Best for web deployment. Runs directly in the browser via WebGL or WebGPU for zero-install client-side inference.",
+        "Paddle": "Export to PaddlePaddle format for deployment specifically inside the Baidu ecosystem.",
+        "Edge TPU": "Targeted specifically for Google Coral Edge TPUs. Delivers exceptional speed-per-watt hardware acceleration.",
+        "MNN": "Alibaba's Mobile Neural Network. Highly efficient inference framework for iOS and Android.",
+        "RKNN": "Rockchip NPU specific format. Essential for running accelerated inference on boards like the RK3588 or RK3568.",
+        "Cancel": "Return to the previous menu."
+    }
+
+    supported_formats = supported_formats_for_model(SUPPORTED_FORMATS, model_details)
+    format_label = get_user_choice(
+        list(supported_formats.keys()) + ["Cancel"],
+        title="Export Format",
+        text="Select the target architecture format. (See expected boosting metrics below):",
+        descriptions=descriptions,
+        breadcrumbs=["YOLOmatic", "Export", "Format Selection"],
+        back_option="Cancel",
+    )
+    if format_label == "Cancel" or format_label == NAV_BACK:
+        return CommandResult.cancelled()
+
+    target_format = supported_formats[format_label]
+
+    # Configure Options
+    definitions = filter_export_definitions(
+        _export_definitions(),
+        target_format,
+        model_details,
+    )
+    defaults = filter_export_defaults(
+        _get_defaults_for_format(target_format),
+        target_format,
+        model_details,
+    )
+
+    # Only select arguments that make sense for the chosen format
+    pre_selected = set(defaults.keys())
+
+    result = get_user_multi_select(
+        parameters=definitions,
+        title=f"Configure {format_label} Export Options",
+        instruction="[Space] Toggle  [Enter] Edit Value  [F] Start Export  [Q] Cancel",
+        pre_selected=pre_selected,
+        pre_values=defaults,
+    )
+
+    if result is None:
+        return CommandResult.cancelled()
+
+    selected_params, values = result
+    export_kwargs = build_export_kwargs(
+        target_format,
+        definitions,
+        selected_params,
+        values,
+        warn=console.print,
+        model_details=model_details,
+    )
+
+    console.print(Panel(
+        f"[bold cyan]Exporting {weight_path.name}[/bold cyan]\n"
+        f"[dim]Format:[/dim] {format_label}\n"
+        f"[dim]Options:[/dim] {export_kwargs}",
+        border_style="cyan"
+    ))
+
+    # Import YOLO and Export
+    import_ultralytics_yolo()
+    from ultralytics import YOLO
+
+    try:
+        def _is_trt_tactic_error(exc: Exception) -> bool:
+            return "engine build failed" in str(exc).lower()
+
+        def _cleanup_onnx(weight_path: Path) -> None:
+            """Remove the intermediate ONNX produced by a failed TRT export."""
+            onnx_path = weight_path.with_suffix(".onnx")
+            if onnx_path.exists():
+                try:
+                    onnx_path.unlink()
+                except Exception:
+                    pass
+
+        def _do_export(kwargs: dict) -> str | None:
+            yolo_kwargs = kwargs.copy()
+            yolo_kwargs.pop("trt_dynamic_batch", None)
+            m = YOLO(str(weight_path))
+            return m.export(**yolo_kwargs)
+
+        console.print("[yellow]Starting export process... This may take a while.[/yellow]")
+
+        active_kwargs = export_kwargs.copy()
+        exported_path_str = None
+
+        # --- TensorRT-specific retry cascade ---
+        if target_format == "engine":
+            if active_kwargs.get("int8") and active_kwargs.get("trt_dynamic_batch"):
+                # The custom compiler has no INT8 calibrator; Ultralytics does.
+                console.print("[dim]INT8 requested: using the standard Ultralytics TensorRT export.[/dim]")
+                active_kwargs.pop("trt_dynamic_batch", None)
+            if active_kwargs.get("trt_dynamic_batch") and active_kwargs.get("dynamic"):
+                try:
+                    console.print("[cyan]Running custom dynamic-batch, static-resolution TensorRT compilation...[/cyan]")
+                    # Step 1: Export model to ONNX with dynamic=True
+                    onnx_kwargs = active_kwargs.copy()
+                    onnx_kwargs["format"] = "onnx"
+                    onnx_kwargs["dynamic"] = True
+                    onnx_kwargs["half"] = False
+                    onnx_kwargs.pop("trt_dynamic_batch", None)
+                    onnx_kwargs.pop("workspace", None)
+
+                    console.print("[dim]  Step 1/2: Exporting intermediate ONNX model...[/dim]")
+                    exported_onnx_str = _do_export(onnx_kwargs)
+                    if not exported_onnx_str or not Path(exported_onnx_str).exists():
+                        raise RuntimeError("Intermediate ONNX export failed or returned no path.")
+
+                    onnx_path = Path(exported_onnx_str)
+
+                    # Step 2: Compile ONNX to TensorRT with custom profile
+                    console.print("[dim]  Step 2/2: Programmatically compiling ONNX to TensorRT engine...[/dim]")
+                    from yolomatic.utils.trt_compiler import compile_onnx_to_trt
+
+                    target_imgsz = active_kwargs.get("imgsz", 640)
+                    opt_batch = active_kwargs.get("batch", 1)
+                    max_batch = max(16, opt_batch)
+
+                    # Define temporary engine path
+                    temp_engine_path = onnx_path.with_suffix(".engine")
+
+                    compile_onnx_to_trt(
+                        onnx_path=onnx_path,
+                        engine_path=temp_engine_path,
+                        imgsz=target_imgsz,
+                        opt_batch=opt_batch,
+                        max_batch=max_batch,
+                        half=active_kwargs.get("half", True),
+                        workspace_gb=active_kwargs.get("workspace", 4.0),
+                        metadata=build_engine_metadata(
+                            YOLO(str(weight_path)), active_kwargs, max_batch=max_batch
+                        ),
+                    )
+
+                    # Clean up intermediate ONNX file
                     try:
                         onnx_path.unlink()
                     except Exception:
                         pass
 
-            def _do_export(kwargs: dict) -> str | None:
-                yolo_kwargs = kwargs.copy()
-                yolo_kwargs.pop("trt_dynamic_batch", None)
-                m = YOLO(str(weight_path))
-                return m.export(**yolo_kwargs)
+                    exported_path_str = str(temp_engine_path)
 
-            console.print("[yellow]Starting export process... This may take a while.[/yellow]")
-
-            active_kwargs = export_kwargs.copy()
-            exported_path_str = None
-
-            # --- TensorRT-specific retry cascade ---
-            if target_format == "engine":
-                if active_kwargs.get("trt_dynamic_batch") and active_kwargs.get("dynamic"):
-                    try:
-                        console.print("[cyan]Running custom dynamic-batch, static-resolution TensorRT compilation...[/cyan]")
-                        # Step 1: Export model to ONNX with dynamic=True
-                        onnx_kwargs = active_kwargs.copy()
-                        onnx_kwargs["format"] = "onnx"
-                        onnx_kwargs["dynamic"] = True
-                        onnx_kwargs["half"] = False
-                        onnx_kwargs.pop("trt_dynamic_batch", None)
-                        onnx_kwargs.pop("workspace", None)
-
-                        console.print("[dim]  Step 1/2: Exporting intermediate ONNX model...[/dim]")
-                        exported_onnx_str = _do_export(onnx_kwargs)
-                        if not exported_onnx_str or not Path(exported_onnx_str).exists():
-                            raise RuntimeError("Intermediate ONNX export failed or returned no path.")
-
-                        onnx_path = Path(exported_onnx_str)
-
-                        # Step 2: Compile ONNX to TensorRT with custom profile
-                        console.print("[dim]  Step 2/2: Programmatically compiling ONNX to TensorRT engine...[/dim]")
-                        from yolomatic.utils.trt_compiler import compile_onnx_to_trt
-
-                        target_imgsz = active_kwargs.get("imgsz", 640)
-                        opt_batch = active_kwargs.get("batch", 1)
-                        max_batch = max(16, opt_batch)
-
-                        # Define temporary engine path
-                        temp_engine_path = onnx_path.with_suffix(".engine")
-
-                        compile_onnx_to_trt(
-                            onnx_path=onnx_path,
-                            engine_path=temp_engine_path,
-                            imgsz=target_imgsz,
-                            opt_batch=opt_batch,
-                            max_batch=max_batch,
-                            half=active_kwargs.get("half", True),
-                            workspace_gb=active_kwargs.get("workspace", 4.0),
-                        )
-
-                        # Clean up intermediate ONNX file
-                        try:
-                            onnx_path.unlink()
-                        except Exception:
-                            pass
-
-                        exported_path_str = str(temp_engine_path)
-
-                    except Exception as e_custom:
-                        console.print(f"[yellow]⚠ Custom compilation failed: {e_custom}. Falling back to standard Ultralytics export...[/yellow]")
-                        # Clean up ONNX if it exists
-                        _cleanup_onnx(weight_path)
-                        # Revert active_kwargs and run standard export
-                        active_kwargs.pop("trt_dynamic_batch", None)
-                        # Re-run standard engine build
-                        try:
-                            exported_path_str = _do_export(active_kwargs)
-                        except Exception as e1:
-                            if _is_trt_tactic_error(e1) and active_kwargs.get("half"):
-                                _cleanup_onnx(weight_path)
-                                console.print(
-                                    "[yellow]⚠ TRT FP16 build failed. Retrying with FP32...[/yellow]"
-                                )
-                                active_kwargs["half"] = False
-                                try:
-                                    exported_path_str = _do_export(active_kwargs)
-                                except Exception as e2:
-                                    if _is_trt_tactic_error(e2) and active_kwargs.get("dynamic"):
-                                        _cleanup_onnx(weight_path)
-                                        console.print(
-                                            "[yellow]⚠ TRT FP32 dynamic build also failed. Retrying with static shapes (batch=1)...[/yellow]"
-                                        )
-                                        active_kwargs["dynamic"] = False
-                                        active_kwargs["batch"] = 1
-                                        exported_path_str = _do_export(active_kwargs)
-                                    else:
-                                        raise e2
-                            else:
-                                raise e1
-                else:
+                except Exception as e_custom:
+                    console.print(f"[yellow]⚠ Custom compilation failed: {e_custom}. Falling back to standard Ultralytics export...[/yellow]")
+                    # Clean up ONNX if it exists
+                    _cleanup_onnx(weight_path)
+                    # Revert active_kwargs and run standard export
+                    active_kwargs.pop("trt_dynamic_batch", None)
+                    # Re-run standard engine build
                     try:
                         exported_path_str = _do_export(active_kwargs)
                     except Exception as e1:
                         if _is_trt_tactic_error(e1) and active_kwargs.get("half"):
                             _cleanup_onnx(weight_path)
                             console.print(
-                                "[yellow]⚠ TRT FP16 build failed (ConvTranspose tactic not available on this GPU/TRT version). "
-                                "Retrying with FP32...[/yellow]"
+                                "[yellow]⚠ TRT FP16 build failed. Retrying with FP32...[/yellow]"
                             )
                             active_kwargs["half"] = False
                             try:
@@ -846,8 +883,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                                 if _is_trt_tactic_error(e2) and active_kwargs.get("dynamic"):
                                     _cleanup_onnx(weight_path)
                                     console.print(
-                                        "[yellow]⚠ TRT FP32 dynamic build also failed. "
-                                        "Retrying with static shapes (batch=1)...[/yellow]"
+                                        "[yellow]⚠ TRT FP32 dynamic build also failed. Retrying with static shapes (batch=1)...[/yellow]"
                                     )
                                     active_kwargs["dynamic"] = False
                                     active_kwargs["batch"] = 1
@@ -857,39 +893,67 @@ def main(argv: Sequence[str] | None = None) -> None:
                         else:
                             raise e1
             else:
-                exported_path_str = _do_export(active_kwargs)
+                try:
+                    exported_path_str = _do_export(active_kwargs)
+                except Exception as e1:
+                    if _is_trt_tactic_error(e1) and active_kwargs.get("half"):
+                        _cleanup_onnx(weight_path)
+                        console.print(
+                            "[yellow]⚠ TRT FP16 build failed (ConvTranspose tactic not available on this GPU/TRT version). "
+                            "Retrying with FP32...[/yellow]"
+                        )
+                        active_kwargs["half"] = False
+                        try:
+                            exported_path_str = _do_export(active_kwargs)
+                        except Exception as e2:
+                            if _is_trt_tactic_error(e2) and active_kwargs.get("dynamic"):
+                                _cleanup_onnx(weight_path)
+                                console.print(
+                                    "[yellow]⚠ TRT FP32 dynamic build also failed. "
+                                    "Retrying with static shapes (batch=1)...[/yellow]"
+                                )
+                                active_kwargs["dynamic"] = False
+                                active_kwargs["batch"] = 1
+                                exported_path_str = _do_export(active_kwargs)
+                            else:
+                                raise e2
+                    else:
+                        raise e1
+        else:
+            exported_path_str = _do_export(active_kwargs)
 
-            if exported_path_str:
-                exported_path = Path(exported_path_str)
-                renamed_path = get_renamed_path(weight_path, target_format, active_kwargs)
+        if exported_path_str:
+            exported_path = Path(exported_path_str)
+            renamed_path = get_renamed_path(weight_path, target_format, active_kwargs)
 
-                # Move/rename the exported file or directory
-                if exported_path.exists():
-                    # Replace a previous export with identical settings, but never the
-                    # source weights or the export we just produced.
-                    if renamed_path.exists() and renamed_path.resolve() not in {
-                        weight_path.resolve(),
-                        exported_path.resolve(),
-                    }:
-                        if renamed_path.is_dir():
-                            shutil.rmtree(renamed_path)
-                        else:
-                            renamed_path.unlink()
-                        console.print(f"[dim]Replaced previous export at {renamed_path}[/dim]")
+            # Move/rename the exported file or directory
+            if exported_path.exists():
+                # Replace a previous export with identical settings, but never the
+                # source weights or the export we just produced.
+                if renamed_path.exists() and renamed_path.resolve() not in {
+                    weight_path.resolve(),
+                    exported_path.resolve(),
+                }:
+                    if renamed_path.is_dir():
+                        shutil.rmtree(renamed_path)
+                    else:
+                        renamed_path.unlink()
+                    console.print(f"[dim]Replaced previous export at {renamed_path}[/dim]")
 
-                    shutil.move(exported_path, renamed_path)
-                    console.print("\n[bold green]Success![/bold green] Exported model saved to:")
-                    console.print(f"[bold white]{renamed_path}[/bold white]")
+                shutil.move(exported_path, renamed_path)
+                console.print("\n[bold green]Success![/bold green] Exported model saved to:")
+                console.print(f"[bold white]{renamed_path}[/bold white]")
 
-                    # Surface any fallback settings that were applied
-                    if active_kwargs != export_kwargs:
-                        changed = {k: active_kwargs[k] for k in active_kwargs if active_kwargs.get(k) != export_kwargs.get(k)}
-                        console.print(f"[dim]Note: export succeeded with adjusted settings: {changed}[/dim]")
+                # Surface any fallback settings that were applied
+                if active_kwargs != export_kwargs:
+                    changed = {k: active_kwargs[k] for k in active_kwargs if active_kwargs.get(k) != export_kwargs.get(k)}
+                    console.print(f"[dim]Note: export succeeded with adjusted settings: {changed}[/dim]")
 
-                    # Run post export benchmark
-                    target_imgsz = active_kwargs.get("imgsz", 640)
-                    target_batch = active_kwargs.get("batch", 1)
-                    target_dynamic = active_kwargs.get("dynamic", False)
+                # Run post export benchmark
+                target_imgsz = active_kwargs.get("imgsz", 640)
+                target_batch = active_kwargs.get("batch", 1)
+                target_dynamic = active_kwargs.get("dynamic", False)
+                try:
                     run_post_export_benchmark(
                         weight_path,
                         renamed_path,
@@ -898,23 +962,21 @@ def main(argv: Sequence[str] | None = None) -> None:
                         batch=target_batch,
                         dynamic=target_dynamic,
                     )
-                else:
-                    console.print(f"\n[bold green]Export finished.[/bold green] But could not locate output at {exported_path}")
-            else:
-                console.print("\n[bold red]Export failed or returned no path.[/bold red]")
-
-        except Exception as e:
-            console.print(
-                expected_error_panel(
-                    f"Export failed: {str(e)}\n\nMake sure you have the required dependencies installed (e.g. tensorrt, onnx, openvino).",
-                    title="Export Error"
-                )
-            )
+                except Exception as bench_error:  # noqa: BLE001 - the export itself succeeded
+                    log_exception(bench_error, "Post-export benchmark")
+                    console.print(f"[yellow]Post-export benchmark skipped: {bench_error}[/yellow]")
+                return CommandResult.ok(f"Exported {format_label}.", outputs={"Export": renamed_path})
+            return CommandResult.failed(f"Export finished but no output was found at {exported_path}.")
+        return CommandResult.failed("Export returned no output path.")
 
     except KeyboardInterrupt:
-        pass
-
-    input("\nPress Enter to return...")
+        raise
+    except Exception as e:  # noqa: BLE001 - surface any exporter failure cleanly
+        log_exception(e, f"Export to {format_label}")
+        return CommandResult.failed(
+            f"Export failed: {e}",
+            hint="Check that the format's dependencies are installed (tensorrt, onnx, openvino, ...).",
+        )
 
 if __name__ == "__main__":
     main()

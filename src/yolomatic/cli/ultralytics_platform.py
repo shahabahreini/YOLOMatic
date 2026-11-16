@@ -21,6 +21,7 @@ from yolomatic.config.settings import load_settings, ultralytics_credential_stat
 from yolomatic.datasets.archive import DEFAULT_MAX_ARCHIVE_GIB, package_dataset_archives
 from yolomatic.datasets.validate import validate_dataset
 from yolomatic.datasets.prepare import PrepareDatasetConfig, PrepareSplitConfig, prepare_dataset, slugify
+from yolomatic.cli.result import CommandResult, coerce_result
 from yolomatic.integrations.ultralytics_platform import (
     DEFAULT_BASE_URL,
     UltralyticsPlatformClient,
@@ -784,12 +785,12 @@ def interactive_main(args: argparse.Namespace) -> None:
             input("\nPress Enter to continue...")
 
 
-def main() -> None:
+def main() -> CommandResult:
     parser = build_parser()
     args = parser.parse_args()
     try:
         if args.command is None:
-            interactive_main(args)
+            return coerce_result(interactive_main(args))
         elif args.command == "list-datasets":
             _print_items("Ultralytics Datasets", _client(args).list_datasets())
         elif args.command == "download-dataset":
@@ -807,9 +808,11 @@ def main() -> None:
         elif args.command == "uri-helper":
             uri_helper(args)
     except UltralyticsPlatformError as error:
-        console.print(Panel(f"[bold red]{error}[/bold red]", border_style="red"))
-        if error.retry_after is not None:
-            console.print(f"[yellow]Retry-After:[/yellow] {error.retry_after:g}s")
+        hint = f"The server asked to retry after {error.retry_after:g}s." if error.retry_after is not None else None
+        return CommandResult.failed(str(error), hint=hint)
+    except KeyboardInterrupt:
+        return CommandResult.cancelled()
+    return CommandResult.ok(review=args.command is not None)
 
 
 if __name__ == "__main__":

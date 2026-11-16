@@ -79,7 +79,14 @@ def greedy_match(
     gts: list,             # list of GT objects with .(mask|box_xyxy)
     iou_fn: Callable,      # mask_iou or box_iou — takes (pred_obj, gt_obj) → float
     iou_threshold: float = 0.5,
+    class_aware: bool = True,
 ) -> MatchResult:
+    """Greedily match predictions to ground truth, highest confidence first.
+
+    With ``class_aware`` (the default) a prediction can only match a ground-truth
+    object of the same class, as in COCO/Ultralytics mAP. Matching used to be
+    class-agnostic, so a "car" box on a "person" counted as a true positive.
+    """
     if not preds and not gts:
         return MatchResult()
     if not preds:
@@ -95,8 +102,11 @@ def greedy_match(
 
     for pred in sorted_preds:
         best_iou, best_idx = 0.0, -1
+        pred_cls = getattr(pred, "cls", None)
         for gi, gt in enumerate(gts):
             if gi in matched_gt:
+                continue
+            if class_aware and pred_cls is not None and getattr(gt, "cls", None) is not None and gt.cls != pred_cls:
                 continue
             iou = iou_fn(pred, gt)
             if iou > best_iou:

@@ -14,6 +14,8 @@ from rich.progress import (
 from yolomatic.ui.theme import CONSOLE
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.cli import NAV_BACK, get_user_choice, get_parameter_value_input
 from yolomatic.utils.fs import UnsafePathError, ensure_safe_destructive_target, staging_dir
 
@@ -319,7 +321,7 @@ Automatically created by the **Robust YOLO Dataset Combiner** (parallel + hard-l
             console.print(f"   [dim]... and {len(errors) - 10} more[/dim]")
 
 
-def main():
+def main() -> CommandResult:
     console.print(Panel.fit("🚀 [bold]Robust YOLO Dataset Combiner[/bold] (Parallel + Hard-Link Optimized)", border_style="blue"))
 
     # YOLOmatic projects keep source datasets under ./datasets/. Fall back to
@@ -328,10 +330,10 @@ def main():
     search_root = "datasets" if Path("datasets").is_dir() else "."
     datasets = find_datasets(search_root)
     if not datasets:
-        console.print(
-            f"[red]No YOLO datasets (with data.yaml) found in '{search_root}'.[/red]"
+        return CommandResult.failed(
+            f"No YOLO datasets (with data.yaml) found in '{search_root}'.",
+            hint="Put each source dataset in its own folder under datasets/.",
         )
-        return
 
     _CHECK = "✓"
     _EMPTY = " "
@@ -371,7 +373,7 @@ def main():
             initial_selection=last_choice,
         )
         if choice in (NAV_BACK, "Back"):
-            return
+            return CommandResult.cancelled()
         if choice == confirm_label:
             if selected_indices:
                 break
@@ -395,7 +397,7 @@ def main():
         breadcrumbs=["YOLOmatic", "Dataset Combiner", "Normalize"],
     )
     if normalize_choice in (NAV_BACK, "Back"):
-        return
+        return CommandResult.cancelled()
     normalize = normalize_choice.startswith("Yes")
 
     datasets_root = Path("datasets")
@@ -407,7 +409,7 @@ def main():
             description="Name of the output dataset folder (created inside datasets/)",
         )
         if output_raw in (NAV_BACK, None):
-            return
+            return CommandResult.cancelled()
         output_name = str(output_raw).strip() or "combined_yolo_dataset"
         try:
             final_path = resolve_output_path(selected, output_name, datasets_root)
@@ -429,11 +431,11 @@ def main():
             breadcrumbs=["YOLOmatic", "Dataset Combiner", "Overwrite"],
         )
         if decision != "Replace existing dataset":
-            return
+            return CommandResult.cancelled()
         overwrite = True
 
     try:
-        merge_datasets(
+        merged = merge_datasets(
             selected,
             output_name,
             normalize_classes=normalize,
@@ -441,13 +443,11 @@ def main():
             overwrite=overwrite,
         )
     except KeyboardInterrupt:
-        console.print("[yellow]Merge cancelled. No existing dataset was modified.[/yellow]")
+        return CommandResult.cancelled("Merge cancelled. No existing dataset was modified.")
     except Exception as error:  # noqa: BLE001 - surface any failure to the user
-        console.print(f"[bold red]Merge failed:[/bold red] {escape(str(error))}")
-    try:
-        input("\nPress Enter to return to main menu...")
-    except (EOFError, KeyboardInterrupt):
-        pass
+        log_exception(error, "Dataset merge")
+        return CommandResult.failed(f"Merge failed: {error}")
+    return CommandResult.ok("Datasets merged.", outputs={"Dataset": merged})
 
 if __name__ == "__main__":
     main()

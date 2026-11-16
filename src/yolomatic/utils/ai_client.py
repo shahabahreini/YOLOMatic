@@ -149,6 +149,20 @@ def _extract_api_error(res: Any, default: str = "Unknown API error") -> str:
     return f"{default}: {str(res)[:300]}"
 
 
+_SECRET_PATTERNS = (
+    re.compile(r"([?&](?:key|api_key|apikey|token)=)[^&\s'\"]+", re.IGNORECASE),
+    re.compile(r"(Bearer\s+)[A-Za-z0-9._\-]+", re.IGNORECASE),
+    re.compile(r"\b(AIza[0-9A-Za-z_\-]{20,}|sk-[A-Za-z0-9_\-]{16,})\b"),
+)
+
+
+def redact_secrets(text: str) -> str:
+    """Mask API keys/tokens that may appear in URLs or error messages."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(lambda m: (m.group(1) if m.lastindex and m.group(0) != m.group(1) else "") + "***", text)
+    return text
+
+
 def _do_single_request(url: str, method: str, headers: dict, data: Any, timeout: int) -> tuple[int, Any]:
     """Perform one HTTP request, preferring `requests` and falling back to urllib."""
     # Try using requests first if available
@@ -168,10 +182,9 @@ def _do_single_request(url: str, method: str, headers: dict, data: Any, timeout:
             except ValueError:
                 payload = {"error": (response.text or "Non-JSON response")[:1000]}
             return response.status_code, payload
-        except Exception as exc:
-            # Network/transport failure — fall through to urllib so a single
-            # broken backend doesn't take out the whole request.
-            return 0, {"error": f"{type(exc).__name__}: {exc}"}
+        except Exception as exc:  # noqa: BLE001
+            # Network/transport failure: report it (status 0) instead of raising.
+            return 0, {"error": redact_secrets(f"{type(exc).__name__}: {exc}")}
 
     import urllib.request
     import urllib.error
@@ -274,8 +287,9 @@ def fetch_multimodal_models(provider: str, api_key: str) -> list[str]:
         return []
     
     if provider.lower() == "gemini":
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-        status, res = make_http_request(url, "GET")
+        url = "https://generativelanguage.googleapis.com/v1beta/models"
+        # Key in a header, never the URL: URLs end up in exception text, logs and panels.
+        status, res = make_http_request(url, "GET", headers={"x-goog-api-key": api_key})
         if status == 200 and isinstance(res, dict) and "models" in res:
             models = []
             for m in res["models"]:
@@ -395,7 +409,7 @@ def query_llm_multimodal(
 ) -> str:
     """Call the provider multimodal API and retrieve the text response."""
     if provider.lower() == "gemini":
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
 
         parts: list[dict[str, Any]] = [{"text": text_prompt}]
         for sample in samples_base64:
@@ -415,7 +429,9 @@ def query_llm_multimodal(
         if system_instruction:
             payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
-        status, res = make_http_request(url, "POST", data=payload, timeout=90)
+        status, res = make_http_request(
+            url, "POST", headers={"x-goog-api-key": api_key}, data=payload, timeout=90
+        )
         if status != 200:
             if status == 429 and _is_free_tier_unavailable(res):
                 raise GeminiFreeTierUnavailable(model_name)

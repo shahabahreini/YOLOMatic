@@ -13,6 +13,7 @@ from rich.align import Align
 from rich.panel import Panel
 from rich.table import Table
 from yolomatic.ui.theme import CONSOLE
+from yolomatic.cli.result import EXIT_CANCELLED, CommandResult, CommandStatus, coerce_result
 from ruamel.yaml import YAML
 
 from yolomatic.config.generator import (
@@ -323,12 +324,52 @@ def _scoped_argv(prog: str) -> Iterator[None]:
         sys.argv = saved_argv
 
 
+def _pause_for_user(prompt: str = "Press Enter to return to the main menu...") -> None:
+    console.print()
+    try:
+        input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+
+
+def _failure_panel(label: str, message: str, hint: str | None, log_path: Any = None) -> Panel:
+    from yolomatic.ui.theme import safe
+
+    body = f"[bold red]{safe(label)} failed:[/bold red] {safe(message)}"
+    if hint:
+        body += f"\n\n[bold yellow]Next:[/bold yellow] {safe(hint)}"
+    if log_path:
+        body += f"\n\n[dim]Details: {safe(log_path)}[/dim]"
+    return Panel(body, border_style="red", padding=(1, 2))
+
+
+def _report_command_result(label: str, result: CommandResult) -> None:
+    """Show the outcome of a subcommand and pause only when there is something to read."""
+    from yolomatic.ui.theme import safe
+
+    if result.status is CommandStatus.FAILED:
+        console.print(_failure_panel(label, result.message or "see the messages above", result.hint))
+        _pause_for_user()
+    elif result.status is CommandStatus.OK and result.outputs:
+        lines = [f"[bold green]{safe(label)} finished.[/bold green]"]
+        if result.message:
+            lines.append(safe(result.message))
+        lines.append("")
+        lines.extend(f"[cyan]{safe(name)}:[/cyan] {safe(path)}" for name, path in result.outputs.items())
+        console.print(Panel("\n".join(lines), title="Outputs", border_style="green", padding=(1, 2)))
+        _pause_for_user()
+    elif result.status is CommandStatus.OK and result.review:
+        _pause_for_user()
+    elif result.status is CommandStatus.CANCELLED and result.message:
+        console.print(f"[yellow]{safe(result.message)}[/yellow]")
+
+
 def _safe_subcommand(
     label: str,
     target: Callable[..., Any],
     *,
     prog: str | None = None,
-) -> None:
+) -> CommandResult:
     """Run a submodule's ``main()`` from the TUI with unified error handling.
 
     The TUI invokes each command-line tool (training, prediction, TensorBoard,
@@ -336,69 +377,54 @@ def _safe_subcommand(
     shelling out. That keeps the session in one process but means any
     ``sys.exit``/``KeyboardInterrupt``/unexpected exception inside the
     sub-command would otherwise kill the TUI. This wrapper neutralises all of
-    those, shows a panelled error, and always pauses for Enter so the user
-    can read the output before the menu redraws.
+    those and turns every outcome into a :class:`CommandResult`:
+
+    * failures always pause, so the message cannot flash past;
+    * successes that wrote files list them, then pause;
+    * cancellations return straight to the menu.
     """
+    from yolomatic.utils.logging_setup import log_exception
+
     clear_screen()
     entrypoint_name = prog or label.lower().replace(" ", "-")
-    pause_needed = False
+    result: CommandResult
+    reported = False
     try:
         with _scoped_argv(entrypoint_name):
-            result = target()
-            if isinstance(result, int) and result not in (0, None):
-                pause_needed = True
+            result = coerce_result(target())
     except SystemExit as error:
         code = error.code
-        if code not in (None, 0):
-            console.print(
-                Panel(
-                    f"[bold yellow]{label} exited with status {code}.[/bold yellow]",
-                    border_style="yellow",
-                    padding=(1, 2),
-                )
-            )
-            pause_needed = True
+        if code in (None, 0):
+            result = CommandResult.ok()
+        elif code == EXIT_CANCELLED:
+            result = CommandResult.cancelled(f"{label} cancelled.")
+        else:
+            result = CommandResult.failed(f"exited with status {code}.")
     except KeyboardInterrupt:
-        console.print(f"\n[bold yellow]{label} cancelled by user.[/bold yellow]")
+        result = CommandResult.cancelled(f"{label} cancelled by user.")
     except MLDependencyError as error:
-        console.print(
-            Panel(
-                f"[bold red]{label} cannot run — missing dependency:[/bold red]\n{error}\n\n"
-                "[dim]Run `uv sync` (or re-install requirements) and try again.[/dim]",
-                border_style="red",
-                padding=(1, 2),
-            )
+        result = CommandResult.failed(
+            f"missing dependency: {error}",
+            hint="Install the missing package (see the message above) and try again.",
         )
-        pause_needed = True
     except FileNotFoundError as error:
-        console.print(
-            Panel(
-                f"[bold red]{label} failed — file not found:[/bold red] {error}",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        pause_needed = True
-    except Exception as error:
-        console.print(
-            Panel(
-                f"[bold red]{label} failed unexpectedly:[/bold red] {error}",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        console.print(traceback.format_exc(), style="dim")
-        pause_needed = True
+        log_exception(error, f"{label} failed")
+        result = CommandResult.failed(f"file not found: {error}")
+    except Exception as error:  # noqa: BLE001 - last line of defence for the TUI
+        log_path = log_exception(error, f"{label} failed unexpectedly")
+        if os.environ.get("YOLOMATIC_DEBUG"):
+            console.print(traceback.format_exc(), style="dim")
+        console.print(_failure_panel(label, f"{type(error).__name__}: {error}", None, log_path))
+        _pause_for_user()
+        result = CommandResult.failed(str(error))
+        reported = True
     finally:
-        if pause_needed:
-            console.print()
-            try:
-                input("Press Enter to return to the main menu...")
-            except (EOFError, KeyboardInterrupt):
-                console.print()
         global _CACHED_DATASETS, _CACHED_DATASET_DESCRIPTIONS
         _CACHED_DATASETS = None
         _CACHED_DATASET_DESCRIPTIONS = None
+    if not reported:
+        _report_command_result(label, result)
+    return result
 
 
 def _render_dependency_table(statuses):
@@ -668,7 +694,7 @@ def display_configuration_summary(
         console.print("[red]Error: Config file not found![/red]")
         return
 
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     # Detect device
@@ -1047,7 +1073,7 @@ def clone_saved_config_flow() -> bool:
                 return False  # user backed out of first step → exit wizard
 
             try:
-                with open(source_path, "r") as file:
+                with open(source_path, "r", encoding="utf-8") as file:
                     source_config = yaml.safe_load(file) or {}
             except yaml.YAMLError as error:
                 console.print(
@@ -1176,7 +1202,7 @@ def clone_saved_config_flow() -> bool:
 
     output_yaml = YAML()
     output_yaml.indent(mapping=2, sequence=4, offset=2)
-    with open(config_path, "w") as file:
+    with open(config_path, "w", encoding="utf-8") as file:
         output_yaml.dump(cloned_config, file)
 
     console.print(
@@ -1808,7 +1834,7 @@ def update_config(
 
     # Save new config
     config_path = os.path.join(config_dir, config_file)
-    with open(config_path, "w") as f:
+    with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config, f)
 
     console.print(f"✅ Configuration saved to: {config_file}", style="bold green")

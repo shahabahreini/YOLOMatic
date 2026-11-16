@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import argparse
+import socket
 import subprocess
 import sys
+from collections.abc import Sequence
 
 from rich.panel import Panel
 
@@ -22,6 +25,21 @@ def build_tensorboard_command(selected_logdir: str, port: int = DEFAULT_PORT) ->
         "--port",
         str(port),
     ]
+
+
+def port_in_use(port: int, host: str = "127.0.0.1") -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.2)
+        return probe.connect_ex((host, port)) == 0
+
+
+def choose_port(preferred: int, attempts: int = 20) -> int:
+    """Return ``preferred`` or the next free port (TensorBoard's own error for a
+    busy port used to be reported as "tensorboard is not installed")."""
+    for candidate in range(preferred, preferred + attempts):
+        if not port_in_use(candidate):
+            return candidate
+    raise RuntimeError(f"No free port found in {preferred}-{preferred + attempts - 1}.")
 
 
 def _run_tensorboard(selected_logdir: str, port: int) -> int:
@@ -83,12 +101,31 @@ def _run_tensorboard(selected_logdir: str, port: int) -> int:
     return completed.returncode
 
 
-def main(port: int = DEFAULT_PORT) -> int:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="yolomatic-tensorboard", description="Launch TensorBoard for YOLOmatic runs.")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Preferred port (default: {DEFAULT_PORT}).")
+    parser.add_argument("--logdir", help="Log directory to open directly (skips the run picker).")
+    args, _unknown = parser.parse_known_args(argv)
+    return args
+
+
+def main(port: int | None = None, argv: Sequence[str] | None = None) -> int:
     """Launch TensorBoard with interactive run selection.
 
     Returns an exit code instead of calling ``sys.exit``, so it is safe to
     invoke from inside the YOLOmatic TUI without tearing down the parent.
     """
+    args = parse_args(argv)
+    requested_port = port if port is not None else args.port
+    try:
+        port = choose_port(requested_port)
+    except RuntimeError as error:
+        console.print(Panel(f"[bold red]{error}[/bold red]", border_style="red", padding=(1, 2)))
+        return 1
+    if port != requested_port:
+        console.print(f"[yellow]Port {requested_port} is busy; using {port} instead.[/yellow]")
+    if args.logdir:
+        return _run_tensorboard(args.logdir, port)
     base_log_dir = "runs"
     print_stylized_header("TensorBoard Launcher")
 

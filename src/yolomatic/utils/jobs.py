@@ -166,3 +166,63 @@ def sleep_unless_cancelled(token: CancelToken | None, seconds: float) -> None:
         time.sleep(seconds)
     elif token.wait(seconds):
         raise JobCancelled()
+
+
+_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+
+class ProgressState:
+    """Thread-safe ``(current, total, message)`` shared by a job and its view.
+
+    ``callback`` has the ``(current, total, message)`` signature the dataset
+    engines already accept, and doubles as a cancellation point: once the
+    token is cancelled the next progress report raises :class:`JobCancelled`.
+    """
+
+    def __init__(self, message: str = "Initializing...") -> None:
+        self._lock = threading.Lock()
+        self.current = 0
+        self.total = 0
+        self.message = message
+        self._frame = 0
+
+    def update(self, current: int, total: int, message: str) -> None:
+        with self._lock:
+            self.current, self.total, self.message = current, total, message
+
+    def callback(self, token: CancelToken) -> Callable[[int, int, str], None]:
+        def report(current: int, total: int, message: str) -> None:
+            self.update(current, total, message)
+            token.raise_if_cancelled()
+
+        return report
+
+    def snapshot(self) -> tuple[int, int, str]:
+        with self._lock:
+            return self.current, self.total, self.message
+
+    def panel(self, title: str, *, idle_hint: str = "Working...", border_style: str = "cyan") -> RenderableType:
+        from rich.markup import escape
+        from rich.panel import Panel
+
+        current, total, message = self.snapshot()
+        if total > 0:
+            fraction = min(1.0, current / total)
+            bar_width = 30
+            filled = int(bar_width * fraction)
+            body = (
+                f"[bold white]{escape(message)}[/bold white]\n\n"
+                f"[cyan]{'█' * filled}{'░' * (bar_width - filled)}[/cyan]  "
+                f"[bold cyan]{current:,}/{total:,}[/bold cyan] ([dim]{fraction * 100:.0f}%[/dim])"
+            )
+            heading = f"[cyan]{escape(title)} [{fraction * 100:.0f}%][/cyan]"
+        else:
+            self._frame += 1
+            frame = _SPINNER_FRAMES[self._frame % len(_SPINNER_FRAMES)]
+            body = (
+                f"[bold cyan]{frame}[/bold cyan] [bold white]{escape(message)}[/bold white]\n\n"
+                f"[dim]{escape(idle_hint)}[/dim]"
+            )
+            heading = f"[cyan]{escape(title)} [...][/cyan]"
+        body += "\n\n[dim]Ctrl+C to cancel[/dim]"
+        return Panel(body, title=heading, border_style=border_style)

@@ -22,9 +22,11 @@ from rich.progress import (
 from rich.panel import Panel
 from rich.table import Column, Table
 
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.jobs import cancellable_executor
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.cli import (
     console,
-    expected_error_panel,
     get_user_choice,
     print_stylized_header,
     render_summary_panel,
@@ -136,20 +138,9 @@ def is_detectron2_weight(weight_path: Path) -> bool:
 
 
 def infer_rfdetr_class_from_weight(weight_path: Path) -> str:
-    text = str(weight_path).lower()
-    is_seg = "seg" in text
-    prefix = "RFDETRSeg" if is_seg else "RFDETR"
-    if "2xlarge" in text or "2xl" in text:
-        return f"{prefix}2XLarge"
-    if "xlarge" in text or "xl" in text:
-        return f"{prefix}XLarge"
-    if "large" in text:
-        return f"{prefix}Large"
-    if "small" in text:
-        return f"{prefix}Small"
-    if "nano" in text:
-        return f"{prefix}Nano"
-    return f"{prefix}Medium"
+    from yolomatic.models.rfdetr import infer_rfdetr_class
+
+    return infer_rfdetr_class(weight_path)
 
 
 def load_rfdetr_model(weight_path: Path) -> object:
@@ -190,9 +181,17 @@ def select_mode() -> str:
 def prompt_source(mode: str) -> Path:
     while True:
         prompt_text = (
-            "Enter the image path: " if mode == "single" else "Enter the folder path: "
+            "Enter the image path (:b to go back): "
+            if mode == "single"
+            else "Enter the folder path (:b to go back): "
         )
-        raw_value = input(prompt_text).strip()
+        try:
+            raw_value = input(prompt_text).strip()
+        except EOFError:
+            # No interactive input (piped stdin): stop instead of looping forever.
+            raise KeyboardInterrupt from None
+        if raw_value.lower() in {":b", ":back", ":q"}:
+            raise KeyboardInterrupt
         if not raw_value:
             console.print("[bold red]A path is required.[/bold red]")
             continue
@@ -511,11 +510,13 @@ def run_folder_prediction(
             total=len(image_paths),
             current="Starting",
         )
-        with ProcessPoolExecutor(
+        # cancellable_executor: on Ctrl-C queued images are dropped instead of the
+        # pool silently predicting the rest of the folder before returning.
+        with cancellable_executor(ProcessPoolExecutor(
             max_workers=workers,
             initializer=_initialize_prediction_worker,
             initargs=(str(weight_path), conf),
-        ) as executor:
+        )) as executor:
             futures = {
                 executor.submit(_predict_image_in_worker, str(image_path)): image_path
                 for image_path in image_paths
@@ -538,19 +539,16 @@ def run_folder_prediction(
     return sorted(results, key=lambda result: result.image_path.name.lower())
 
 
-def main() -> None:
+def main() -> CommandResult:
     args = parse_args()
     root = project_root()
     print_stylized_header("YOLO Predictor")
     available_weights = find_available_weights(root)
     if not available_weights:
-        console.print(
-            expected_error_panel(
-                "No .pt weights were found in the project root or runs directory.",
-                next_step="Train a model first or pass a valid weights path with --weight.",
-            )
+        return CommandResult.failed(
+            "No .pt weights were found in the project root or runs directory.",
+            hint="Train a model first or pass a valid weights path with --weight.",
         )
-        raise SystemExit(1)
 
     render_weight_table(root, available_weights)
 
@@ -571,50 +569,35 @@ def main() -> None:
             )
             elapsed_seconds = time.perf_counter() - started_at
             render_batch_summary(results, elapsed_seconds, workers)
-            output_dir = None
-        else:
-            output_dir = run_prediction(selected_weight, source_path, args.conf)
+            summary = build_batch_summary(results, elapsed_seconds, workers)
+            outputs = {f"Output {i + 1}": path for i, path in enumerate(summary["output_dirs"])}
+            if summary["failed"] and not summary["succeeded"]:
+                return CommandResult.failed(f"All {summary['failed']} predictions failed.")
+            return CommandResult.ok(
+                f"{summary['succeeded']} of {summary['total']} images predicted.",
+                outputs=outputs,
+                review=True,
+            )
+        output_dir = run_prediction(selected_weight, source_path, args.conf)
     except FileNotFoundError as error:
-        console.print(expected_error_panel(str(error), next_step="Choose an existing image, folder, or weights file."))
-        raise SystemExit(1) from error
+        return CommandResult.failed(str(error), hint="Choose an existing image, folder, or weights file.")
     except ValueError as error:
-        console.print(expected_error_panel(str(error), next_step="Review the selected mode, source path, and confidence value."))
-        raise SystemExit(1) from error
+        return CommandResult.failed(str(error), hint="Review the selected mode, source path, and confidence value.")
     except KeyboardInterrupt:
-        console.print("\n[bold yellow]Prediction cancelled.[/bold yellow]")
-        raise SystemExit(0)
-    except SystemExit:
+        return CommandResult.cancelled("Prediction cancelled.")
+    except SystemExit as error:
+        if error.code in (None, 0):
+            return CommandResult.cancelled()
         raise
     except MLDependencyError as error:
-        console.print(expected_error_panel(str(error), title="Dependency Missing", next_step="Install the missing ML dependency and retry prediction."))
-        raise SystemExit(1) from error
-    except Exception as error:
-        console.print(expected_error_panel(str(error), title="Prediction Failed", next_step="Check the selected model, source path, and console output above."))
-        raise SystemExit(1) from error
-
-    if mode == "folder":
-        try:
-            input("\nPress Enter to return to the main menu...")
-        except (EOFError, KeyboardInterrupt):
-            pass
-        return
+        return CommandResult.failed(str(error), hint="Install the missing ML dependency and retry prediction.")
+    except Exception as error:  # noqa: BLE001
+        log_exception(error, "Prediction")
+        return CommandResult.failed(str(error), hint="Check the selected model and source path.")
 
     if output_dir is None:
-        console.print(
-            "[bold yellow]Prediction completed, but no output directory was reported.[/bold yellow]"
-        )
-    else:
-        console.print(
-            Panel(
-                f"[bold green]Prediction completed successfully.[/bold green]\nSaved results to: [bold]{output_dir}[/bold]",
-                border_style="green",
-            )
-        )
-    try:
-        input("\nPress Enter to return to the main menu...")
-    except (EOFError, KeyboardInterrupt):
-        pass
-
+        return CommandResult.ok("Prediction completed, but no output directory was reported.", review=True)
+    return CommandResult.ok("Prediction completed.", outputs={"Results": output_dir})
 
 if __name__ == "__main__":
     main()

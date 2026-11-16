@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+from typing import Any
 
 # Configure logging
 logger = logging.getLogger("yolomatic.trt_compiler")
@@ -15,6 +17,7 @@ def compile_onnx_to_trt(
     max_batch: int,
     half: bool,
     workspace_gb: float = 4.0,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Compiles an ONNX model to a TensorRT engine with dynamic batch size but fixed resolution.
 
@@ -94,5 +97,32 @@ def compile_onnx_to_trt(
     if serialized_engine is None:
         raise RuntimeError("Failed to build serialized TensorRT engine. Check builder log.")
 
-    with open(engine_path, "wb") as f:
-        f.write(serialized_engine)
+    write_engine_file(engine_path, bytes(serialized_engine), metadata)
+
+
+def write_engine_file(engine_path: Path, serialized_engine: bytes, metadata: dict[str, Any] | None) -> None:
+    """Write an engine in the layout Ultralytics' AutoBackend reads.
+
+    Ultralytics prefixes ``.engine`` files with a little-endian int32 length and
+    a JSON metadata blob (class names, task, stride, imgsz, ...). Without it a
+    loaded engine falls back to generic class names and guesses the task from
+    the filename, so segmentation/pose engines were treated as detection.
+    """
+    with open(engine_path, "wb") as handle:
+        if metadata is not None:
+            blob = json.dumps(metadata).encode("utf-8")
+            handle.write(len(blob).to_bytes(4, byteorder="little", signed=True))
+            handle.write(blob)
+        handle.write(serialized_engine)
+
+
+def read_engine_metadata(engine_path: Path) -> dict[str, Any] | None:
+    """Inverse of :func:`write_engine_file` (mirrors Ultralytics' reader)."""
+    with open(engine_path, "rb") as handle:
+        try:
+            length = int.from_bytes(handle.read(4), byteorder="little", signed=True)
+            if length <= 0 or length > 10_000_000:
+                return None
+            return json.loads(handle.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None

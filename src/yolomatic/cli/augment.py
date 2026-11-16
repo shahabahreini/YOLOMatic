@@ -61,6 +61,7 @@ from yolomatic.utils.cli import (
     render_summary_panel,
 )
 
+from yolomatic.utils.jobs import CancelToken, JobCancelled
 from yolomatic.utils.project import format_size, list_dataset_directories
 
 
@@ -992,11 +993,16 @@ def _run_with_progress(
     error_holder: list[Exception] = []
     progress_state: dict = {"done": 0, "total": 0, "current": ""}
     done_event = threading.Event()
+    token = CancelToken()
+    cancelled_holder: list[bool] = []
 
     def _worker() -> None:
         try:
             def callback(done: int, total: int, msg: str) -> None:
                 progress_state.update({"done": done, "total": total, "current": msg})
+                # Cancellation point: the engine cleans up its staging folder and
+                # drops queued worker jobs when this raises.
+                token.raise_if_cancelled()
 
             stats = run_augmentation(
                 source_dataset_path=dataset_path,
@@ -1008,6 +1014,8 @@ def _run_with_progress(
                 max_workers=max_workers,
             )
             stats_holder.append(stats)
+        except JobCancelled:
+            cancelled_holder.append(True)
         except Exception as exc:
             error_holder.append(exc)
         finally:
@@ -1036,6 +1044,10 @@ def _run_with_progress(
         # total=None → indeterminate spinner until the first callback arrives.
         task = progress.add_task("Augmenting", total=None, current="starting…")
         while not done_event.is_set():
+            if token.cancelled:
+                progress.update(task, description="Stopping", current="finishing in-flight images…")
+                done_event.wait(0.1)
+                continue
             total = progress_state["total"]
             current_msg = progress_state["current"]
             if "Writing" in current_msg:
@@ -1055,13 +1067,27 @@ def _run_with_progress(
                     completed=progress_state["done"],
                     current=current_msg[:54],
                 )
-            time.sleep(0.1)
+            try:
+                time.sleep(0.1)
+            except KeyboardInterrupt:
+                if token.cancelled:
+                    raise
+                token.cancel()
         # Final frame: snap the bar to 100% if any work was tracked.
         total = progress_state["total"]
         if total > 0:
             progress.update(task, description="Done", total=total, completed=total, current="done")
 
     thread.join()
+
+    if cancelled_holder:
+        console.print(Panel(
+            "[bold yellow]Augmentation cancelled.[/bold yellow] Staged files were removed; "
+            "no output dataset was written.",
+            border_style="yellow",
+            padding=(1, 2),
+        ))
+        return
 
     if error_holder:
         exc = error_holder[0]
@@ -1127,6 +1153,7 @@ def _run_with_progress(
             "Validation":           str(s.split_counts.get("valid", 0)),
             "Test":                 str(s.split_counts.get("test", 0)),
             "Skipped":              str(s.images_skipped),
+            "Variants Failed":      str(s.variants_failed),
             "Annotations Removed":  str(s.annotations_discarded),
             "Cache Files Removed":  str(s.cache_files_removed),
             "Cache Space Reclaimed": format_size(s.cache_bytes_reclaimed),
@@ -1358,7 +1385,8 @@ def _recover_staged_augmentations_flow() -> None:
     if choice in (NAV_BACK, "Back"):
         return
 
-    chosen_rec = next((r for r in recoverable if f"{r.target_name} (" in choice), None)
+    # Match by position, not substring: "foo (" also appears in "xfoo (...)".
+    chosen_rec = recoverable[options.index(choice)] if choice in options[:-1] else None
     if chosen_rec is None:
         return
 
@@ -1377,8 +1405,19 @@ def _recover_staged_augmentations_flow() -> None:
         breadcrumbs=["YOLOmatic", "Augment Dataset", "Recovery", "Confirm"],
     )
     if confirm == f"Finalize into datasets/{chosen_rec.target_name}":
+        overwrite = False
+        if chosen_rec.target_path.exists():
+            replace = get_user_choice(
+                ["Cancel", f"Replace existing datasets/{chosen_rec.target_name}"],
+                title="Dataset Already Exists",
+                text=f"datasets/{chosen_rec.target_name}/ already exists. Replace it with the recovered run?",
+                breadcrumbs=["YOLOmatic", "Augment Dataset", "Recovery", "Overwrite"],
+            )
+            if replace != f"Replace existing datasets/{chosen_rec.target_name}":
+                return
+            overwrite = True
         try:
-            recover_augmentation(chosen_rec)
+            recover_augmentation(chosen_rec, overwrite=overwrite)
             console.print(Panel(
                 f"[bold green]Successfully finalized and recovered dataset![/bold green]\n\n"
                 f"Output location: [bold white]datasets/{chosen_rec.target_name}/[/bold white]\n"

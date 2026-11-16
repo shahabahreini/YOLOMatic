@@ -69,8 +69,22 @@ class UploadBatchInfo:
     estimated_bytes: int = 0
 
 
+class ServerProcessingError(RoboflowError):
+    """The archive reached Roboflow but server-side processing failed or stalled.
+
+    Re-uploading the same batch after this would create duplicates, so callers
+    must not treat it like a transient upload failure.
+    """
+
+
 def get_dataset_root_files(dataset_path: Path) -> List[Path]:
-    """Find top-level configuration/label files (e.g. data.yaml, dataset.yaml, README)."""
+    """Find dataset-level files every batch archive needs.
+
+    That is top-level configuration (data.yaml, dataset.yaml, README, ...) plus
+    COCO annotation files that live inside split folders
+    (``train/_annotations.coco.json``) or an ``annotations/`` folder, which
+    were previously never packaged so COCO uploads arrived unlabeled.
+    """
     dataset_path = dataset_path.resolve()
     root_files: List[Path] = []
     if not dataset_path.is_dir():
@@ -79,6 +93,10 @@ def get_dataset_root_files(dataset_path: Path) -> List[Path]:
     for item in dataset_path.iterdir():
         if item.is_file() and item.suffix.lower() in {".yaml", ".yml", ".json", ".txt", ".csv", ".names", ".md"}:
             root_files.append(item)
+    for pattern in ("*/_annotations.coco.json", "*/*_annotations.coco.json", "annotations/*.json"):
+        for item in sorted(dataset_path.glob(pattern)):
+            if item.is_file() and item not in root_files:
+                root_files.append(item)
     return root_files
 
 
@@ -165,7 +183,10 @@ def create_batch_zip_archive(
 ) -> Path:
     """Create a temporary zip archive for a specific batch."""
     dataset_path = dataset_path.resolve()
-    temp_zip_file = Path(tempfile.mktemp(prefix=f"roboflow_batch_{batch_info.batch_idx}_", suffix=".zip"))
+    # mkstemp creates the file atomically (tempfile.mktemp only picked a name).
+    fd, temp_name = tempfile.mkstemp(prefix=f"roboflow_batch_{batch_info.batch_idx}_", suffix=".zip")
+    os.close(fd)
+    temp_zip_file = Path(temp_name)
 
     files_to_zip: List[Tuple[Path, str]] = []
 
@@ -173,7 +194,11 @@ def create_batch_zip_archive(
     for rf in batch_info.root_files:
         rf = rf.resolve()
         if rf.exists():
-            files_to_zip.append((rf, rf.name))
+            try:
+                arcname = rf.relative_to(dataset_path).as_posix()
+            except ValueError:
+                arcname = rf.name
+            files_to_zip.append((rf, arcname))
 
     # Ingest images and annotations
     def _archive_name(path: Path) -> Optional[str]:
@@ -251,17 +276,19 @@ def poll_zip_status(
         try:
             status = rfapi.get_zip_upload_status(api_key, workspace_url, task_id)
             consecutive_errors = 0
-        except (requests.exceptions.RequestException, TimeoutError) as exc:
+        except (requests.exceptions.RequestException, TimeoutError, RoboflowError) as exc:
+            # rfapi raises RoboflowError on HTTP 5xx; for a status poll that is
+            # just another transient error, not a reason to re-upload.
             # The archive is already on the server; losing a status poll is not a
             # reason to discard it and re-upload. Give up only on a sustained outage.
             consecutive_errors += 1
             if consecutive_errors > max_poll_errors:
-                raise RoboflowError(
+                raise ServerProcessingError(
                     f"Lost contact with Roboflow after {consecutive_errors} consecutive "
                     f"status polls (task_id={task_id}): {exc}"
                 ) from exc
             if time.monotonic() >= deadline:
-                raise RoboflowError(
+                raise ServerProcessingError(
                     f"Server processing timed out after {poll_timeout}s (task_id={task_id})"
                 ) from exc
             time.sleep(poll_interval)
@@ -279,9 +306,9 @@ def poll_zip_status(
         if state == "completed":
             return status
         if state == "failed":
-            raise RoboflowError(f"Roboflow server processing failed: {status.get('error') or status}")
+            raise ServerProcessingError(f"Roboflow server processing failed: {status.get('error') or status}")
 
         if time.monotonic() >= deadline:
-            raise RoboflowError(f"Server processing timed out after {poll_timeout}s (task_id={task_id})")
+            raise ServerProcessingError(f"Server processing timed out after {poll_timeout}s (task_id={task_id})")
 
         time.sleep(poll_interval)

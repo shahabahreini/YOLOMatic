@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import platform
 import shutil
 import subprocess
@@ -18,6 +19,7 @@ from yolomatic.utils.cli import get_user_choice
 from yolomatic.utils.ml_dependencies import prepare_ml_runtime
 
 console = CONSOLE
+_TORCH_INSPECTION_TIMEOUT_SECONDS = 120
 DEFAULT_TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 DEFAULT_NUMPY_CONSTRAINT = "numpy>=1.24.4"
 _IS_WINDOWS = platform.system() == "Windows"
@@ -235,7 +237,17 @@ def inspect_torch_runtime(
             text=True,
             check=False,
             env=env,
+            # A wedged driver or CUDA init can block forever; never hang the TUI.
+            timeout=_TORCH_INSPECTION_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired:
+        result = _failed_inspection(
+            f"Torch/CUDA inspection did not finish within {_TORCH_INSPECTION_TIMEOUT_SECONDS}s "
+            "(the GPU driver may be hung)."
+        )
+        if use_cache:
+            _INSPECTION_CACHE[executable] = result
+        return result
     except OSError as os_error:
         result = _failed_inspection(
             f"Failed to launch inspection subprocess: {os_error}"
@@ -295,8 +307,11 @@ def _normalize_device(requested_device: Any) -> str | None:
 def _device_requests_cuda(normalized_device: str | None) -> bool:
     if normalized_device is None:
         return False
-    lowered = normalized_device.lower()
-    return lowered == "cuda" or lowered.replace(",", "").isdigit()
+    lowered = normalized_device.lower().replace(" ", "")
+    if lowered == "cuda" or lowered.replace(",", "").isdigit():
+        return True
+    # "cuda:0" / "cuda:0,1" used to bypass the CUDA preflight entirely.
+    return bool(re.fullmatch(r"cuda:\d+(,\d+)*", lowered))
 
 
 def _detect_nvidia_gpu() -> bool:
@@ -306,8 +321,9 @@ def _detect_nvidia_gpu() -> bool:
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         return False
 
     return process.returncode == 0 and bool(process.stdout.strip())
@@ -738,7 +754,8 @@ def validate_export_config(
 
     format_type = export_config.get("format", "onnx")
     int8_enabled = export_config.get("int8", False)
-    has_data = export_config.get("data") is not None
+    # An empty string is "no calibration data", not data that is present.
+    has_data = bool(str(export_config.get("data") or "").strip())
 
     # Check INT8 compatibility
     if int8_enabled:

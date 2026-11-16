@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,13 +11,15 @@ from urllib.parse import urlparse
 
 import requests
 import yaml
-from rich.live import Live
 from rich.markup import escape
 from rich.panel import Panel
 
 from yolomatic.datasets.ndjson import pose_metadata_from_rows
 from yolomatic.datasets.prepare import slugify
-from yolomatic.utils.fs import UnsafePathError, ensure_overwritable_dir
+from yolomatic.utils.fs import UnsafePathError, ensure_overwritable_dir, staging_dir
+from yolomatic.cli.result import CommandResult
+from yolomatic.utils.jobs import JobStatus, ProgressState, cancellable_executor, run_with_progress
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.project import project_root
 from yolomatic.utils.cli import (
     NAV_BACK,
@@ -476,180 +477,192 @@ def convert_ndjson_to_format(
             protected=[project_root(), project_root() / "datasets"],
             must_not_contain=[ndjson_path],
         )
-        shutil.rmtree(output_dir)
-    if output_dir.exists() and any(output_dir.iterdir()):
+    elif output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"Output directory already exists and is not empty: {output_dir}")
 
-    images_dir = output_dir / "images"
-    images_dir.mkdir(parents=True, exist_ok=True)
-    labels_dir = output_dir / "labels"
-    if output_format.startswith("YOLO"):
-        labels_dir.mkdir(parents=True, exist_ok=True)
+    final_output_dir = output_dir
+    # Build in a hidden staging folder and swap in only when complete, so a
+    # failure or Ctrl-C never leaves a half-converted dataset (or deletes the
+    # previous one) under the real name.
+    with staging_dir(final_output_dir, overwrite=True) as output_dir:
+        images_dir = output_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        labels_dir = output_dir / "labels"
+        if output_format.startswith("YOLO"):
+            labels_dir.mkdir(parents=True, exist_ok=True)
 
-    stats = ConversionStats(
-        source_path=str(ndjson_path.resolve()),
-        output_path=str(output_dir.resolve()),
-        output_format=output_format,
-        total_rows=len(rows),
-    )
-    ultralytics_class_names = _ultralytics_class_names_from_header(rows) if is_ultralytics else []
+        stats = ConversionStats(
+            source_path=str(ndjson_path.resolve()),
+            output_path=str(final_output_dir.resolve()),
+            output_format=output_format,
+            total_rows=len(rows),
+        )
+        ultralytics_class_names = _ultralytics_class_names_from_header(rows) if is_ultralytics else []
 
-    classes: dict[str, int] = {name: idx for idx, name in enumerate(ultralytics_class_names)}
-    coco_images: list[dict[str, Any]] = []
-    coco_annotations: list[dict[str, Any]] = []
-    next_annotation_id = 1
-    coco_splits: dict[str, dict[str, Any]] = {}
-    used_names: set[str] = set()
+        classes: dict[str, int] = {name: idx for idx, name in enumerate(ultralytics_class_names)}
+        if not is_ultralytics:
+            # Assign Labelbox class ids in file order *before* downloading. They used
+            # to be assigned in download-completion order, so two conversions of the
+            # same export could number classes differently.
+            for row in rows:
+                for obj in _extract_labelbox_objects(row):
+                    _class_id(classes, obj.get("name"))
+        coco_images: list[dict[str, Any]] = []
+        coco_annotations: list[dict[str, Any]] = []
+        next_annotation_id = 1
+        coco_splits: dict[str, dict[str, Any]] = {}
+        used_names: set[str] = set()
 
-    if progress_callback:
-        progress_callback(0, len(rows), "Scanning NDJSON rows...")
+        if progress_callback:
+            progress_callback(0, len(rows), "Scanning NDJSON rows...")
 
-    futures = {}
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as executor:
-        for idx, row in enumerate(rows, start=1):
-            url = _row_image_url(row)
-            if not url:
-                if row.get("type") != "dataset":
-                    stats.warnings.append(f"Skipped row {idx}: missing image URL")
+        futures = {}
+        with cancellable_executor(ThreadPoolExecutor(max_workers=max(1, max_workers))) as executor:
+            for idx, row in enumerate(rows, start=1):
+                url = _row_image_url(row)
+                if not url:
+                    if row.get("type") != "dataset":
+                        stats.warnings.append(f"Skipped row {idx}: missing image URL")
+                        stats.skipped_rows += 1
+                    continue
+                filename = _dedupe_filename(_row_filename(row, url, idx), used_names)
+                split, used_fallback = _row_split(row)
+                if pose_output and used_fallback:
+                    stats.warnings.append(f"Row {idx}: missing or unknown split; defaulted to train")
+                image_path = images_dir / split / filename if pose_output else images_dir / filename
+                futures[executor.submit(_download_image, url, image_path)] = (idx, row, filename, image_path, split)
+
+            total_downloads = len(futures)
+            for completed, future in enumerate(as_completed(futures), start=1):
+                idx, row, filename, image_path, split = futures[future]
+                ok, reason = future.result()
+                if not ok:
+                    stats.warnings.append(f"Skipped row {idx}: image download failed ({reason or 'unknown error'})")
                     stats.skipped_rows += 1
-                continue
-            filename = _dedupe_filename(_row_filename(row, url, idx), used_names)
-            split, used_fallback = _row_split(row)
-            if pose_output and used_fallback:
-                stats.warnings.append(f"Row {idx}: missing or unknown split; defaulted to train")
-            image_path = images_dir / split / filename if pose_output else images_dir / filename
-            futures[executor.submit(_download_image, url, image_path)] = (idx, row, filename, image_path, split)
+                    if progress_callback:
+                        progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
+                    continue
+                try:
+                    from PIL import Image
 
-        total_downloads = len(futures)
-        for completed, future in enumerate(as_completed(futures), start=1):
-            idx, row, filename, image_path, split = futures[future]
-            ok, reason = future.result()
-            if not ok:
-                stats.warnings.append(f"Skipped row {idx}: image download failed ({reason or 'unknown error'})")
-                stats.skipped_rows += 1
-                if progress_callback:
-                    progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
-                continue
-            try:
-                from PIL import Image
+                    with Image.open(image_path) as img:
+                        img_w, img_h = img.size
+                except Exception as exc:
+                    stats.warnings.append(f"Skipped row {idx}: downloaded image could not be opened ({type(exc).__name__})")
+                    stats.skipped_rows += 1
+                    if progress_callback:
+                        progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
+                    continue
 
-                with Image.open(image_path) as img:
-                    img_w, img_h = img.size
-            except Exception as exc:
-                stats.warnings.append(f"Skipped row {idx}: downloaded image could not be opened ({type(exc).__name__})")
-                stats.skipped_rows += 1
-                if progress_callback:
-                    progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
-                continue
-
-            if is_ultralytics:
-                objects = _extract_ultralytics_objects(
-                    row,
-                    int(img_w),
-                    int(img_h),
-                    ultralytics_class_names,
-                    pose_meta,
-                )
-            else:
-                objects = _extract_labelbox_objects(row)
-            if pose_output:
-                annotations = row.get("annotations")
-                raw_pose = annotations.get("pose") or [] if isinstance(annotations, dict) else []
-                valid_pose_count = sum(1 for obj in objects if isinstance(obj.get("keypoints"), list))
-                if len(raw_pose) != valid_pose_count:
-                    stats.warnings.append(
-                        f"Row {idx}: skipped {len(raw_pose) - valid_pose_count} malformed pose annotation(s)"
+                if is_ultralytics:
+                    objects = _extract_ultralytics_objects(
+                        row,
+                        int(img_w),
+                        int(img_h),
+                        ultralytics_class_names,
+                        pose_meta,
                     )
-            if output_format.startswith("YOLO"):
-                stats.total_annotations += _write_yolo_label(
-                    (labels_dir / split if pose_output else labels_dir) / f"{Path(filename).stem}.txt",
-                    objects,
-                    classes,
-                    output_format,
-                    int(img_w),
-                    int(img_h),
-                    pose_meta,
-                )
-            else:
-                state = coco_splits.setdefault(
-                    split,
-                    {"images": [], "annotations": [], "next_annotation_id": 1},
-                ) if pose_output else {
-                    "images": coco_images,
-                    "annotations": coco_annotations,
-                    "next_annotation_id": next_annotation_id,
-                }
-                previous_id = int(state["next_annotation_id"])
-                new_annotation_id = _append_coco_annotations(
-                    state["images"],
-                    state["annotations"],
-                    objects,
-                    classes,
-                    (Path("images") / split / filename).as_posix() if pose_output else filename,
-                    int(img_w),
-                    int(img_h),
-                    previous_id,
-                    pose_meta,
-                )
-                state["next_annotation_id"] = new_annotation_id
-                if pose_output:
-                    coco_splits[split] = state
                 else:
-                    next_annotation_id = new_annotation_id
-                stats.total_annotations += new_annotation_id - previous_id
-            stats.converted_images += 1
-            if progress_callback:
-                progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
+                    objects = _extract_labelbox_objects(row)
+                if pose_output:
+                    annotations = row.get("annotations")
+                    raw_pose = annotations.get("pose") or [] if isinstance(annotations, dict) else []
+                    valid_pose_count = sum(1 for obj in objects if isinstance(obj.get("keypoints"), list))
+                    if len(raw_pose) != valid_pose_count:
+                        stats.warnings.append(
+                            f"Row {idx}: skipped {len(raw_pose) - valid_pose_count} malformed pose annotation(s)"
+                        )
+                if output_format.startswith("YOLO"):
+                    stats.total_annotations += _write_yolo_label(
+                        (labels_dir / split if pose_output else labels_dir) / f"{Path(filename).stem}.txt",
+                        objects,
+                        classes,
+                        output_format,
+                        int(img_w),
+                        int(img_h),
+                        pose_meta,
+                    )
+                else:
+                    state = coco_splits.setdefault(
+                        split,
+                        {"images": [], "annotations": [], "next_annotation_id": 1},
+                    ) if pose_output else {
+                        "images": coco_images,
+                        "annotations": coco_annotations,
+                        "next_annotation_id": next_annotation_id,
+                    }
+                    previous_id = int(state["next_annotation_id"])
+                    new_annotation_id = _append_coco_annotations(
+                        state["images"],
+                        state["annotations"],
+                        objects,
+                        classes,
+                        (Path("images") / split / filename).as_posix() if pose_output else filename,
+                        int(img_w),
+                        int(img_h),
+                        previous_id,
+                        pose_meta,
+                    )
+                    state["next_annotation_id"] = new_annotation_id
+                    if pose_output:
+                        coco_splits[split] = state
+                    else:
+                        next_annotation_id = new_annotation_id
+                    stats.total_annotations += new_annotation_id - previous_id
+                stats.converted_images += 1
+                if progress_callback:
+                    progress_callback(completed, total_downloads, f"Converting rows... {completed}/{total_downloads}")
 
-    class_names = [name for name, _ in sorted(classes.items(), key=lambda item: item[1])]
-    stats.classes = class_names
-    if output_format.startswith("YOLO"):
-        data_yaml = {
-            "path": str(output_dir.resolve()),
-            "nc": len(class_names),
-            "names": class_names,
-        }
-        if output_format == "YOLO Pose":
-            for split in ("train", "val", "test"):
-                if (images_dir / split).is_dir():
-                    data_yaml[split] = f"images/{split}"
-            data_yaml["task"] = "pose"
-            data_yaml["kpt_shape"] = pose_meta["kpt_shape"]
-            if pose_meta.get("flip_idx") is not None:
-                data_yaml["flip_idx"] = pose_meta["flip_idx"]
+        class_names = [name for name, _ in sorted(classes.items(), key=lambda item: item[1])]
+        stats.classes = class_names
+        if output_format.startswith("YOLO"):
+            data_yaml = {
+                "path": str(final_output_dir.resolve()),
+                "nc": len(class_names),
+                "names": class_names,
+            }
+            if output_format == "YOLO Pose":
+                for split in ("train", "val", "test"):
+                    if (images_dir / split).is_dir():
+                        data_yaml[split] = f"images/{split}"
+                data_yaml["task"] = "pose"
+                data_yaml["kpt_shape"] = pose_meta["kpt_shape"]
+                if pose_meta.get("flip_idx") is not None:
+                    data_yaml["flip_idx"] = pose_meta["flip_idx"]
+            else:
+                data_yaml["train"] = "images"
+                data_yaml["task"] = "segment" if output_format == "YOLO Segmentation" else "detect"
+            (output_dir / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False), encoding="utf-8")
         else:
-            data_yaml["train"] = "images"
-            data_yaml["task"] = "segment" if output_format == "YOLO Segmentation" else "detect"
-        (output_dir / "data.yaml").write_text(yaml.safe_dump(data_yaml, sort_keys=False), encoding="utf-8")
-    else:
-        categories = []
-        for idx, name in enumerate(class_names):
-            category: dict[str, Any] = {"id": idx + 1, "name": name}
+            categories = []
+            for idx, name in enumerate(class_names):
+                category: dict[str, Any] = {"id": idx + 1, "name": name}
+                if pose_output:
+                    category["keypoints"] = pose_meta["kpt_names"]
+                    category["skeleton"] = pose_meta["skeleton"]
+                categories.append(category)
             if pose_output:
-                category["keypoints"] = pose_meta["kpt_names"]
-                category["skeleton"] = pose_meta["skeleton"]
-            categories.append(category)
-        if pose_output:
-            annotations_dir = output_dir / "annotations"
-            annotations_dir.mkdir(parents=True, exist_ok=True)
-            for split, state in sorted(coco_splits.items()):
-                payload = {
-                    "images": state["images"],
-                    "annotations": state["annotations"],
-                    "categories": categories,
-                }
-                (annotations_dir / f"instances_{split}.json").write_text(
-                    json.dumps(payload, indent=2), encoding="utf-8"
-                )
-        else:
-            payload = {"images": coco_images, "annotations": coco_annotations, "categories": categories}
-            (output_dir / "annotations.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                annotations_dir = output_dir / "annotations"
+                annotations_dir.mkdir(parents=True, exist_ok=True)
+                for split, state in sorted(coco_splits.items()):
+                    payload = {
+                        "images": state["images"],
+                        "annotations": state["annotations"],
+                        "categories": categories,
+                    }
+                    (annotations_dir / f"instances_{split}.json").write_text(
+                        json.dumps(payload, indent=2), encoding="utf-8"
+                    )
+            else:
+                payload = {"images": coco_images, "annotations": coco_annotations, "categories": categories}
+                (output_dir / "annotations.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    stats.elapsed_seconds = time.time() - started
-    manifest = stats.to_dict()
-    manifest["max_workers"] = max_workers
-    manifest["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-    (output_dir / "conversion_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        stats.elapsed_seconds = time.time() - started
+        manifest = stats.to_dict()
+        manifest["max_workers"] = max_workers
+        manifest["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        (output_dir / "conversion_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    stats.output_path = str(final_output_dir.resolve())
     return stats
 
 
@@ -776,56 +789,32 @@ def _collect_output_settings(source: Path, output_format: str) -> tuple[Path, in
     return output_dir, int(raw_workers), overwrite
 
 
-def _run_with_progress(ndjson_path: Path, output_format: str, output_dir: Path, max_workers: int, overwrite: bool) -> ConversionStats | None:
-    progress_state: dict[str, Any] = {"done": 0, "total": 0, "message": "Initializing..."}
-
-    def callback(current: int, total: int, message: str) -> None:
-        progress_state.update({"done": current, "total": total, "message": message})
-
-    stats_holder: list[ConversionStats] = []
-    errors: list[Exception] = []
-
-    import threading
-
-    done = threading.Event()
-
-    def worker() -> None:
-        try:
-            stats_holder.append(
-                convert_ndjson_to_format(
-                    ndjson_path,
-                    output_format,
-                    output_dir,
-                    max_workers=max_workers,
-                    overwrite=overwrite,
-                    progress_callback=callback,
-                )
-            )
-        except Exception as exc:
-            errors.append(exc)
-        finally:
-            done.set()
-
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    with Live(refresh_per_second=4, console=console) as live:
-        while not done.is_set():
-            total = progress_state["total"]
-            current = progress_state["done"]
-            pct = f"{current / total * 100:.0f}%" if total else "..."
-            live.update(
-                Panel(
-                    f"{progress_state['message']}\n\n[cyan]{current}/{total}[/cyan]",
-                    title=f"[cyan]Converting Dataset [{pct}][/cyan]",
-                    border_style="cyan",
-                )
-            )
-            time.sleep(0.25)
-    thread.join()
-    if errors:
-        console.print(Panel(f"[bold red]Dataset conversion failed:[/bold red]\n\n{type(errors[0]).__name__}: {errors[0]}", border_style="red"))
-        return None
-    return stats_holder[0]
+def _run_with_progress(
+    ndjson_path: Path, output_format: str, output_dir: Path, max_workers: int, overwrite: bool
+) -> CommandResult:
+    state = ProgressState()
+    outcome = run_with_progress(
+        lambda token: convert_ndjson_to_format(
+            ndjson_path,
+            output_format,
+            output_dir,
+            max_workers=max_workers,
+            overwrite=overwrite,
+            progress_callback=state.callback(token),
+        ),
+        render=lambda: state.panel("Converting Dataset", idle_hint="Reading NDJSON rows..."),
+        console=console,
+    )
+    if outcome.status is JobStatus.CANCELLED:
+        return CommandResult.cancelled("Conversion cancelled. The output folder was not changed.")
+    if outcome.status is JobStatus.FAILED:
+        assert outcome.error is not None
+        log_exception(outcome.error, "NDJSON conversion")
+        return CommandResult.failed(f"{type(outcome.error).__name__}: {outcome.error}")
+    stats = outcome.value
+    assert stats is not None
+    _render_result(stats)
+    return CommandResult.ok("Dataset converted.", outputs={"Dataset": stats.output_path})
 
 
 def _render_result(stats: ConversionStats) -> None:
@@ -855,16 +844,16 @@ def _render_result(stats: ConversionStats) -> None:
         console.print(Panel(preview, title="[yellow]Warnings[/yellow]", border_style="yellow"))
 
 
-def main() -> None:
+def main() -> CommandResult:
     source = _select_source()
     if source is None:
-        return
+        return CommandResult.cancelled()
     output_format = _select_output_format(source)
     if output_format is None:
-        return
+        return CommandResult.cancelled()
     output_settings = _collect_output_settings(source, output_format)
     if output_settings is None:
-        return
+        return CommandResult.cancelled()
     output_dir, max_workers, overwrite = output_settings
 
     clear_screen()
@@ -888,11 +877,8 @@ def main() -> None:
         **_wizard_kwargs(3),
     )
     if confirm in (NAV_BACK, "Back"):
-        return
-    stats = _run_with_progress(source, output_format, output_dir, max_workers, overwrite)
-    if stats is not None:
-        _render_result(stats)
-    input("\nPress Enter to return to main menu...")
+        return CommandResult.cancelled()
+    return _run_with_progress(source, output_format, output_dir, max_workers, overwrite)
 
 
 if __name__ == "__main__":

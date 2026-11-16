@@ -34,7 +34,7 @@ class _SAMDataset(torch.utils.data.Dataset):
         self.processor = processor
         self.input_size = input_size
 
-        with ann_file.open() as f:
+        with ann_file.open(encoding="utf-8") as f:
             coco = json.load(f)
 
         id_to_path: dict[int, Path] = {
@@ -298,7 +298,7 @@ def main(config_file: str | Path) -> None:
     if not config_path.exists():
         raise FileNotFoundError(f"SAM config file not found: {config_path}")
 
-    config = yaml.safe_load(config_path.read_text())
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     console.print(
         Panel(

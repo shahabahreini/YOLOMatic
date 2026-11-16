@@ -208,8 +208,10 @@ def save_settings(settings: dict[str, Any], path: Path | str = SETTINGS_PATH) ->
         if "openai_api_key" in ai_cfg and isinstance(ai_cfg["openai_api_key"], str):
             ai_cfg["openai_api_key"] = _encrypt_value(ai_cfg["openai_api_key"], secret_key)
             
-    with settings_path.open("w", encoding="utf-8") as file:
-        yaml.safe_dump(to_save, file, sort_keys=False)
+    # Atomic: a crash mid-write used to leave a truncated, unreadable settings file.
+    from yolomatic.utils.fs import atomic_write_text
+
+    atomic_write_text(settings_path, yaml.safe_dump(to_save, sort_keys=False), private=True)
 
     try:
         mtime_ns = settings_path.stat().st_mtime_ns

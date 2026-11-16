@@ -76,8 +76,12 @@ def save_profile(profile: AugmentationProfile, profiles_dir: Path = PROFILES_DIR
         "modified_at": profile.modified_at,
         "transforms": profile.transforms,
     }
-    with open(profile_path(profile.name, profiles_dir), "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    from yolomatic.utils.fs import atomic_write_text
+
+    atomic_write_text(
+        profile_path(profile.name, profiles_dir),
+        yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False),
+    )
 
 
 def delete_profile(name: str, profiles_dir: Path = PROFILES_DIR) -> None:
