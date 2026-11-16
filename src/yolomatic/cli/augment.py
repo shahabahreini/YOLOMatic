@@ -58,6 +58,7 @@ from yolomatic.utils.cli import (
     get_user_choice,
     get_user_multi_select,
     print_stylized_header,
+    build_summary_panel,
     render_summary_panel,
 )
 
@@ -1605,7 +1606,7 @@ def _run_augmentation_flow() -> None:
     # Step 7: Confirm
     clear_screen()
     print_stylized_header("Augment Dataset — Confirm")
-    render_summary_panel("Augmentation Plan", {
+    plan_panel = build_summary_panel("Augmentation Plan", {
         "Source Dataset":         dataset_path.name,
         "Source Images":          str(source_count),
         "Profile":                profile.name,
@@ -1633,7 +1634,7 @@ def _run_augmentation_flow() -> None:
         ["Start Augmentation", "Back"],
         title="Confirm",
         text=(
-            "Review the plan above.\n"
+            "Review the plan in the details pane.\n"
             "This operation may take several minutes for large datasets.\n"
             "The original dataset is not modified."
         ),
@@ -1646,6 +1647,7 @@ def _run_augmentation_flow() -> None:
             "Back": "[dim]Return and change settings.[/dim]",
         },
         breadcrumbs=["YOLOmatic", "Augment Dataset", "Confirm"],
+        body=plan_panel,
     )
     if confirm in (NAV_BACK, "Back"):
         return

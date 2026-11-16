@@ -30,6 +30,7 @@ from yolomatic.utils.cli import (
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
+    build_summary_panel,
     render_summary_panel,
 )
 
@@ -858,7 +859,7 @@ def main() -> CommandResult:
 
     clear_screen()
     print_stylized_header("Convert Dataset Format - Confirm")
-    render_summary_panel(
+    _summary_panel = build_summary_panel(
         "Conversion Plan",
         {
             "Source": source,
@@ -875,6 +876,7 @@ def main() -> CommandResult:
         text="Review the conversion plan:",
         breadcrumbs=["YOLOmatic", "Convert Dataset", "Confirm"],
         **_wizard_kwargs(3),
+        body=_summary_panel,
     )
     if confirm in (NAV_BACK, "Back"):
         return CommandResult.cancelled()

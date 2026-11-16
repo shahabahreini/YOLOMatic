@@ -18,7 +18,7 @@ from yolomatic.utils.cli import (
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
-    render_summary_panel,
+    build_summary_panel,
 )
 from yolomatic.cli.result import CommandResult
 from yolomatic.utils.jobs import CancelToken, JobStatus, run_with_progress
@@ -588,12 +588,12 @@ def _confirm(model_id: str, mode: str, mode_config: object, source: Path, output
 
     clear_screen()
     print_stylized_header("SAM Segment — Confirm")
-    console.print(render_summary_panel(rows, title="Ready to Run"))
 
     choice = get_user_choice(
         ["Start SAM Inference", "Cancel"],
         title="Confirm",
-        text="Review settings above, then start:",
+        text="Review the settings in the details pane, then start:",
+        body=build_summary_panel("Ready to Run", rows),
         descriptions={
             "Start SAM Inference": "[green]Begin segmentation.[/green]",
             "Cancel": "[dim]Return to main menu.[/dim]",

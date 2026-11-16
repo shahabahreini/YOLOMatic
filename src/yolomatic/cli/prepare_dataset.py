@@ -28,6 +28,7 @@ from yolomatic.utils.cli import (
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
+    build_summary_panel,
     render_summary_panel,
 )
 from yolomatic.utils.project import (
@@ -486,7 +487,7 @@ def interactive_main() -> CommandResult:
 
     clear_screen()
     print_stylized_header("Prepare Dataset — Confirm")
-    render_summary_panel(
+    _summary_panel = build_summary_panel(
         "Preparation Plan",
         {
             "Source": source,
@@ -510,6 +511,7 @@ def interactive_main() -> CommandResult:
         },
         breadcrumbs=["YOLOmatic", "Prepare Dataset", "Confirm"],
         **_wizard_kwargs(5),
+        body=_summary_panel,
     )
     if confirm in (NAV_BACK, "Back"):
         return CommandResult.cancelled()

@@ -338,7 +338,9 @@ def main() -> CommandResult:
     _CHECK = "✓"
     _EMPTY = " "
     selected_indices: set[int] = set(range(len(datasets)))
-    last_choice: str | None = None
+    # Cursor position as an index: the toggled label text changes ([ ] <-> [✓]),
+    # so matching by label made the cursor jump back to the top after each toggle.
+    last_choice: int | None = None
 
     while True:
         options: list[str] = []
@@ -385,7 +387,7 @@ def main() -> CommandResult:
                 selected_indices.remove(idx)
             else:
                 selected_indices.add(idx)
-            last_choice = choice
+            last_choice = idx
 
     selected = [datasets[i] for i in sorted(selected_indices)]
 

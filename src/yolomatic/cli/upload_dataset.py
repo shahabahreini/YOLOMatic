@@ -1006,15 +1006,15 @@ def main(argv: Optional[Sequence[str]] = None) -> CommandResult:
     strategy_str = f"Fast Zip Flow (Max {max_batch_mb:.0f} MB / {chunk_images} imgs per batch)" if use_zip else f"Concurrent Per-Image Flow ({workers} workers)"
     summary_table.add_row("Upload Strategy", strategy_str)
 
-    console.print("\n")
-    console.print(summary_table)
-
-    if not args.yes:
+    if args.yes:
+        console.print(summary_table)
+    else:
         choice = get_user_choice(
             ["Proceed with Upload", "Cancel"],
             allow_back=True,
             title="Confirm Upload",
-            text="Verify the parameters above and start the upload:",
+            text="Verify the parameters in the details pane and start the upload:",
+            body=summary_table,
             breadcrumbs=["YOLOmatic", "Roboflow Upload", "Confirm"],
             **_wizard_kwargs(5),
         )

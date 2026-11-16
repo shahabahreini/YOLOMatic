@@ -26,7 +26,7 @@ from yolomatic.utils.cli import (
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
-    render_summary_panel,
+    build_summary_panel,
 )
 from yolomatic.utils.project import (
     format_size,
@@ -684,12 +684,12 @@ def _confirm(
     }
     clear_screen()
     print_stylized_header("Benchmark Configuration")
-    render_summary_panel("Ready to Run", rows)
+    _summary_panel = build_summary_panel("Ready to Run", rows)
 
     choice = get_user_choice(
         ["Start Benchmark", "Cancel"],
         title="Confirm",
-        text="Review the settings above and confirm to begin:",
+        text="Review the settings in the details pane and confirm to begin:",
         descriptions={
             "Start Benchmark": (
                 "[bold green]All settings look good.[/bold green]\n\n"
@@ -705,6 +705,7 @@ def _confirm(
         breadcrumbs=["YOLOmatic", "Benchmark", "Confirm"],
         finish_options={"Start Benchmark"},
         back_option="Cancel",
+        body=_summary_panel,
     )
     return choice == "Start Benchmark"
 

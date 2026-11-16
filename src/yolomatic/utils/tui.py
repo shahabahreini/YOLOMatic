@@ -56,6 +56,90 @@ _SIDEBAR_LABEL_OFFSET = 8     # columns reserved for selection prefix / borders
 NAV_BACK = "__BACK__"
 NAV_LIST = "__LIST__"
 
+# Smallest terminal the split layout renders legibly in.
+MIN_TERMINAL_WIDTH = 60
+MIN_TERMINAL_HEIGHT = 16
+
+
+class NonInteractiveTerminalError(RuntimeError):
+    """Raised when an interactive menu is requested without a usable TTY."""
+
+
+def terminal_is_interactive() -> bool:
+    """True when blessed can both draw to and read keys from the terminal.
+
+    Without a TTY (piped output, CI, ``ssh host yolomatic`` without ``-t``)
+    blessed's ``inkey`` returns immediately, so the menu loop used to spin at
+    100% CPU forever.
+    """
+    return bool(getattr(TUI_TERM, "is_a_tty", False)) and getattr(TUI_TERM, "_keyboard_fd", None) is not None
+
+
+def ensure_interactive_terminal() -> None:
+    if not terminal_is_interactive():
+        raise NonInteractiveTerminalError(
+            "YOLOmatic's interactive menus need a terminal (TTY). Run it in a terminal "
+            "(use `ssh -t` for remote sessions), or call a subcommand with flags, e.g. "
+            "`yolomatic predict --weight best.pt --source img.jpg`. See `yolomatic --help`."
+        )
+
+
+def mouse_context():
+    """Mouse reporting is opt-in (YOLOMATIC_MOUSE=1): it enables wheel scrolling but
+    blocks normal click-and-drag text selection, e.g. copying paths."""
+    import contextlib
+    import os
+
+    if os.environ.get("YOLOMATIC_MOUSE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return TUI_TERM.mouse_enabled()
+    return contextlib.nullcontext()
+
+
+def markup_or_text(value: Any) -> RenderableType:
+    """Render a description: markup strings become Text (falling back to plain text
+    if the markup is malformed, e.g. a class named ``[/x]``); renderables pass through."""
+    if isinstance(value, str):
+        try:
+            return Text.from_markup(value)
+        except Exception:  # noqa: BLE001 - rich.errors.MarkupError and friends
+            return Text(value)
+    return value
+
+
+HELP_KEYS: list[tuple[str, str]] = [
+    ("↑ ↓ / j k", "Move the selection"),
+    ("PgUp / PgDn", "Jump a page"),
+    ("Home / End", "First / last option"),
+    ("Enter", "Choose the highlighted option"),
+    ("F", "Continue / finish (when offered)"),
+    ("B / Esc", "Go back one step"),
+    ("Q", "Back, or Quit on the main menu"),
+    ("Ctrl+C", "Cancel the current flow (quits from the main menu)"),
+    ("Space", "Toggle (checklists)"),
+    ("A / N", "Select all / none (checklists)"),
+    ("?", "Show or hide this help"),
+]
+
+
+def _render_help_table() -> Table:
+    table = Table(title="Keyboard shortcuts", show_header=False, box=box.SIMPLE, expand=True)
+    table.add_column(style="bold yellow", no_wrap=True)
+    table.add_column()
+    for key, action in HELP_KEYS:
+        table.add_row(key, action)
+    return table
+
+
+def _too_small_panel() -> Panel:
+    return Panel(
+        Text.from_markup(
+            f"[bold yellow]Terminal too small[/bold yellow]\n\n"
+            f"Resize to at least {MIN_TERMINAL_WIDTH}x{MIN_TERMINAL_HEIGHT} "
+            f"(currently {_term_w}x{_term_h})."
+        ),
+        border_style="yellow",
+    )
+
 
 STATUS_HINTS: dict[str, list[tuple[str, str]]] = {
     "menu": [("↑↓", "Move"), ("Enter", "Select"), ("B", "Back"), ("Q", "Quit")],
@@ -310,6 +394,10 @@ class MenuRenderer:
         self.wizard_steps = wizard_steps
         self.wizard_current_step = wizard_current_step
         self.allow_refresh = allow_refresh
+        # Shown in the details pane for options without their own description,
+        # e.g. the plan summary on a confirmation screen.
+        self.body: RenderableType | None = None
+        self.show_help = False
         # Layout cache — invalidated on any state change to avoid rebuilding every frame
         self._layout_dirty: bool = True
         self._cached_layout: Layout | None = None
@@ -557,6 +645,13 @@ class MenuRenderer:
                 (key, "Cancel" if key == "B" else action)
                 for key, action in hints
             ]
+        # The footer used to always say "Q Quit", but Q means Back unless the
+        # menu offers Exit (and B does nothing on the main menu).
+        if "Exit" in self.options:
+            hints = [(k, a) for k, a in hints if k != "B" or self.back_option]
+        else:
+            hints = [(k, "Back" if k == "Q" else a) for k, a in hints if not (k == "Q" and any(h[0] == "B" for h in hints))]
+        hints.append(("?", "Help"))
         if getattr(self, "allow_refresh", False):
             insert_idx = len(hints)
             for idx, (k, a) in enumerate(hints):
@@ -667,7 +762,17 @@ class MenuRenderer:
                     f"\nPress [bold yellow]F[/bold yellow] to continue with "
                     f"[bold green]{escape(format_label(self.finish_option))}[/bold green]."
                 )
-        description = self.descriptions.get(current_option, default_description)
+        option_description = self.descriptions.get(current_option)
+        if self.body is not None:
+            # Confirmation screens: keep the plan summary visible, with the
+            # highlighted option's own description underneath.
+            description: Any = (
+                Group(self.body, Text(""), markup_or_text(option_description))
+                if option_description
+                else self.body
+            )
+        else:
+            description = option_description if option_description is not None else default_description
 
         breadcrumb_line = self._render_breadcrumbs()
         ctx_size = 2 + (1 if breadcrumb_line.plain else 0)
@@ -698,19 +803,21 @@ class MenuRenderer:
             main_group.append(Text.from_markup(self.instruction, style="yellow"))
             main_group.append(Text(""))
 
-        if model_table:
+        if self.show_help:
+            main_group.append(_render_help_table())
+        elif model_table:
             main_group.append(model_table)
         elif family_charts:
             split_table = Table.grid(expand=True)
             split_table.add_column(ratio=1)
             split_table.add_column(ratio=1)
             split_table.add_row(
-                Text.from_markup(description),
+                markup_or_text(description),
                 family_charts,
             )
             main_group.append(split_table)
         else:
-            main_group.append(Text.from_markup(description))
+            main_group.append(markup_or_text(description))
 
         content_layout["main"].update(
             make_panel(
@@ -747,6 +854,10 @@ class MenuRenderer:
             _term_w = w
             self._layout_dirty = True
 
+        if _term_w < MIN_TERMINAL_WIDTH or _term_h < MIN_TERMINAL_HEIGHT:
+            yield _too_small_panel()
+            return
+
         current_gpu = get_gpu_status()
         if current_gpu != self._last_gpu_status:
             self._last_gpu_status = current_gpu
@@ -774,9 +885,15 @@ def get_user_choice(
     wizard_steps: list[str] | None = None,
     wizard_current_step: int | None = None,
     allow_refresh: bool = False,
+    body: RenderableType | None = None,
 ) -> str:
     """
     Highly refined interactive menu with grouped options and breadcrumbs.
+
+    ``body`` is rendered in the details pane for options without their own
+    description -- pass a confirmation summary here so it stays visible while
+    the user decides (printing it before the menu hid it behind the
+    alternate screen).
 
     Optional:
         tip           – a screen-specific hint shown in a small bottom-right panel.
@@ -795,6 +912,9 @@ def get_user_choice(
         for i, opt in enumerate(selectable_options)
         if not (opt.startswith("[") and opt.endswith("]"))
     ]
+    if not navigable_indices:
+        raise ValueError(f"Menu '{title}' has no selectable options.")
+    ensure_interactive_terminal()
 
     current_nav_idx = 0
     if initial_selection is not None:
@@ -824,7 +944,7 @@ def get_user_choice(
 
     current_selection = navigable_indices[current_nav_idx]
 
-    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), TUI_TERM.mouse_enabled():
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), mouse_context():
         renderer = MenuRenderer(
             selectable_options,
             current_selection,
@@ -841,6 +961,7 @@ def get_user_choice(
             wizard_current_step=wizard_current_step,
             allow_refresh=allow_refresh,
         )
+        renderer.body = body
 
         last_scroll_time = 0.0
         with Live(
@@ -886,6 +1007,8 @@ def get_user_choice(
                         return resolved_back_option or NAV_BACK
                     elif key_lower == "r" and allow_refresh:
                         return "__refresh__"
+                    elif str(key) == "?":
+                        renderer.show_help = not renderer.show_help
                     elif key_lower == "q":
                         if "Exit" in selectable_options:
                             return "Exit"
@@ -899,6 +1022,9 @@ def get_user_choice(
                     live.update(renderer)
                     live.refresh()
             except (EOFError, KeyboardInterrupt):
+                # Ctrl-C cancels the current flow; on the main menu it quits.
+                if "Exit" in selectable_options and resolved_back_option is None:
+                    return "Exit"
                 return resolved_back_option or NAV_BACK
 
     return NAV_BACK
@@ -922,19 +1048,26 @@ def render_table(
     TUI_CONSOLE.print(table)
 
 
-def render_summary_panel(
+def build_summary_panel(
     title: str, fields: dict[str, Any], border_style: str = "green"
-) -> None:
-    """Render a summary information panel."""
+) -> Panel:
+    """Build a summary panel; pass it as ``body=`` to a confirmation menu."""
     table = Table.grid(padding=(0, 2))
     table.add_column(style="cyan bold")
     table.add_column(style="white")
 
     for key, value in fields.items():
-        table.add_row(f"{key}:", str(value))
+        table.add_row(f"{key}:", Text(str(value)))
 
     state = TUIState.SUCCESS if border_style == "green" else TUIState.INFO
-    TUI_CONSOLE.print(make_panel(table, title=title, state=state, padding=(1, 2)))
+    return make_panel(table, title=title, state=state, padding=(1, 2))
+
+
+def render_summary_panel(
+    title: str, fields: dict[str, Any], border_style: str = "green"
+) -> None:
+    """Print a summary information panel."""
+    TUI_CONSOLE.print(build_summary_panel(title, fields, border_style))
 
 
 @dataclass
@@ -1166,6 +1299,10 @@ class MultiSelectRenderer:
         start_idx, end_idx = self._compute_visible_window()
 
         items: list[Text] = []
+        # The caller's instruction (e.g. "[F] Start Export") was stored but never shown.
+        if self.instruction:
+            items.append(markup_or_text(self.instruction))
+            items.append(Text(""))
         if start_idx > 0:
             items.append(Text(f"↑ {start_idx} more above", style="dim cyan"))
 
@@ -1477,7 +1614,11 @@ def get_user_multi_select(
         validation_error = error
         return False
 
-    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), TUI_TERM.mouse_enabled():
+    if not parameters:
+        raise ValueError(f"'{title}' has no parameters to select.")
+    ensure_interactive_terminal()
+
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), mouse_context():
         renderer = MultiSelectRenderer(
             parameters=parameters,
             selected=selected,
@@ -1644,6 +1785,36 @@ def get_user_multi_select(
     return None
 
 
+_PATH_HINTS = ("path", "dir", "folder", "file", "source", "output", "weight", "dataset")
+
+
+def _enable_line_editing(param_name: str) -> Any:
+    """Turn on readline editing/history (and Tab path completion for path-like
+    parameters). Arrow keys used to print ``^[[D`` because readline was never
+    imported. Returns a callable that restores the previous completer."""
+    try:
+        import readline  # noqa: F401 - importing enables line editing for input()
+    except ImportError:  # Windows without pyreadline3
+        return lambda: None
+    import glob
+    import os
+
+    previous = readline.get_completer()
+    if any(hint in param_name.lower() for hint in _PATH_HINTS):
+        def complete(text: str, state: int) -> str | None:
+            expanded = os.path.expanduser(text)
+            matches = [
+                m + (os.sep if os.path.isdir(m) else "") for m in sorted(glob.glob(expanded + "*"))
+            ]
+            return matches[state] if state < len(matches) else None
+
+        readline.set_completer_delims(" \t\n;")
+        readline.set_completer(complete)
+        binding = "bind ^I rl_complete" if "libedit" in (readline.__doc__ or "") else "tab: complete"
+        readline.parse_and_bind(binding)
+    return lambda: readline.set_completer(previous)
+
+
 def get_parameter_value_input(
     param: ParameterDefinition | None = None,
     current_value: Any | None = None,
@@ -1653,6 +1824,7 @@ def get_parameter_value_input(
     description: str = "",
     default: Any = "",
     help_text: str = "",
+    allow_list: bool = False,
 ) -> Any | None:
     """
     Interactive input for a parameter value with validation.
@@ -1660,7 +1832,9 @@ def get_parameter_value_input(
     Returns:
         - The entered/converted value
         - NAV_BACK if the user wants to go back to the previous parameter
-        - NAV_LIST if the user wants to return to the selection list
+        - NAV_LIST if the user wants to return to the selection list (only when
+          ``allow_list`` is True; most callers have no list to return to, and the
+          sentinel used to leak into values, e.g. ``float("__LIST__")``)
     """
     if param is None:
         if name is None:
@@ -1676,50 +1850,47 @@ def get_parameter_value_input(
         )
 
     value_to_edit = current_value if current_value is not None else param.default
+    nav_options = ["Back to Previous"] + (["Back to List"] if allow_list else [])
+    header_text = (
+        f"[bold cyan]Parameter:[/bold cyan] {escape(str(param.name))}\n"
+        f"[bold cyan]Description:[/bold cyan] {escape(str(param.description))}\n\n"
+        f"[dim]{escape(str(param.help_text))}[/dim]\n\n"
+        f"Current value: [bold yellow]{escape(str(value_to_edit))}[/bold yellow]"
+    )
 
     # 1. Specialized handling for Boolean values (Fast Path)
     if param.value_type == "bool":
         choice = get_user_choice(
-            ["True", "False", "Back to Previous", "Back to List"],
+            ["True", "False", *nav_options],
             title=f"Set Value: {param.name}",
-            text=(
-                f"[bold cyan]Parameter:[/bold cyan] {param.name}\n"
-                f"[bold cyan]Description:[/bold cyan] {param.description}\n\n"
-                f"[dim]{param.help_text}[/dim]\n\n"
-                f"Current value: [bold yellow]{value_to_edit}[/bold yellow]"
-            ),
+            text=header_text,
             tip="Boolean parameters are toggled instantly for faster configuration.",
+            back_option="Back to Previous",
         )
         if choice == "True":
             return True
         if choice == "False":
             return False
-        if choice == "Back to Previous":
-            return NAV_BACK
         if choice == "Back to List":
             return NAV_LIST
-        return value_to_edit
+        # Esc/B/Ctrl-C used to fall through to "keep the value and continue".
+        return NAV_BACK
 
     # 2. Specialized handling for Allowed Values (Fast Path)
     if param.allowed_values:
-        options = list(param.allowed_values)
-        options.extend(["Back to Previous", "Back to List"])
+        options = [str(value) for value in param.allowed_values]
         choice = get_user_choice(
-            options,
+            [*options, *nav_options],
             title=f"Set Value: {param.name}",
-            text=(
-                f"[bold cyan]Parameter:[/bold cyan] {param.name}\n"
-                f"[bold cyan]Description:[/bold cyan] {param.description}\n\n"
-                f"[dim]{param.help_text}[/dim]\n\n"
-                f"Current value: [bold yellow]{value_to_edit}[/bold yellow]"
-            ),
+            text=header_text,
             tip=f"Pick from one of the {len(param.allowed_values)} valid options.",
+            back_option="Back to Previous",
         )
-        if choice == "Back to Previous":
-            return NAV_BACK
         if choice == "Back to List":
             return NAV_LIST
-        return choice
+        if choice in ("Back to Previous", NAV_BACK):
+            return NAV_BACK
+        return param.allowed_values[options.index(choice)] if choice in options else choice
 
     # 3. Interactive Text Input for Numeric/String values
     clear_screen()
@@ -1729,13 +1900,13 @@ def get_parameter_value_input(
     console.print(
         Panel(
             Group(
-                Text.from_markup(f"[bold cyan]Parameter:[/bold cyan] {param.name}"),
-                Text.from_markup(f"[bold cyan]Type:[/bold cyan] {param.value_type}"),
-                Text.from_markup(f"[bold cyan]Default:[/bold cyan] {param.default}"),
+                Text.from_markup(f"[bold cyan]Parameter:[/bold cyan] {escape(str(param.name))}"),
+                Text.from_markup(f"[bold cyan]Type:[/bold cyan] {escape(str(param.value_type))}"),
+                Text.from_markup(f"[bold cyan]Default:[/bold cyan] {escape(str(param.default))}"),
                 Text(""),
-                Text(param.description),
+                Text(str(param.description)),
                 Text(""),
-                Text.from_markup(f"[dim]{param.help_text}[/dim]"),
+                Text(str(param.help_text), style="dim"),
             ),
             border_style="blue",
             padding=(1, 2),
@@ -1746,67 +1917,42 @@ def get_parameter_value_input(
         range_str = f"Range: {param.min_value if param.min_value is not None else '-∞'} to {param.max_value if param.max_value is not None else '+∞'}"
         console.print(f"[bold magenta]{range_str}[/bold magenta]")
 
-    console.print(f"\nCurrent value: [bold yellow]{value_to_edit}[/bold yellow]")
-    if param.value_type in {"str", "optional_str", "bool_or_str"}:
-        console.print(
-            "\n[dim]Commands: [bold yellow]Enter[/bold yellow] (keep current)  •  "
-            "[bold yellow]:b[/bold yellow] (back)  •  "
-            "[bold yellow]:l[/bold yellow] (list)[/dim]"
-        )
-    else:
-        console.print(
-            "\n[dim]Commands: [bold yellow]Enter[/bold yellow] (keep current)  •  "
-            "[bold yellow]B[/bold yellow] (back)  •  "
-            "[bold yellow]L[/bold yellow] (list)  •  "
-            "[bold yellow]Esc[/bold yellow] (cancel/back)[/dim]"
-        )
+    console.print(f"\nCurrent value: [bold yellow]{escape(str(value_to_edit))}[/bold yellow]")
+    commands = ["[bold yellow]Enter[/bold yellow] (keep current)", "[bold yellow]:b[/bold yellow] (back)"]
+    if allow_list:
+        commands.append("[bold yellow]:l[/bold yellow] (list)")
+    commands.append("[bold yellow]Ctrl+C[/bold yellow] (back)")
+    if any(hint in str(param.name).lower() for hint in _PATH_HINTS):
+        commands.append("[bold yellow]Tab[/bold yellow] (complete path)")
+    console.print("\n[dim]Commands: " + "  •  ".join(commands) + "[/dim]")
 
-    while True:
-        try:
-            user_input = input("\nNew value: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            return NAV_BACK
-
-        if not user_input:
-            return value_to_edit
-
-        if user_input.lower() == ":b" or user_input.lower() == ":back":
-            return NAV_BACK
-        if user_input.lower() == ":l" or user_input.lower() == ":list":
-            return NAV_LIST
-
-        if param.value_type not in {"str", "optional_str", "bool_or_str"}:
-            if user_input.lower() == "b":
+    restore_completer = _enable_line_editing(str(param.name))
+    try:
+        while True:
+            try:
+                user_input = input("\nNew value: ").strip()
+            except (EOFError, KeyboardInterrupt):
                 return NAV_BACK
-            if user_input.lower() == "l":
-                return NAV_LIST
 
-        try:
-            if param.value_type == "int":
-                value = int(user_input)
-                if param.min_value is not None and value < param.min_value:
-                    console.print(f"[red]Value must be >= {param.min_value}[/red]")
-                    continue
-                if param.max_value is not None and value > param.max_value:
-                    console.print(f"[red]Value must be <= {param.max_value}[/red]")
-                    continue
+            if not user_input:
+                return value_to_edit
+
+            lowered = user_input.lower()
+            if lowered in (":b", ":back"):
+                return NAV_BACK
+            if allow_list and lowered in (":l", ":list"):
+                return NAV_LIST
+            if param.value_type not in {"str", "optional_str", "bool_or_str"} and lowered == "b":
+                return NAV_BACK
+
+            # Same parser/validator as the multi-select editor, so optional_*,
+            # int_list, ranges, etc. behave identically everywhere.
+            ok, value, error = convert_and_validate_parameter_value(param, user_input)
+            if ok:
                 return value
-            elif param.value_type == "float":
-                value = float(user_input)
-                if param.min_value is not None and value < param.min_value:
-                    console.print(f"[red]Value must be >= {param.min_value}[/red]")
-                    continue
-                if param.max_value is not None and value > param.max_value:
-                    console.print(f"[red]Value must be <= {param.max_value}[/red]")
-                    continue
-                return value
-            elif param.value_type == "str":
-                return user_input
-            else:
-                return user_input
-        except ValueError as e:
-            console.print(f"[red]Invalid value: {e}[/red]")
-            continue
+            console.print(f"[red]{escape(str(error))}[/red]")
+    finally:
+        restore_completer()
 
 
 _gpu_status: str | None = None

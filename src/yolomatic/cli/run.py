@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import time
@@ -59,247 +60,7 @@ from yolomatic.utils.project import (
 )
 
 # Model family descriptions — defined at module level to avoid rebuilding on every wizard entry
-_MODEL_DESCRIPTIONS: dict[str, str] = {
-    "yolo26-sem": (
-            "[bold cyan]YOLO26 Semantic[/bold cyan]  [green]● Per-pixel segmentation — 2025[/green]\n\n"
-            "Dense [bold]per-pixel[/bold] class prediction — no boxes, no instances. "
-            "Pick this over [bold]-seg[/bold] when you want one mask for the whole "
-            "class (canopy cover, land cover) rather than separately counted objects.\n\n"
-            "Trains on ordinary YOLO polygon labels: they are rasterized into masks "
-            "on the fly, so an existing [bold]-seg[/bold] dataset works unchanged. "
-            "Loss is BCE/CE + Dice; the metric is [bold]mIoU[/bold], not mAP.\n\n"
-            "Note the head predicts at stride 8 and upsamples 8x, so fine boundaries "
-            "benefit from a larger [bold]imgsz[/bold] more than from a larger model. "
-            "Weights: [dim]yolo26<n/s/m/l/x>-sem.pt[/dim] (Cityscapes-pretrained)."
-        ),
-        "yolo26-pose": (
-            "[bold cyan]YOLO26 Pose[/bold cyan]  [green]● Keypoint detection — 2025[/green]\n\n"
-            "Latest-generation pose estimation. Trains on YOLO keypoint datasets "
-            "(data.yaml with [bold]kpt_shape[/bold] + per-object keypoints). "
-            "Weights: [dim]yolo26<n/s/m/l/x>-pose.pt[/dim]."
-        ),
-        "yolov11-pose": (
-            "[bold cyan]YOLO11 Pose[/bold cyan]  [green]● Keypoint detection[/green]\n\n"
-            "Mature, well-supported pose family with official COCO-Pose weights "
-            "across n/s/m/l/x. Solid default for custom keypoint datasets."
-        ),
-        "yolov8-pose": (
-            "[bold cyan]YOLOv8 Pose[/bold cyan]  [green]● Keypoint detection[/green]\n\n"
-            "Stable, widely-deployed pose family. Choose when you want maximum "
-            "ecosystem/tooling compatibility for keypoint models."
-        ),
-        "detectron2": (
-            "[bold cyan]Detectron2[/bold cyan]  [green]● Optional native COCO detection[/green]\n\n"
-            "Faster R-CNN and RetinaNet variants using Detectron2's model zoo. "
-            "Detectron2 is imported only when you train or predict with this family."
-        ),
-        "sam3.1": (
-            "[bold cyan]SAM 3.1[/bold cyan]  [green]● Foundation Segmentation — 2025[/green]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Meta's Segment Anything Model 3.1 (Object Multiplex)\n"
-            "  • Unified DETR detector + memory-based tracker\n"
-            "  • Shared memory for simultaneous multi-object segmentation\n"
-            "  • 7× faster multi-object throughput vs SAM 3\n\n"
-            "[bold]Capabilities[/bold]\n"
-            "  • Open-vocabulary text prompting ('vegetation', 'person')\n"
-            "  • Auto mask generation — segment everything without prompts\n"
-            "  • Point and bounding box prompted segmentation\n"
-            "  • Video object segmentation and multi-object tracking\n\n"
-            "[bold]Parameters[/bold]  873M\n"
-            "[bold]Input Size[/bold]  1008×1008\n"
-            "[bold]HuggingFace[/bold]  facebook/sam3.1\n\n"
-            "[dim]Gated model — requires HuggingFace account and "
-            "Meta's terms agreement.[/dim]\n\n"
-            "[bold]Best for[/bold]\n"
-            "  High-quality instance masks, zero-shot segmentation, "
-            "annotation generation for new domains"
-        ),
-        "detectron2-seg": (
-            "[bold cyan]Detectron2 Segmentation[/bold cyan]  [green]● Optional native COCO masks[/green]\n\n"
-            "Mask R-CNN instance segmentation with COCO annotations. YOLO polygon "
-            "datasets are converted into cached COCO manifests when needed."
-        ),
-        "rfdetr": (
-            "[bold cyan]RF-DETR[/bold cyan]  [green]● Transformer detection[/green]\n\n"
-            "Real-time DETR-style object detection with automatic pretrained "
-            "weight download. Core models are Apache-2.0; XL and 2XL require "
-            "RF-DETR Plus licensing."
-        ),
-        "rfdetr-seg": (
-            "[bold cyan]RF-DETR-Seg[/bold cyan]  [green]● Transformer segmentation[/green]\n\n"
-            "Instance segmentation variants using RF-DETR's segmentation model "
-            "classes. Pretrained weights are downloaded automatically on first use."
-        ),
-        "rfdetr-pose": (
-            "[bold cyan]RF-DETR-Keypoint[/bold cyan]  [yellow]● Transformer pose (preview)[/yellow]\n\n"
-            "[bold yellow]Preview architecture[/bold yellow] (RFDETRKeypointPreview), "
-            "pretrained on COCO person keypoints. Training requires [bold]COCO "
-            "keypoint JSON[/bold]; YOLO pose datasets are auto-converted to cached "
-            "COCO manifests. Pretrained weights download automatically on first use."
-        ),
-        "yolo26": (
-            "[bold cyan]YOLO26[/bold cyan]  [green]● Latest — 2026[/green]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • End-to-end NMS-free inference (no post-processing step)\n"
-            "  • DFL removed — simpler export, wider edge compatibility\n"
-            "  • MuSGD optimizer (hybrid SGD + Muon, inspired by LLM training)\n"
-            "  • ProgLoss + STAL loss for better small-object accuracy\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-            "  • mAP:    40.9 (nano)  →  57.5 (xlarge)\n"
-            "  • Params: 2.4M (nano)  →  55.7M (xlarge)\n"
-            "  • Speed:  1.7 ms T4 TensorRT (nano)  |  CPU ONNX not published\n\n"
-            "[bold]Best for[/bold]\n"
-            "  Edge devices, IoT, robotics, CPU-only and mobile deployments"
-        ),
-        "yolo26-seg": (
-            "[bold cyan]YOLO26-Seg[/bold cyan]  [green]● Latest — 2026[/green]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Same NMS-free, DFL-removed, MuSGD base as YOLO26\n"
-            "  • Instance segmentation head for pixel-level boundary detection\n"
-            "  • Edge-optimized — fast CPU ONNX inference among seg models\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
-            "  • mAP box: 33.9 (nano)  →  47.0 (xlarge)\n"
-            "  • Params:  2.7M (nano)  →  62.8M (xlarge)\n"
-            "  • Speed:   53 ms CPU ONNX (nano)  |  2.1 ms T4 TensorRT (nano)\n\n"
-            "[bold]Best for[/bold]\n"
-            "  Pixel-level detection on resource-constrained or edge hardware"
-        ),
-        "yolov12": (
-            "[bold cyan]YOLOv12[/bold cyan]  [yellow]● Research — 2025[/yellow]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Area Attention mechanism — large receptive field, attention-based\n"
-            "  • R-ELAN (Residual Efficient Layer Aggregation Networks)\n"
-            "  • Optional FlashAttention for memory-efficient training\n"
-            "  • Higher peak accuracy than YOLO11 at cost of stability\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-            "  • mAP:    40.6 (nano)  →  55.2 (xlarge)\n"
-            "  • Params: 2.6M (nano)  →  59.1M (xlarge)\n"
-            "  • Speed:  1.64 ms T4 TensorRT (nano)  |  CPU ONNX not published\n\n"
-            "[bold]Recommendation[/bold]\n"
-            "  [bold red]Not recommended for production[/bold red] — training instability and "
-            "high GPU memory consumption. Use YOLO11 or YOLO26 for production."
-        ),
-        "yolov12-seg": (
-            "[bold cyan]YOLOv12-Seg[/bold cyan]  [yellow]● Research — 2025[/yellow]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Attention-centric YOLO12 base with segmentation head\n"
-            "  • Area Attention + R-ELAN backbone\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017)[/dim]\n"
-            "  • Mask mAP: not yet officially published by Ultralytics\n"
-            "  • Speed:    not yet officially published by Ultralytics\n\n"
-            "[bold]Recommendation[/bold]\n"
-            "  [bold red]Not recommended for production[/bold red] — inherits YOLO12 "
-            "instability. Use YOLO11-seg or YOLO26-seg instead."
-        ),
-        "yolov11": (
-            "[bold cyan]YOLOv11[/bold cyan]  [green]● Stable — 2024[/green]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Improved backbone and neck over YOLOv8\n"
-            "  • 22% fewer parameters than YOLOv8m with higher mAP\n"
-            "  • Supports all tasks: Detect, Segment, Classify, Pose, OBB\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-            "  • mAP:    39.5 (nano)  →  54.7 (xlarge)\n"
-            "  • Params: 2.6M (nano)  →  56.9M (xlarge)\n"
-            "  • Speed:  56 ms CPU ONNX (nano)  |  1.5 ms T4 TensorRT (nano)\n\n"
-            "[bold]Best for[/bold]\n"
-            "  Production, enterprise, mission-critical applications"
-        ),
-        "yolov11-seg": (
-            "[bold cyan]YOLOv11-Seg[/bold cyan]  [green]● Stable — 2024[/green]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • YOLO11 backbone with segmentation head\n"
-            "  • Proven training stability across diverse datasets\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
-            "  • mAP box:  38.9 (nano)  →  54.7 (xlarge)\n"
-            "  • mAP mask: 32.0 (nano)  →  43.8 (xlarge)\n"
-            "  • Params:   2.9M (nano)  →  62.1M (xlarge)\n"
-            "  • Speed:    66 ms CPU ONNX (nano)  |  2.9 ms T4 TensorRT (nano)\n\n"
-            "[bold]Best for[/bold]\n"
-            "  Production segmentation requiring reliability and full benchmark data"
-        ),
-        "yolov10": (
-            "[bold cyan]YOLOv10[/bold cyan]  [dim]● Mature[/dim]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Anchor-free, NMS-free inference (pre-YOLO26 pioneer)\n"
-            "  • 6 size variants: N / S / M / B / L / X\n"
-            "  • Dual-head design: one for training, one for inference\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-            "  • mAP:     38.5 (N)  →  54.4 (X)\n"
-            "  • Latency: 1.84 ms (N)  →  10.70 ms (X) T4 TensorRT\n\n"
-            "[bold]Recommendation[/bold]\n"
-            "  Prefer YOLO11 or YOLO26 for new projects. Use when an existing "
-            "pipeline is already built on YOLOv10."
-        ),
-        "yolov9": (
-            "[bold cyan]YOLOv9[/bold cyan]  [dim]● Mature[/dim]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Programmable Gradient Information (PGI) — preserves full\n"
-            "    information through deep network layers\n"
-            "  • Generalised Efficient Layer Aggregation Network (GELAN)\n"
-            "  • 5 variants: t / s / m / c / e\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-            "  • mAP:    38.3 (tiny)  →  55.6 (extra-large)\n"
-            "  • Params: 2.0M (tiny)  →  58.1M (extra-large)\n\n"
-            "[bold]Best for[/bold]\n"
-            "  When PGI gradient stability is required or a YOLOv9 checkpoint "
-            "is already available"
-        ),
-        "yolov9-seg": (
-            "[bold cyan]YOLOv9-Seg[/bold cyan]  [dim]● Mature[/dim]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • PGI-based backbone with segmentation head\n"
-            "  • Same GELAN feature aggregation as YOLOv9 detection\n"
-            "  • 5 variants: t / s / m / c / e\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017)[/dim]\n"
-            "  • Mask mAP: not officially published by Ultralytics\n\n"
-            "[bold]Best for[/bold]\n"
-            "  Segmentation when PGI gradient properties are desired "
-            "or an existing YOLOv9-seg checkpoint is in use"
-        ),
-        "yolov8": (
-            "[bold cyan]YOLOv8[/bold cyan]  [dim]● Mature — 2023[/dim]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Anchor-free, decoupled detection head\n"
-            "  • Industry-standard baseline — extensively documented\n"
-            "  • Broadest third-party tool and framework support\n"
-            "  • 5 variants: n / s / m / l / x\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-            "  • mAP:    37.3 (nano)  →  53.9 (xlarge)\n"
-            "  • Params: 3.2M (nano)  →  68.2M (xlarge)\n"
-            "  • Speed:  80 ms CPU ONNX (nano)  |  0.99 ms A100 TensorRT (nano)\n\n"
-            "[bold]Best for[/bold]\n"
-            "  Legacy compatibility, existing YOLOv8 pipelines, or when "
-            "maximum ecosystem support is required"
-        ),
-        "yolov8-seg": (
-            "[bold cyan]YOLOv8-Seg[/bold cyan]  [dim]● Mature — 2023[/dim]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • YOLOv8 backbone with segmentation head\n"
-            "  • Most widely supported segmentation baseline\n"
-            "  • 5 variants: n / s / m / l / x\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, segmentation)[/dim]\n"
-            "  • mAP box:  36.7 (nano)  →  53.4 (xlarge)\n"
-            "  • mAP mask: 30.5 (nano)  →  43.4 (xlarge)\n"
-            "  • Params:   3.4M (nano)  →  71.8M (xlarge)\n"
-            "  • Speed:    96 ms CPU ONNX (nano)  |  1.21 ms A100 TensorRT (nano)\n\n"
-            "[bold]Best for[/bold]\n"
-            "  Production segmentation requiring maximum ecosystem compatibility"
-        ),
-        "yolox": (
-            "[bold cyan]YOLOX[/bold cyan]  [dim]● Mature[/dim]\n\n"
-            "[bold]Architecture[/bold]\n"
-            "  • Anchor-free with decoupled classification/regression head\n"
-            "  • Simpler training setup than anchor-based predecessors\n"
-            "  • 4 variants: S / M / L / X\n\n"
-            "[bold]Benchmarks[/bold]  [dim](COCO val2017, detection)[/dim]\n"
-            "  • mAP:    40.5 (S)  →  51.1 (X)\n"
-            "  • Params: 9.0M (S)  →  99.1M (X)\n"
-            "  • FPS:    102 (S)  →  58 (X)  [dim](V100 GPU)[/dim]\n\n"
-            "[bold]Best for[/bold]\n"
-            "  When a clean anchor-free baseline and training stability "
-            "are the primary requirements"
-        ),
-}
+from yolomatic.models.descriptions import MODEL_DESCRIPTIONS as _MODEL_DESCRIPTIONS  # noqa: E402
 
 # Training parameter catalogs live in src/config/parameters.py
 from yolomatic.config.parameters import (  # noqa: E402
@@ -427,256 +188,13 @@ def _safe_subcommand(
     return result
 
 
-def _render_dependency_table(statuses):
-    """Build the themed comparison Table for a dependency-health report."""
-    from yolomatic.utils.version_check import IMPORTANCE_STYLE, SEVERITY_META
-
-    table = Table(
-        title="Critical Dependencies",
-        title_style="bold cyan",
-        border_style="dim",
-        box=box.ROUNDED,
-        show_header=True,
-        header_style="bold cyan",
-        expand=True,
-    )
-    table.add_column("Package", style="cyan", no_wrap=True)
-    table.add_column("Role", style="dim")
-    table.add_column("Importance", justify="center", no_wrap=True)
-    table.add_column("Installed", justify="center", no_wrap=True)
-    table.add_column("Latest", justify="center", no_wrap=True)
-    table.add_column("Status", justify="left", no_wrap=True)
-
-    for status in statuses:
-        color, glyph, label = SEVERITY_META[status.severity]
-        installed_display = status.installed or "—"
-        latest_display = status.latest or (
-            f"[dim]{status.error}[/dim]" if status.error else "—"
-        )
-        table.add_row(
-            status.package.display_name,
-            status.package.description,
-            IMPORTANCE_STYLE[status.package.importance],
-            installed_display,
-            latest_display,
-            f"[{color}]{glyph} {label}[/{color}]",
-        )
-    return table
-
-
-def _render_dependency_summary(statuses):
-    """High-level banner Panel that calls out the most urgent problem."""
-    missing = [s for s in statuses if s.severity == "missing"]
-    major = [s for s in statuses if s.severity == "major"]
-    minor = [s for s in statuses if s.severity == "minor"]
-    patch = [s for s in statuses if s.severity == "patch"]
-    unknown = [s for s in statuses if s.severity == "unknown"]
-
-    if missing:
-        names = ", ".join(s.package.name for s in missing)
-        body = (
-            f"[bold red]{len(missing)} critical package(s) missing:[/bold red] {names}\n"
-            "[dim]Run `uv sync` (or `pip install -r requirements.txt`) to install them.[/dim]"
-        )
-        border = "red"
-    elif major:
-        names = ", ".join(s.package.name for s in major)
-        body = (
-            f"[bold red]{len(major)} major update(s) available — breaking changes possible:[/bold red] {names}\n"
-            "[dim]Review release notes before upgrading.[/dim]"
-        )
-        border = "red"
-    elif minor or patch:
-        updates = minor + patch
-        names = ", ".join(s.package.name for s in updates)
-        body = f"[bold yellow]{len(updates)} non-breaking update(s) available:[/bold yellow] {names}"
-        border = "yellow"
-    elif unknown:
-        names = ", ".join(s.package.name for s in unknown)
-        body = (
-            f"[bold]PyPI unreachable for {len(unknown)} package(s):[/bold] {names}\n"
-            "[dim]Check your network connection and try Refresh.[/dim]"
-        )
-        border = "dim"
-    else:
-        body = "[bold green]All tracked dependencies are up to date.[/bold green]"
-        border = "green"
-
-    return Panel(body, border_style=border, padding=(1, 2), box=box.ROUNDED)
-
-
-def _run_pip_upgrade(packages):
-    """Upgrade packages in the active environment; return True on success."""
-    import os
-    import subprocess
-
-    upgrade_command = [
-        "uv",
-        "pip",
-        "install",
-        "--python",
-        sys.executable,
-        "--upgrade",
-        *packages,
-    ]
-    env = os.environ.copy()
-    env.setdefault("UV_CACHE_DIR", "/tmp/uv-cache")
-    with console.status(
-        f"[bold]Upgrading {len(packages)} package(s)...", spinner="dots"
-    ):
-        result = subprocess.run(
-            upgrade_command,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
-    if result.returncode == 0:
-        console.print(
-            Panel(
-                f"[bold green]Successfully upgraded:[/bold green] "
-                f"{', '.join(packages)}\n\n"
-                "[dim]This used `uv pip install --python <active interpreter>` "
-                "so it works even when the venv does not include pip. "
-                "`uv sync` may re-pin versions from uv.lock unless the lockfile "
-                "is updated afterwards.[/dim]",
-                border_style="green",
-                padding=(1, 2),
-                box=box.ROUNDED,
-            )
-        )
-        return True
-
-    error_output = (result.stderr or result.stdout or "No error output").strip()
-    console.print(
-        Panel(
-            f"[bold red]Upgrade failed (exit {result.returncode}).[/bold red]\n\n"
-            f"[dim]{error_output}[/dim]",
-            border_style="red",
-            padding=(1, 2),
-            box=box.ROUNDED,
-        )
-    )
-    return False
-
-
-def check_for_updates():
-    """Themed dependency-health view that matches the rest of the TUI.
-
-    Runs in a loop so Refresh / post-upgrade re-checks stay on the same
-    screen style; Back returns to the main menu. All failure modes are
-    caught so an offline run never kills the TUI.
-    """
-    from yolomatic.utils.version_check import check_packages
-
-    while True:
-        try:
-            clear_screen()
-            print_stylized_header("Dependency Health Check")
-
-            try:
-                with console.status(
-                    "[bold]Querying PyPI for the latest versions...",
-                    spinner="dots",
-                ):
-                    statuses = check_packages()
-            except Exception as error:
-                console.print(
-                    Panel(
-                        f"[bold red]Dependency check failed:[/bold red] {error}",
-                        border_style="red",
-                        padding=(1, 2),
-                        box=box.ROUNDED,
-                    )
-                )
-                input("\nPress Enter to return to the main menu...")
-                return
-
-            console.print(_render_dependency_table(statuses))
-            console.print()
-            console.print(_render_dependency_summary(statuses))
-
-            updatable = [s for s in statuses if s.needs_update]
-            ultralytics_update = next(
-                (s for s in updatable if s.package.name == "ultralytics"),
-                None,
-            )
-            critical_updates = [
-                s for s in updatable if s.package.importance == "critical"
-            ]
-
-            actions: list[str] = []
-            descriptions: dict[str, str] = {}
-
-            if ultralytics_update is not None:
-                actions.append("Update Ultralytics Only")
-                descriptions["Update Ultralytics Only"] = (
-                    f"Upgrade ultralytics from {ultralytics_update.installed} to "
-                    f"{ultralytics_update.latest} — the safest, most common choice."
-                )
-            if len(critical_updates) >= 2 or (
-                critical_updates and ultralytics_update is None
-            ):
-                label = f"Update All Critical ({len(critical_updates)})"
-                actions.append(label)
-                descriptions[label] = (
-                    "Upgrade every critical package with an available update "
-                    "(ultralytics, torch, torchvision). Major-version bumps may "
-                    "introduce breaking changes — review release notes afterwards."
-                )
-            if len(updatable) >= 1:
-                label = f"Update All Tracked ({len(updatable)})"
-                actions.append(label)
-                descriptions[label] = (
-                    "Upgrade every tracked package with an available update, "
-                    "including optional and tooling dependencies."
-                )
-
-            actions.append("Refresh")
-            descriptions["Refresh"] = (
-                "Re-query PyPI and re-read installed versions. Useful after an "
-                "upgrade or when PyPI was temporarily unreachable."
-            )
-            descriptions["Back"] = "Return to the main menu without making changes."
-
-            choice = get_user_choice(
-                actions,
-                allow_back=True,
-                title="Update Actions",
-                text=(
-                    "Pick an action to continue. "
-                    "Recommended action is listed first when available."
-                ),
-                descriptions=descriptions,
-                breadcrumbs=["YOLOmatic", "Dependency Health"],
-            )
-
-            if choice == "Back":
-                return
-            if choice == "Refresh":
-                continue
-
-            if choice == "Update Ultralytics Only":
-                targets = ["ultralytics"]
-            elif choice.startswith("Update All Critical"):
-                targets = [s.package.name for s in critical_updates]
-            elif choice.startswith("Update All Tracked"):
-                targets = [s.package.name for s in updatable]
-            else:
-                return
-
-            clear_screen()
-            print_stylized_header("Applying Updates")
-            _run_pip_upgrade(targets)
-            console.print()
-            input("Press Enter to re-check dependencies...")
-            # Loop back and re-render the fresh state.
-
-        except KeyboardInterrupt:
-            console.print(
-                "\n[bold yellow]Dependency check cancelled by user.[/bold yellow]"
-            )
-            return
+from yolomatic.cli.about import render_about_page  # noqa: E402
+from yolomatic.cli.updates import (  # noqa: E402,F401 - re-exported for callers/tests
+    _render_dependency_summary,
+    _render_dependency_table,
+    _run_pip_upgrade,
+    check_for_updates,
+)
 
 
 def display_configuration_summary(
@@ -880,8 +398,10 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
             health = "Valid" if not summary.errors else "Blocking errors"
             if summary.warnings and not summary.errors:
                 health = "Warnings"
+            from yolomatic.ui.theme import safe
+
             desc = (
-                f"[bold cyan]{d['name']}[/bold cyan]\n\n"
+                f"[bold cyan]{safe(d['name'])}[/bold cyan]\n\n"
                 f"[bold]Format:[/bold] {summary.format.upper()}    "
                 f"[bold]Task:[/bold] {summary.task.title()}\n"
                 f"[bold]Size:[/bold] {d['size']}    "
@@ -890,18 +410,20 @@ def list_datasets(wizard_steps: list[str] | None = None, wizard_current_step: in
                 f"[bold]Splits[/bold]\n"
                 + ("\n".join(split_lines) or "  No splits found")
                 + "\n\n"
-                f"[bold]Classes:[/bold] {len(summary.classes)} total — {classes}\n"
+                f"[bold]Classes:[/bold] {len(summary.classes)} total — {safe(classes)}\n"
                 f"[bold]Health:[/bold] {health}\n"
                 f"[bold]Compatibility:[/bold] YOLO/RF-DETR: {summary.compatibility.get('yolo', 'unknown')}; "
                 f"Detectron2: {summary.compatibility.get('detectron2', 'unknown')}\n"
                 f"[dim]Conversions, when needed, are written under datasets/.yolomatic_cache.[/dim]\n"
-                f"[dim]{d['path']}[/dim]"
+                f"[dim]{safe(d['path'])}[/dim]"
             )
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001 - shown in the details pane
+            from yolomatic.ui.theme import safe
+
             desc = (
-                f"[bold yellow]{d['name']}[/bold yellow]\n\n"
-                f"YOLOmatic could not inspect this dataset cleanly: {error}\n"
-                f"[dim]{d['path']}[/dim]"
+                f"[bold yellow]{safe(d['name'])}[/bold yellow]\n\n"
+                f"YOLOmatic could not inspect this dataset cleanly: {safe(error)}\n"
+                f"[dim]{safe(d['path'])}[/dim]"
             )
         return d["name"], desc
 
@@ -1409,6 +931,10 @@ def detect_device():
     return "cpu"
 
 
+# update_config() return value meaning "go back to model selection".
+CHANGE_MODEL = "__change_model__"
+
+
 def update_config(
     model_choice,
     dataset_choice,
@@ -1723,6 +1249,10 @@ def update_config(
             tip=tip,
         )
 
+        if choice == "Choose a Different Model":
+            # Distinct from False ("fix the dataset") so the wizard goes back to
+            # model selection instead of dataset selection.
+            return CHANGE_MODEL
         if choice != "Continue Anyway":
             return False
         # Continue with "Continue Anyway"
@@ -2478,13 +2008,86 @@ def _exit_now(code: int = 0) -> None:
     os._exit(code)
 
 
-def main():
+# Subcommands of `yolomatic <command>`: module whose main() runs the tool.
+SUBCOMMANDS: dict[str, tuple[str, str]] = {
+    "train": ("yolomatic.trainers.yolo_trainer", "Train from a saved config (--config PATH)."),
+    "predict": ("yolomatic.cli.predict", "Run inference on an image or folder."),
+    "export": ("yolomatic.cli.export", "Export a trained model to deployment formats."),
+    "benchmark": ("yolomatic.cli.benchmark", "Benchmark and compare models on a dataset."),
+    "augment": ("yolomatic.cli.augment", "Offline Albumentations augmentation."),
+    "prepare": ("yolomatic.cli.prepare_dataset", "Validate, convert and split a dataset."),
+    "convert": ("yolomatic.cli.convert_ndjson", "Convert NDJSON exports to YOLO/COCO."),
+    "sam": ("yolomatic.cli.sam_predict", "SAM 3.1 segmentation."),
+    "upload": ("yolomatic.cli.upload", "Upload trained weights to Roboflow."),
+    "upload-dataset": ("yolomatic.cli.upload_dataset", "Upload a dataset to Roboflow."),
+    "tensorboard": ("yolomatic.cli.tensorboard_launcher", "Launch TensorBoard (--port, --logdir)."),
+    "ultralytics": ("yolomatic.cli.ultralytics_platform", "Ultralytics Platform helpers."),
+}
+
+
+def build_cli_parser() -> argparse.ArgumentParser:
+
+    from yolomatic.__version__ import __version__
+
+    epilog = "commands:\n" + "\n".join(
+        f"  {name:<15} {help_text}" for name, (_module, help_text) in SUBCOMMANDS.items()
+    ) + (
+        "\n\nRun `yolomatic <command> --help` for command options. Without a command the "
+        "interactive TUI starts.\n\nexit codes: 0 success, 1 failure, 2 usage / no terminal, "
+        "130 cancelled (Ctrl+C)."
+    )
+    parser = argparse.ArgumentParser(
+        prog="yolomatic",
+        description="YOLOmatic: configure, train, predict, benchmark and export vision models.",
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--version", action="version", version=f"yolomatic {__version__}")
+    parser.add_argument("--debug", action="store_true", help="Verbose logging and on-screen tracebacks.")
+    parser.add_argument("--no-color", action="store_true", help="Disable colors (same as NO_COLOR=1).")
+    parser.add_argument("--log-file", help="Write the session log to this file instead of the default.")
+    parser.add_argument("command", nargs="?", choices=sorted(SUBCOMMANDS), metavar="command",
+                        help="Optional command to run without the TUI (see below).")
+    parser.add_argument("args", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+    return parser
+
+
+def main(argv: list[str] | None = None):
     from yolomatic.utils.logging_setup import configure_logging
 
-    configure_logging()
+    cli_args = build_cli_parser().parse_args(sys.argv[1:] if argv is None else argv)
+    if cli_args.debug:
+        os.environ["YOLOMATIC_DEBUG"] = "1"
+    if cli_args.no_color:
+        os.environ["NO_COLOR"] = "1"
+        console.no_color = True
+    configure_logging(verbose=cli_args.debug, log_file=cli_args.log_file)
+
+    if cli_args.command:
+        import importlib
+
+        from yolomatic.cli.result import run_standalone
+
+        module_name, _help = SUBCOMMANDS[cli_args.command]
+        sys.argv = [f"yolomatic {cli_args.command}", *cli_args.args]
+        run_standalone(importlib.import_module(module_name).main)
+
+    from yolomatic.utils.tui import NonInteractiveTerminalError, terminal_is_interactive
+
+    if not terminal_is_interactive():
+        console.print(
+            "[bold red]YOLOmatic's interactive TUI needs a terminal.[/bold red] "
+            "Run it in a terminal (`ssh -t` for remote sessions) or use a command: "
+            "`yolomatic --help`."
+        )
+        raise SystemExit(2)
+
     while True:
         try:
             _main_loop_iteration()
+        except NonInteractiveTerminalError as error:
+            console.print(f"[bold red]{error}[/bold red]")
+            raise SystemExit(2) from error
         except KeyboardInterrupt:
             # Ctrl+C at the main menu exits cleanly instead of dumping a trace.
             clear_screen()
@@ -3311,11 +2914,19 @@ def settings_ai_page() -> None:
         openai_models=openai_models,
     )
 
-    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), TUI_TERM.mouse_enabled():
+    from yolomatic.utils.tui import ensure_interactive_terminal, mouse_context
+
+    ensure_interactive_terminal()
+    with TUI_TERM.cbreak(), TUI_TERM.hidden_cursor(), mouse_context():
         last_scroll_time = 0.0
         with Live(renderer, console=TUI_CONSOLE, refresh_per_second=10, screen=True) as live:
             while True:
-                key = TUI_TERM.inkey(timeout=0.1)
+                try:
+                    key = TUI_TERM.inkey(timeout=0.1)
+                except KeyboardInterrupt:
+                    # Ctrl-C leaves this page (unsaved edits are discarded), it no
+                    # longer quits the whole application.
+                    return
                 if not key:
                     continue
                 
@@ -3835,14 +3446,18 @@ def _main_loop_iteration():
                     model_choice = infer_finetune_profile_model(_cand)
                     print_summary(_cand.display_name, _dataset)
                     try:
-                        if not update_config(
+                        outcome = update_config(
                             model_choice,
                             _dataset,
                             finetune_source=_cand.source,
                             finetune_strategy=_strategy,
                             wizard_steps=steps,
                             wizard_current_step=3,
-                        ):
+                        )
+                        if outcome == CHANGE_MODEL:
+                            ft_step = 0
+                            continue
+                        if not outcome:
                             ft_step = 2
                             continue
                     except KeyboardInterrupt:
@@ -3869,150 +3484,7 @@ def _main_loop_iteration():
             continue
 
         elif main_choice == "About YOLOmatic":
-            clear_screen()
-            from yolomatic.__version__ import __version__
-            import platform
-            import os
-            from rich.console import Group
-            from rich.text import Text
-            from yolomatic.utils.ml_dependencies import check_hf_auth
-
-            # --- Terminal Width ---
-            term_w = console.width
-
-            # --- System Environment Detection ---
-            os_system = platform.system()
-            os_release = platform.release()
-            os_display = f"{os_system} {os_release}"
-
-            py_version = platform.python_version()
-            py_arch = platform.architecture()[0]
-            py_display = f"{py_version} ({py_arch})"
-
-            venv_path = os.getenv("VIRTUAL_ENV")
-            if venv_path:
-                venv_display = os.path.basename(venv_path)
-            else:
-                venv_display = "None (System Python)"
-
-            gpu_info = "Checking..."
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    gpu_name = torch.cuda.get_device_name(0)
-                    gpu_info = f"[nord.green]Active[/nord.green] ({gpu_name})"
-                elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                    gpu_info = "[nord.green]Active[/nord.green] (Apple MPS)"
-                else:
-                    gpu_info = "[nord.yellow]Inactive[/nord.yellow]"
-            except Exception:
-                gpu_info = "[nord.red]Not Available[/nord.red]"
-
-            # --- Integrations Status ---
-            try:
-                rf_status = roboflow_credential_status()
-                rf_info = "[nord.green]Connected[/nord.green]" if rf_status.get("api_key") else "[dim]Not Configured[/dim]"
-            except Exception:
-                rf_info = "[nord.red]Error[/nord.red]"
-
-            try:
-                ultralytics_status = ultralytics_credential_status()
-                ult_info = "[nord.green]Connected[/nord.green]" if ultralytics_status.get("api_key") else "[dim]Not Configured[/dim]"
-            except Exception:
-                ult_info = "[nord.red]Error[/nord.red]"
-
-            try:
-                hf_token = check_hf_auth()
-                hf_info = "[nord.green]Connected[/nord.green]" if hf_token else "[dim]Not Configured[/dim]"
-            except Exception:
-                hf_info = "[nord.red]Error[/nord.red]"
-
-            # --- Centered Logo & Subtitle ---
-            banner_lines = [
-                " __  ______  __    ____  __  ___  ____  __  ____  ",
-                " \\ \\/ / __ \\/ /   / __ \\/  |/  / / __ \\/ /_/ ___/  ",
-                "  \\  / /_/ / /___/ /_/ / /|_/ / / /_/ / __/ /__    ",
-                "  /_/\\____/_____/\\____/_/  /_/  /_/ /_/\\__/\\___/   "
-            ]
-            logo_width = max(len(line) for line in banner_lines)
-
-            if term_w >= logo_width + 8:
-                gradient_styles = [
-                    "nord.frost0.bold",
-                    "nord.frost1.bold",
-                    "nord.frost2.bold",
-                    "nord.frost3.bold"
-                ]
-                banner_str = ""
-                for line, style in zip(banner_lines, gradient_styles):
-                    banner_str += f"[{style}]{line}[/{style}]\n"
-                header_element = Align.center(banner_str.strip())
-            else:
-                header_element = Align.center("[nord.frost0.bold]YOLOmatic[/nord.frost0.bold]")
-
-            subtitle_element = Align.center(
-                "[dim]Automated computer-vision training, configuration, and dataset management.[/dim]"
-            )
-
-            # --- Quiet, Minimalist Table Layout ---
-            left_table = Table.grid(padding=(0, 2))
-            left_table.add_column(style="nord.frost2.bold", justify="right", width=12)
-            left_table.add_column(style="white", width=28)
-
-            left_table.add_row("Product:", "YOLOmatic")
-            left_table.add_row("Version:", f"[nord.green.bold]{__version__}[/nord.green.bold]")
-            left_table.add_row("Creator:", "Shahab Bahreini Jangjoo")
-            left_table.add_row("Contact:", "[nord.frost1]shahabahreini@hotmail.com[/nord.frost1]")
-            left_table.add_row("License:", "[nord.yellow]Apache-2.0[/nord.yellow]")
-
-            right_table = Table.grid(padding=(0, 2))
-            right_table.add_column(style="nord.frost2.bold", justify="right", width=14)
-            right_table.add_column(style="white", width=26)
-
-            right_table.add_row("OS:", os_display)
-            right_table.add_row("Python:", py_display)
-            right_table.add_row("PyTorch GPU:", gpu_info)
-            right_table.add_row("Virtual Env:", f"[nord.frost1]{venv_display}[/nord.frost1]")
-            right_table.add_row("Roboflow:", rf_info)
-            right_table.add_row("Ultralytics:", ult_info)
-            right_table.add_row("Hugging Face:", hf_info)
-
-            # Split layout matching screen width
-            if term_w >= 90:
-                split_table = Table.grid(padding=(0, 6))
-                split_table.add_column(width=42)
-                split_table.add_column(width=42)
-                split_table.add_row(left_table, right_table)
-            else:
-                split_table = Table.grid(padding=(1, 0))
-                split_table.add_column(width=min(70, term_w - 4))
-                split_table.add_row(left_table)
-                split_table.add_row(Text(""))
-                split_table.add_row(right_table)
-
-            # Master layout
-            dashboard_content = Group(
-                header_element,
-                Text(""),
-                subtitle_element,
-                Text(""),
-                Text(""),
-                Align.center(split_table)
-            )
-
-            console.print("\n")
-            console.print(
-                Panel(
-                    dashboard_content,
-                    title="[nord.frost0.bold]About[/nord.frost0.bold]",
-                    border_style="grey37",
-                    padding=(2, 4),
-                    box=box.ROUNDED,
-                    expand=True
-                )
-            )
-            console.print("\n")
-            input("Press Enter to return to Main Menu...")
+            render_about_page()
             continue
 
         elif main_choice == "Configure Model":
@@ -4084,7 +3556,11 @@ def _main_loop_iteration():
                     _dataset = cm_state["dataset_choice"]
                     print_summary(_model, _dataset)
                     try:
-                        if not update_config(_model, _dataset, wizard_steps=steps, wizard_current_step=3):
+                        outcome = update_config(_model, _dataset, wizard_steps=steps, wizard_current_step=3)
+                        if outcome == CHANGE_MODEL:
+                            cm_step = 1
+                            continue
+                        if not outcome:
                             cm_step = 2
                             continue
                     except KeyboardInterrupt:
