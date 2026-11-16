@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'win32'",
@@ -3854,30 +3854,30 @@ wheels = [
 
 [[package]]
 name = "tensorrt-cu12"
-version = "11.1.0.106"
+version = "11.4.0.106"
 source = { registry = "https://pypi.nvidia.com/" }
 dependencies = [
     { name = "tensorrt-cu12-bindings" },
     { name = "tensorrt-cu12-libs" },
 ]
-sdist = { url = "https://pypi.nvidia.com/tensorrt-cu12/tensorrt_cu12-11.1.0.106.tar.gz", hash = "sha256:3d5daa5670a4c11b2d5485914399358021a0e2cd77151fcdfe8718a752bedac5" }
+sdist = { url = "https://pypi.nvidia.com/tensorrt-cu12/tensorrt_cu12-11.4.0.106.tar.gz", hash = "sha256:f37cfd7688a241f92a6a264445d73a76aa83e8ea55d415b7f86eca2f9cebb051" }
 
 [[package]]
 name = "tensorrt-cu12-bindings"
-version = "11.1.0.106"
+version = "11.4.0.106"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/9a/e17738b88e0a2e3199bcc4725221c23436fadea3ecd5516385d6b865e26d/tensorrt_cu12_bindings-11.1.0.106-cp312-none-manylinux_2_28_x86_64.whl", hash = "sha256:ac34b26bd056ca50e698b69b6e908ba2f6650e07bbbbd2fcfed771978c6fe67c", size = 1239405, upload-time = "2026-06-16T17:37:31.737Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/98/c5d519c82a63ac1e311e8fbfe0bf1b6681bb43b18be3272a68e6549dcd6f/tensorrt_cu12_bindings-11.1.0.106-cp312-none-win_amd64.whl", hash = "sha256:990fb0d09d3e430a9770cd86704771f69aafb222040a929aaa6b5e883fbb8efe", size = 885636, upload-time = "2026-06-16T17:37:58.433Z" },
-    { url = "https://files.pythonhosted.org/packages/54/d8/011af56c443ef2aa2cded73b807dd04d72012e2c3bb12bf241baeddd7068/tensorrt_cu12_bindings-11.1.0.106-cp313-none-manylinux_2_28_x86_64.whl", hash = "sha256:fd82a9e43b4e8db4a57f6f69caee7e661f8a0185181f8e9585c98e30e13e8a11", size = 1239441, upload-time = "2026-06-16T17:38:19.799Z" },
-    { url = "https://files.pythonhosted.org/packages/30/ba/ad7bda5dbdef768c6eeb2ed1a405256009fe47d14076a079c00f5a109c38/tensorrt_cu12_bindings-11.1.0.106-cp313-none-win_amd64.whl", hash = "sha256:3cfb486584a9784c72ba41a19a71c6dc921c6504e50159565b97ec9208944d04", size = 885594, upload-time = "2026-06-16T17:38:36.264Z" },
+    { url = "https://files.pythonhosted.org/packages/36/c7/ab69b38f0b1ea700263eb17a5113961b9cdc1e6166a73bf34c33af1df864/tensorrt_cu12_bindings-11.4.0.106-cp312-none-manylinux_2_28_x86_64.whl", hash = "sha256:6490518c9e072d57e0a815ad80b103596933efe776ffa61766ef31c25dbd8b39", size = 1261185, upload-time = "2026-10-08T18:59:14.101Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/d9/e105603c3a034953617f4389aee0513813eac8e0e69b229ec25061c1c46e/tensorrt_cu12_bindings-11.4.0.106-cp312-none-win_amd64.whl", hash = "sha256:f9602fefba643c3721e0eccb7557f5fe821d28e2d4cdb7fab7c2ebeebf3c4a9d", size = 896007, upload-time = "2026-10-08T18:59:35.356Z" },
+    { url = "https://files.pythonhosted.org/packages/69/9b/ed8c6078eaa1f3c4af6a5651889fbd52f58a1bc0d4bf5727b23dbcd99bdb/tensorrt_cu12_bindings-11.4.0.106-cp313-none-manylinux_2_28_x86_64.whl", hash = "sha256:37bba007c65325087db7409d4ab48e460b4be4abcf99cb3e8b6979642f33c521", size = 1262509, upload-time = "2026-10-08T18:59:57.729Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/37/d71f8efb165f0be8b03cd0cee2b924e49bc634e85319c3ddaa061c1d1d1e/tensorrt_cu12_bindings-11.4.0.106-cp313-none-win_amd64.whl", hash = "sha256:e6a295ae9e9636f4594df31cde32dad2719b18d4a8f82c4bb3a42fdd03773b83", size = 895952, upload-time = "2026-10-08T19:00:21.682Z" },
 ]
 
 [[package]]
 name = "tensorrt-cu12-libs"
-version = "11.1.0.106"
+version = "11.4.0.106"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6b/f2/194d34df9450678185f271fac01c1513e5643346c76a1f4147ce7674088f/tensorrt_cu12_libs-11.1.0.106.tar.gz", hash = "sha256:ba4e393ae4fd0a9f9d27a187baf73b7db47829ed46bbf5ba281f2ecc5956a86e", size = 15770, upload-time = "2026-06-16T19:45:20.303Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/93/7f5b946d5edef767a470341d7ff83c05d6db30d503b5fd0e4e324d7b29a5/tensorrt_cu12_libs-11.4.0.106.tar.gz", hash = "sha256:760a9718068ebe84f6cc2c34aaae0d9ed32717a131b3dc14deaa3ef42a18bfb6", size = 15508, upload-time = "2026-10-08T18:58:56.157Z" }
 
 [[package]]
 name = "termcolor"
@@ -4672,7 +4672,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.3,<2" },
     { name = "tensorboard", specifier = ">=2.16,<3" },
     { name = "tensorflow", marker = "sys_platform != 'win32' and extra == 'export'", specifier = ">=2.16,<2.22" },
-    { name = "tensorrt-cu12", marker = "sys_platform != 'darwin' and extra == 'tensorrt'", specifier = "==11.1.0.106", index = "https://pypi.nvidia.com/" },
+    { name = "tensorrt-cu12", marker = "sys_platform != 'darwin' and extra == 'tensorrt'", specifier = "==11.4.0.106", index = "https://pypi.nvidia.com/" },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.4,<3" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.4,<3", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=0.19,<1" },

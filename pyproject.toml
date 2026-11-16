@@ -117,7 +117,7 @@ export = [
 ]
 # TensorRT engines (NVIDIA GPUs on Linux/Windows).
 tensorrt = [
-  "tensorrt-cu12==11.1.0.106; sys_platform != 'darwin'",
+  "tensorrt-cu12==11.4.0.106; sys_platform != 'darwin'",
 ]
 # ClearML experiment tracking.
 clearml = [
