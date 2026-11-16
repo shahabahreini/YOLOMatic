@@ -1,0 +1,30 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="readme.css"><style>
+.card{padding:44px 48px 0}
+.head{display:flex;align-items:baseline;justify-content:space-between;padding-bottom:22px;border-bottom:1px solid var(--rule-strong)}
+h2{font:700 34px/1 var(--sans);letter-spacing:-.02em}
+.grid{display:grid;grid-template-columns:1fr 1fr 1fr 1.18fr}
+.col{position:relative;padding:26px 26px 0 0}
+.col+.col{padding-left:26px;border-left:1px solid var(--rule)}
+.col+.col:before{content:"";position:absolute;left:-7px;top:31px;width:12px;height:12px;border-top:1.5px solid var(--brand-hi);border-right:1.5px solid var(--brand-hi);transform:rotate(45deg)}
+.n{font:500 15px/1 var(--mono);color:var(--brand-hi);letter-spacing:.08em}
+h3{font:700 24px/1.1 var(--sans);margin-top:12px;letter-spacing:-.01em}
+.p{margin-top:8px;font-size:15.5px;line-height:1.45;color:var(--muted);min-height:46px}
+ul{list-style:none;margin-top:18px}
+li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:9px 0;border-top:1px dashed var(--rule-strong);font-size:16px;white-space:nowrap}
+li code{font:400 12.5px/1 var(--mono);color:var(--frost);background:rgba(136,192,208,.08);padding:4px 7px;border-radius:4px;white-space:nowrap}
+li code.tui{color:var(--dim);background:transparent;padding-right:0}
+</style></head><body><div class="card hud">
+<div class="head"><h2>One menu, the whole workflow</h2><span class="tag">Every step in the menu · most as a command</span></div>
+<div class="grid">
+  <div class="col"><div class="n">01</div><h3>Prepare data</h3><p class="p">Convert exports, split, merge and augment.</p>
+    <ul><li>Convert NDJSON<code>convert</code></li><li>Validate and split<code>prepare</code></li><li>Combine datasets<code class="tui">TUI</code></li><li>Augment offline<code>augment</code></li></ul></div>
+  <div class="col"><div class="n">02</div><h3>Configure and train</h3><p class="p">Hardware-aware YAML, written for you.</p>
+    <ul><li>Configure model<code class="tui">TUI</code></li><li>Clone a config<code class="tui">TUI</code></li><li>Fine-tune a checkpoint<code class="tui">TUI</code></li><li>Train<code>train</code></li></ul></div>
+  <div class="col"><div class="n">03</div><h3>Evaluate</h3><p class="p">Metrics, rankings and an HTML report.</p>
+    <ul><li>Run prediction<code>predict</code></li><li>Benchmark models<code>benchmark</code></li><li>SAM 3.1 segment<code>sam</code></li><li>TensorBoard<code>tensorboard</code></li></ul></div>
+  <div class="col"><div class="n">04</div><h3>Ship</h3><p class="p">Export for the target, then publish.</p>
+    <ul><li>Export / compile<code>export</code></li><li>Upload weights<code>upload</code></li><li>Upload dataset<code>upload-dataset</code></li><li>Ultralytics Platform<code>ultralytics</code></li></ul></div>
+</div>
+</div></body></html>

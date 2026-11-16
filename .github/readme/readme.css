@@ -1,0 +1,28 @@
+/* Shared styles for the README panels. Palette and type follow the showreel
+   (promo/showreel/src/lib/tokens.ts): brand blue from the logo, Nord TUI accents. */
+:root{
+  --bg:#0b1020; --bg-deep:#070a15; --panel:#121a2e; --panel-hi:#18223b;
+  --rule:#1e2944; --rule-strong:#2a3656;
+  --text:#e6ebf5; --muted:#8a96b3; --dim:#5b6784;
+  --brand:#0b5ff0; --brand-hi:#3d82ff; --brand-soft:rgba(61,130,255,.14);
+  --frost:#88C0D0; --frost-deep:#5E81AC; --green:#A3BE8C; --amber:#EBCB8B;
+  --sans:"Space Grotesk",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:transparent}
+body{font-family:var(--sans);color:var(--text);-webkit-font-smoothing:antialiased}
+.card{
+  position:relative;overflow:hidden;width:100vw;height:100vh;border-radius:18px;
+  border:1px solid var(--rule-strong);
+  background:
+    radial-gradient(ellipse 70% 90% at 72% 40%,rgba(11,95,240,.16),transparent 70%),
+    radial-gradient(circle,rgba(138,150,179,.16) 1px,transparent 1.4px) 0 0/28px 28px,
+    linear-gradient(180deg,var(--bg) 0%,var(--bg-deep) 100%);
+}
+.tag{font:500 15px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--frost)}
+.mono{font-family:var(--mono)}
+/* HUD corner ticks, as in the showreel frame */
+.hud:before,.hud:after{content:"";position:absolute;width:14px;height:14px;border:1.5px solid var(--dim);opacity:.7}
+.hud:before{top:18px;left:18px;border-right:0;border-bottom:0}
+.hud:after{bottom:18px;right:18px;border-left:0;border-top:0}

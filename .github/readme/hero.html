@@ -1,0 +1,80 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="readme.css"><style>
+.card{display:grid;grid-template-columns:1fr 600px}
+.l{padding:60px 0 54px 68px;display:flex;flex-direction:column}
+.logo{width:318px;margin-left:-6px}
+.tag{margin-top:34px}
+h1{font:700 60px/1.02 var(--sans);letter-spacing:-.03em;margin-top:18px}
+h1 em{font-style:normal;color:var(--brand-hi)}
+.sub{margin-top:auto;font-size:20px;line-height:1.5;color:var(--muted);max-width:500px}
+.sub b{color:var(--text);font-weight:500}
+.meta{margin-top:18px;font:400 14px/1 var(--mono);letter-spacing:.08em;color:var(--dim);text-transform:uppercase}
+.meta span+span:before{content:"·";margin:0 10px}
+
+/* faux TUI window */
+.win{position:absolute;right:44px;top:44px;bottom:44px;width:556px;background:var(--panel);border:1px solid var(--rule-strong);border-radius:12px;box-shadow:0 30px 80px rgba(0,0,0,.45),0 0 0 1px rgba(61,130,255,.06);display:flex;flex-direction:column;overflow:hidden;font-family:var(--mono)}
+.bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--rule);background:var(--panel-hi)}
+.bar i{width:10px;height:10px;border-radius:50%;background:var(--rule-strong)}
+.bar span{margin-left:10px;font-size:12px;color:var(--dim)}
+.body{padding:14px 16px 0;flex:1;display:flex;flex-direction:column;gap:10px;font-size:12.5px}
+.crumb{color:var(--frost)}
+.crumb b{color:var(--text);font-weight:500}
+.step{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:11.5px;margin-bottom:8px}
+.step .ok{color:var(--green)} .step .on{color:var(--amber);font-weight:700}
+.step .c{color:var(--green);opacity:.8}
+.cols{display:grid;grid-template-columns:150px 1fr;gap:10px;flex:1;min-height:0}
+.box{border:1px solid var(--frost-deep);border-radius:6px;padding:10px 10px 8px;position:relative}
+.box>h4{position:absolute;top:-8px;left:10px;padding:0 6px;background:var(--panel);font:500 11px/1 var(--mono);color:var(--frost)}
+.nav div{line-height:1.62;color:var(--dim);padding-left:12px}
+.nav .h{color:var(--frost);opacity:.85;font-weight:700;padding-left:0;margin-top:2px}
+.nav .sel{background:var(--frost-deep);color:#fff;font-weight:700;padding-left:0;border-radius:2px}
+.det .t{color:var(--text);font-weight:700}
+.det .d{color:var(--muted);margin-top:6px;line-height:1.5}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:11.5px}
+th{color:var(--frost);font-weight:500;text-align:right;padding:4px 4px;border-bottom:1px solid var(--rule-strong)}
+th:first-child,td:first-child{text-align:left}
+td{padding:4px 4px;text-align:right;color:var(--muted)}
+tr.hl td{color:#fff;background:rgba(61,130,255,.18)}
+.foot{display:flex;justify-content:space-between;padding:9px 16px;border-top:1px solid var(--rule);font-size:11.5px;color:var(--dim);margin-top:12px}
+.foot b{color:var(--frost);font-weight:500}
+</style></head><body><div class="card hud">
+<div class="l">
+  <img class="logo" src="logo.png" alt="">
+  <div class="tag">Computer vision · Terminal-first · v7.0</div>
+  <h1>Train vision models<br>from <em>one terminal.</em></h1>
+  <p class="sub"><b>YOLO26 to YOLOv8, YOLOX, RF-DETR, SAM 3.1 and Detectron2.</b> A guided wizard configures, trains, benchmarks and exports them for you.</p>
+  <p class="meta"><span>Python 3.12 · 3.13</span><span>Runs locally</span><span>Apache-2.0</span></p>
+</div>
+<div class="win">
+  <div class="bar"><i></i><i></i><i></i><span>yolomatic</span></div>
+  <div class="body">
+    <div class="crumb">YOLOmatic › Model Selection › <b>yolo26</b></div>
+    <div class="step">Wizard Progress: <span class="ok">✓ Model Family</span><span class="c">──</span><span class="on">● Model Size</span><span>──</span><span>○ Dataset</span><span>──</span><span>○ Profile</span></div>
+    <div class="cols">
+      <div class="box nav"><h4>Navigation</h4>
+        <div class="h">DETECTION</div>
+        <div>detectron2</div><div>rfdetr</div>
+        <div class="sel">➤ yolo26</div>
+        <div>yolov12</div><div>yolov11</div><div>yolov10</div><div>yolov9</div><div>yolov8</div><div>yolox</div>
+        <div class="h">SEGMENTATION</div>
+        <div>sam3.1</div><div>rfdetr-seg</div>
+      </div>
+      <div class="box det"><h4>Details</h4>
+        <div class="t">Select YOLO26 Variant</div>
+        <div class="d">Choose the model size that fits your hardware:</div>
+        <table>
+          <tr><th>Model</th><th>params (M)</th><th>FLOPs (B)</th><th>mAP 50-95</th></tr>
+          <tr><td>YOLO26n</td><td>2.4</td><td>5.4</td><td>40.9</td></tr>
+          <tr class="hl"><td>YOLO26s</td><td>9.5</td><td>20.7</td><td>48.6</td></tr>
+          <tr><td>YOLO26m</td><td>20.4</td><td>68.2</td><td>53.1</td></tr>
+          <tr><td>YOLO26l</td><td>24.8</td><td>86.4</td><td>55.0</td></tr>
+          <tr><td>YOLO26x</td><td>55.7</td><td>193.9</td><td>57.5</td></tr>
+        </table>
+        <div class="d" style="margin-top:10px;font-size:11px;color:var(--dim)">COCO val2017, detection. Published reference values.</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span><b>↑↓</b> Move  <b>Enter</b> Select  <b>B</b> Back  <b>Q</b> Quit</span><span>v7.0.0</span></div>
+</div>
+</div></body></html>

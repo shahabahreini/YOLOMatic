@@ -1,0 +1,33 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="readme.css"><style>
+.card{padding:44px 48px 0}
+.head{display:flex;align-items:baseline;justify-content:space-between;padding-bottom:22px;border-bottom:1px solid var(--rule-strong)}
+h2{font:700 34px/1 var(--sans);letter-spacing:-.02em}
+.grid{display:grid;grid-template-columns:1.15fr 1.15fr .8fr}
+.col{padding:26px 26px 0 0}
+.col+.col{padding-left:28px;border-left:1px solid var(--rule)}
+.n{font:500 15px/1 var(--mono);color:var(--brand-hi);letter-spacing:.08em}
+h3{font:700 24px/1.1 var(--sans);margin-top:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.chips span{font:400 14px/1 var(--mono);padding:8px 10px;border-radius:6px;background:var(--panel);border:1px solid var(--rule-strong);color:var(--text)}
+.chips span.y{border-color:rgba(61,130,255,.45);background:var(--brand-soft)}
+.chips span i{font-style:normal;color:var(--dim);margin-left:6px;font-size:12px}
+.foot{position:absolute;left:48px;right:48px;bottom:30px;display:flex;gap:44px;padding-top:18px;border-top:1px solid var(--rule)}
+.foot div{font:400 14px/1.5 var(--mono);color:var(--muted)}
+.foot b{display:block;font:500 12px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--frost);margin-bottom:8px}
+</style></head><body><div class="card hud">
+<div class="head"><h2>Model families and tasks</h2><span class="tag">Pick from the menu · weights download on first use</span></div>
+<div class="grid">
+  <div class="col"><div class="n">DETECTION</div><h3>Boxes</h3>
+    <div class="chips"><span class="y">yolo26</span><span class="y">yolov12</span><span class="y">yolov11</span><span class="y">yolov10</span><span class="y">yolov9</span><span class="y">yolov8</span><span>yolox</span><span>rfdetr</span><span>detectron2</span></div></div>
+  <div class="col"><div class="n">SEGMENTATION</div><h3>Masks</h3>
+    <div class="chips"><span class="y">yolo26-seg</span><span class="y">yolo26-sem<i>semantic</i></span><span class="y">yolov12-seg</span><span class="y">yolov11-seg</span><span class="y">yolov9-seg</span><span class="y">yolov8-seg</span><span>rfdetr-seg</span><span>detectron2-seg</span><span>sam3.1<i>text prompts</i></span></div></div>
+  <div class="col"><div class="n">POSE</div><h3>Keypoints</h3>
+    <div class="chips"><span class="y">yolo26-pose</span><span class="y">yolov11-pose</span><span class="y">yolov8-pose</span><span>rfdetr-pose<i>preview</i></span></div></div>
+</div>
+<div class="foot">
+  <div><b>Data in</b>YOLO folders · COCO JSON · Labelbox NDJSON · Ultralytics NDJSON</div>
+  <div><b>Runs on</b>NVIDIA CUDA · Apple Silicon MPS · CPU</div>
+</div>
+</div></body></html>
