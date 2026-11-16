@@ -1,5 +1,6 @@
 ---
-description: Configure, train, and fine-tune RF-DETR detection and segmentation models with YOLOmatic. Full variant tables, training parameters, and Roboflow deployment.
+title: "Train and fine-tune RF-DETR models"
+description: "Configure, train, and fine-tune RF-DETR detection and segmentation models with YOLOmatic. Full variant tables, training parameters, and Roboflow deployment."
 ---
 
 # RF-DETR

@@ -1,5 +1,6 @@
 ---
-description: Monitor YOLOmatic training runs with TensorBoard — loss curves, mAP, precision, recall, and auto-discovery of run directories.
+title: "TensorBoard for YOLO and RF-DETR training"
+description: "Monitor YOLOmatic training runs with TensorBoard — loss curves, mAP, precision, recall, and auto-discovery of run directories."
 ---
 
 # TensorBoard

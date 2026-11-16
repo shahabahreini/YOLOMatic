@@ -3,12 +3,15 @@
 > Automated computer-vision training CLI/TUI for YOLO26, YOLOv12, YOLO11,
 > YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, and Detectron2.
 
-Install:
+Install (latest release, from GitHub; not on PyPI yet):
 
 ```sh
-uv tool install yolomatic
+uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0
 yolomatic
 ```
+
+Current version: 7.0.0. Python 3.12 or 3.13 on Linux, macOS or Windows.
+Showreel (40 s video): https://shahabahreini.github.io/YOLOMatic/assets/showreel/yolomatic-showreel.mp4
 
 Repository development:
 
@@ -48,6 +51,8 @@ Concrete examples:
 - RF-DETR: https://shahabahreini.github.io/YOLOMatic/guides/rf-detr/ — RF-DETR training and fine-tuning.
 - SAM 3.1: https://shahabahreini.github.io/YOLOMatic/guides/sam/ — SAM inference and fine-tuning.
 - Benchmarking: https://shahabahreini.github.io/YOLOMatic/guides/benchmarking/ — HTML reports, mAP, F1, and UMAP.
+- Augmentation: https://shahabahreini.github.io/YOLOMatic/guides/augmentation/ — offline Albumentations profiles.
+- Export: https://shahabahreini.github.io/YOLOMatic/guides/export/ — ONNX, TensorRT, OpenVINO, CoreML, TFLite.
 - Cloud upload: https://shahabahreini.github.io/YOLOMatic/guides/cloud-upload/ — Roboflow upload and deployment.
 - CLI commands: https://shahabahreini.github.io/YOLOMatic/reference/cli-commands/ — command entrypoint reference.
 - Configuration: https://shahabahreini.github.io/YOLOMatic/reference/configuration/ — generated YAML config reference.
@@ -61,13 +66,12 @@ Concrete examples:
 
 ## Supported model families
 
-- YOLO26: detection, segmentation, classification, pose, and OBB variants where
-  supported by Ultralytics.
+- YOLO26: detection, instance segmentation, semantic segmentation, and pose variants.
 - YOLOv12: attention-centric YOLO family, useful for research and benchmarking.
-- YOLO11: stable production YOLO family.
+- YOLO11: stable production YOLO family (detection, segmentation, pose).
 - YOLOv10: NMS-free detection family.
 - YOLOv9: detection and segmentation variants.
-- YOLOv8: detection, segmentation, classification, pose, and OBB variants.
+- YOLOv8: detection, segmentation, and pose variants.
 - YOLOX: detection variants.
 - RF-DETR: native detection and segmentation training with `.pth` checkpoints, plus a preview keypoint/pose model (RFDETRKeypointPreview) trained from COCO keypoint JSON.
 - SAM 3.1: open-vocabulary segmentation and mask decoder fine-tuning.
@@ -77,8 +81,9 @@ Concrete examples:
 
 ### What is YOLOmatic?
 
-YOLOmatic is a Python 3.12 command-line toolkit with an interactive terminal UI
-for computer-vision training workflows.
+YOLOmatic is a Python 3.12 / 3.13 terminal application with an interactive UI
+and scriptable CLI commands for computer-vision training workflows. It does not
+configure classification or OBB models.
 
 ### Is YOLOmatic only for YOLO?
 
@@ -111,7 +116,7 @@ through the Roboflow upload workflow.
   author = {Bahreini Jangjoo, Shahab},
   title = {{YOLOmatic}: automated computer-vision training CLI for YOLO, RF-DETR, SAM, and Detectron2},
   year = {2026},
-  version = {4.4.0},
+  version = {7.0.0},
   license = {Apache-2.0},
   url = {https://github.com/shahabahreini/YOLOMatic},
   note = {Python CLI/TUI for configuring, training, fine-tuning, predicting, benchmarking, and uploading computer-vision models}

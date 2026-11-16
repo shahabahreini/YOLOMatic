@@ -1,5 +1,6 @@
 ---
-description: Use YOLOmatic for SAM 3.1 open-vocabulary segmentation — auto, text-prompted, box-prompted modes — and COCO-format mask decoder fine-tuning.
+title: "SAM 3.1 segmentation and fine-tuning"
+description: "Use YOLOmatic for SAM 3.1 open-vocabulary segmentation — auto, text-prompted, box-prompted modes — and COCO-format mask decoder fine-tuning."
 ---
 
 # SAM 3.1

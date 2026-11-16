@@ -6,15 +6,18 @@ authors:
   - family-names: Bahreini Jangjoo
     given-names: Shahab
     email: shahabahreini@hotmail.com
-    orcid: "https://orcid.org/0000-0002-1825-0097"
 repository-code: "https://github.com/shahabahreini/YOLOMatic"
 url: "https://shahabahreini.github.io/YOLOMatic/"
 license: Apache-2.0
+abstract: >-
+  YOLOmatic is a Python terminal application for the computer-vision training
+  loop. An interactive wizard configures, trains, fine-tunes, benchmarks and
+  exports YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR,
+  SAM 3.1 and Detectron2 models for object detection, instance and semantic
+  segmentation and pose estimation, with hardware-aware configuration for
+  CUDA, Apple Silicon (MPS) and CPU.
 version: 7.0.0
 date-released: 2026-11-15
-identifiers:
-  - type: doi
-    value: "10.5281/zenodo.TBD"
 keywords:
   - YOLO
   - YOLO26
@@ -23,6 +26,12 @@ keywords:
   - Detectron2
   - object detection
   - instance segmentation
+  - semantic segmentation
+  - pose estimation
+  - YOLOv12
+  - YOLO11
+  - YOLOv8
+  - Segment Anything
   - computer vision
   - model training
   - PyTorch

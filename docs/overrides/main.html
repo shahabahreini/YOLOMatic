@@ -1,5 +1,13 @@
 {% extends "base.html" %}
 
+{% block htmltitle %}
+  {% if page and page.is_homepage %}
+    <title>{{ config.extra.home_title }}</title>
+  {% else %}
+    {{ super() }}
+  {% endif %}
+{% endblock %}
+
 {% block extrahead %}
   {{ super() }}
   <link rel="icon" type="image/svg+xml" href="{{ 'assets/favicon/favicon.svg' | url }}">
@@ -7,4 +15,13 @@
   <link rel="shortcut icon" href="{{ 'assets/favicon/favicon.ico' | url }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ 'assets/favicon/apple-touch-icon.png' | url }}">
   <link rel="manifest" href="{{ 'assets/favicon/site.webmanifest' | url }}">
+  {#- Structured data, built in docs/overrides/hooks.py -#}
+  {% if page and page.is_homepage %}
+    {% for item in config.extra.jsonld_home %}
+  <script type="application/ld+json">{{ item | tojson }}</script>
+    {% endfor %}
+  {% endif %}
+  {% if page and page.meta and page.meta.jsonld %}
+  <script type="application/ld+json">{{ page.meta.jsonld | tojson }}</script>
+  {% endif %}
 {% endblock %}

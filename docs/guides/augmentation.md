@@ -1,5 +1,6 @@
 ---
-description: Offline dataset augmentation with Albumentations profiles, 20+ transforms, split redistribution, and YOLO/COCO output formats.
+title: "Offline dataset augmentation with Albumentations"
+description: "Offline dataset augmentation with Albumentations profiles, 20+ transforms, split redistribution, and YOLO/COCO output formats."
 ---
 
 # Augmentation

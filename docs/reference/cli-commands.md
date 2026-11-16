@@ -1,5 +1,6 @@
 ---
-description: Reference for all YOLOmatic command-line entrypoints, flags, and usage examples.
+title: "CLI commands, flags and exit codes"
+description: "Every YOLOmatic command and flag: train, predict, export, prepare, benchmark, upload and more, with examples and exit codes."
 ---
 
 # CLI Commands
@@ -21,7 +22,7 @@ description: Reference for all YOLOmatic command-line entrypoints, flags, and us
 | `yolomatic-export` | Export a trained model (`--weight`) to deployment formats |
 | `yolomatic-augment` | Offline Albumentations augmentation wizard |
 
-All commands are available as `uv run <command>` from the repository root, or directly after `uv tool install --python 3.12 yolomatic`.
+All commands are available as `uv run <command>` from the repository root, or directly after `uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0`.
 
 ## `yolomatic <command>`
 
@@ -289,10 +290,10 @@ The version lives only in `pyproject.toml` (`[project].version`); the package re
 from the installed metadata. Use uv's built-in command, which also updates `uv.lock`:
 
 ```sh
-uv version --bump patch  # 6.4.0 → 6.4.1
-uv version --bump minor  # 6.4.0 → 6.5.0
-uv version --bump major  # 6.4.0 → 7.0.0
-uv version 7.1.0         # explicit version
+uv version --bump patch  # 7.0.0 → 7.0.1
+uv version --bump minor  # 7.0.0 → 7.1.0
+uv version --bump major  # 7.0.0 → 8.0.0
+uv version 7.2.0         # explicit version
 ```
 
 Related pages: [Quickstart](../getting-started/quickstart.md), [Configuration](configuration.md), [Cloud upload](../guides/cloud-upload.md).

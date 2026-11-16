@@ -1,5 +1,6 @@
 ---
-description: Complete reference for the yolomatic_settings.yaml file — all keys, defaults, types, and descriptions for ClearML, Roboflow, Ultralytics, Narratives, and AI sections.
+title: "Settings file reference"
+description: "Every key in yolomatic_settings.yaml: defaults, types and descriptions for ClearML, Roboflow, Ultralytics, narratives and AI settings."
 ---
 
 # Settings File Reference

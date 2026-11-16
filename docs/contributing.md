@@ -1,5 +1,5 @@
 ---
-description: Development setup, testing, style, commit conventions, and pull request guidance for YOLOmatic contributors.
+description: "Development setup, testing, style, commit conventions, and pull request guidance for YOLOmatic contributors."
 ---
 
 # Contributing to YOLOmatic

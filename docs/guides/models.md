@@ -1,13 +1,14 @@
 ---
-description: Complete reference for YOLOmatic model families, benchmarks, task support, and model selection recommendations.
+title: "Supported models: YOLO26 to YOLOv8, RF-DETR, SAM"
+description: "Complete reference for YOLOmatic model families, benchmarks, task support, and model selection recommendations."
 ---
 
 # Model Support Reference
 
 > Complete reference for all model families supported by YOLOmatic — architectures, benchmarks, task support, and selection guidance.
 
-**YOLOmatic Version:** 5.0.0
-**Last Updated:** May 28, 2026
+**YOLOmatic Version:** 7.0.0
+**Last Updated:** November 15, 2026
 
 ---
 
@@ -423,6 +424,12 @@ Detectron2 training uses COCO-format annotations and integrates with ClearML for
 | **Pose Estimation** | Detect and track keypoints on human bodies | YOLO26, YOLO11, YOLOv8 |
 | **OBB** | Detect rotated objects with higher precision | YOLO26, YOLO11, YOLOv8 |
 | **Open-Vocab Seg** | Segment objects by text concept (no predefined classes) | SAM 3.1 |
+
+!!! note "What YOLOmatic configures"
+    This table lists what each architecture supports upstream. YOLOmatic's model
+    menu offers **detection, instance segmentation, semantic segmentation
+    (`yolo26-sem`), pose estimation and SAM 3.1 text-prompted segmentation**.
+    Classification and OBB checkpoints are not configured or trained by YOLOmatic.
 
 ---
 

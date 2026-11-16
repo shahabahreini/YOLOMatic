@@ -1,5 +1,5 @@
 ---
-description: YOLOmatic release history and notable changes.
+description: "YOLOmatic release history: new model families, features, fixes and breaking changes in every version."
 ---
 
 # Changelog

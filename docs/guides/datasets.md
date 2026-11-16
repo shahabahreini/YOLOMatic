@@ -1,5 +1,6 @@
 ---
-description: Prepare YOLO, COCO, Labelbox, and Ultralytics-platform datasets for YOLOmatic training and benchmarking — layouts, data.yaml format, splitting, and combining.
+title: "Prepare YOLO and COCO datasets for training"
+description: "Prepare YOLO, COCO, Labelbox, and Ultralytics-platform datasets for YOLOmatic training and benchmarking — layouts, data.yaml format, splitting, and combining."
 ---
 
 # Datasets

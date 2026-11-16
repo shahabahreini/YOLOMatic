@@ -1,5 +1,6 @@
 ---
-description: Complete reference for all YOLO training parameters in YOLOmatic — defaults, valid ranges, and practical guidance for every configurable value.
+title: "YOLO training parameters: defaults and guidance"
+description: "Complete reference for all YOLO training parameters in YOLOmatic — defaults, valid ranges, and practical guidance for every configurable value."
 ---
 
 # Advanced Training Parameters

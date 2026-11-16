@@ -1,5 +1,6 @@
 ---
-description: Benchmark YOLOmatic checkpoints with mAP, F1, per-image rankings, UMAP vectors, and interactive HTML reports.
+title: "Benchmark YOLO models: mAP, F1 and HTML reports"
+description: "Benchmark YOLOmatic checkpoints with mAP, F1, per-image rankings, UMAP vectors, and interactive HTML reports."
 ---
 
 # Benchmarking

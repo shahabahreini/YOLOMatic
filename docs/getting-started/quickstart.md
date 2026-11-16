@@ -1,5 +1,6 @@
 ---
-description: Start YOLOmatic, generate a training config, train a model, and run prediction from the command line.
+title: "Quickstart: configure and train a YOLO model"
+description: "Start YOLOmatic, generate a training config, train a model, and run prediction from the command line."
 ---
 
 # Quickstart
@@ -7,7 +8,7 @@ description: Start YOLOmatic, generate a training config, train a model, and run
 ## 30-Second Path
 
 ```sh
-uv tool install --python 3.12 yolomatic
+uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0
 yolomatic
 ```
 

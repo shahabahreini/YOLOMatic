@@ -1,5 +1,6 @@
 ---
-description: Convert Labelbox and Ultralytics-platform NDJSON exports into YOLO, COCO, and pose datasets with YOLOmatic.
+title: "Convert Labelbox NDJSON to YOLO and COCO"
+description: "Convert Labelbox and Ultralytics-platform NDJSON exports into YOLO, COCO, and pose datasets with YOLOmatic."
 ---
 
 # NDJSON Conversion

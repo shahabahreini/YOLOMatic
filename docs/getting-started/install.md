@@ -1,5 +1,6 @@
 ---
-description: Install YOLOmatic with uv, choose optional extras, set up a development environment, and configure credentials.
+title: "Install YOLOmatic: uv, extras and CUDA setup"
+description: "Install YOLOmatic with uv, choose optional extras, set up a development environment, and configure credentials."
 ---
 
 # Install
@@ -8,16 +9,15 @@ YOLOmatic supports Python 3.12 and 3.13.
 
 ## Package Install
 
+YOLOmatic is installed from its GitHub releases (it is not on PyPI yet):
+
 ```sh
-uv tool install --python 3.12 yolomatic
+uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0
 yolomatic
 ```
 
-Until a release is published to PyPI, install straight from GitHub:
-
-```sh
-uv tool install --python 3.12 "yolomatic @ git+https://github.com/shahabahreini/YOLOMatic"
-```
+Replace `v7.0.0` with any [release tag](https://github.com/shahabahreini/YOLOMatic/releases),
+or drop `@v7.0.0` to install the latest `main`.
 
 ## Optional Extras
 
@@ -35,7 +35,7 @@ opt-in:
 | `all` | Everything above | |
 
 ```sh
-uv tool install --python 3.12 "yolomatic[export,clearml]"
+uv tool install --python 3.12 "yolomatic[export,clearml] @ git+https://github.com/shahabahreini/YOLOMatic@v7.0.0"
 ```
 
 A missing extra is reported with the exact command to install it.

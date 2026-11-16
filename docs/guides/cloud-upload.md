@@ -1,5 +1,6 @@
 ---
-description: Upload YOLO checkpoints and deploy RF-DETR checkpoints to Roboflow from YOLOmatic — credentials, interactive wizard, CLI flags, and automatic post-training upload.
+title: "Upload YOLO and RF-DETR models to Roboflow"
+description: "Upload YOLO checkpoints and deploy RF-DETR models to Roboflow from YOLOmatic: credentials, the upload wizard, CLI flags and auto-upload."
 ---
 
 # Cloud Upload

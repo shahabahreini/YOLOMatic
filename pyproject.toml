@@ -32,7 +32,7 @@ dependencies = [
   "platformdirs>=4.2",
   "keyring>=25",
 ]
-description = "Automated object-detection training utilities and CLI — configure, train, predict, benchmark, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, and SAM 3.1 models with an interactive terminal interface."
+description = "Terminal app for training computer-vision models: configure, train, benchmark and export YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1 and Detectron2 for object detection, segmentation and pose estimation."
 keywords = [
   "yolo",
   "yolo26",
@@ -43,11 +43,14 @@ keywords = [
   "yolov8",
   "yolox",
   "rf-detr",
+  "rfdetr",
   "sam-3.1",
   "segment-anything",
   "detectron2",
   "object-detection",
   "instance-segmentation",
+  "semantic-segmentation",
+  "pose-estimation",
   "computer-vision",
   "deep-learning",
   "machine-learning",
@@ -68,6 +71,8 @@ keywords = [
   "automated-training",
   "edge-deployment",
   "onnx",
+  "tensorrt",
+  "openvino",
   "cuda",
   "mps",
 ]
@@ -97,9 +102,9 @@ version = "7.0.0"
 [project.urls]
 Changelog = "https://github.com/shahabahreini/YOLOMatic/blob/main/CHANGELOG.md"
 Documentation = "https://shahabahreini.github.io/YOLOMatic/"
-Funding = "https://github.com/sponsors"
 Homepage = "https://github.com/shahabahreini/YOLOMatic"
 Issues = "https://github.com/shahabahreini/YOLOMatic/issues"
+"Release notes" = "https://github.com/shahabahreini/YOLOMatic/releases"
 Repository = "https://github.com/shahabahreini/YOLOMatic"
 
 [project.optional-dependencies]

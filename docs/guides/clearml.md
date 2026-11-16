@@ -1,5 +1,6 @@
 ---
-description: Track YOLOmatic training experiments with ClearML — hyperparameters, metrics, model artifacts, and dataset summaries.
+title: "ClearML experiment tracking for YOLO training"
+description: "Track YOLOmatic training experiments with ClearML — hyperparameters, metrics, model artifacts, and dataset summaries."
 ---
 
 # ClearML Integration

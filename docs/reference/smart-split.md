@@ -1,5 +1,6 @@
 ---
-description: How YOLOmatic smart-balanced dataset splitting preserves rare classes and reproducibility.
+title: "Smart split: balanced train, valid and test sets"
+description: "How YOLOmatic smart-balanced splitting keeps rare classes and object sizes represented across train, valid and test splits."
 ---
 
 # Smart Split

@@ -1,5 +1,6 @@
 ---
-description: Export YOLOmatic trained models to ONNX, TensorRT, CoreML, TFLite, OpenVINO, and other deployment formats.
+title: "Export YOLO to ONNX, TensorRT, CoreML, OpenVINO"
+description: "Export YOLOmatic trained models to ONNX, TensorRT, CoreML, TFLite, OpenVINO, and other deployment formats."
 ---
 
 # Export & Deployment

@@ -1,5 +1,6 @@
 ---
-description: Walk through the first YOLOmatic training run — dataset prep, config generation, training, monitoring, prediction, and benchmarking.
+title: "First training run, from dataset to model"
+description: "Walk through the first YOLOmatic training run — dataset prep, config generation, training, monitoring, prediction, and benchmarking."
 ---
 
 # First Training Run

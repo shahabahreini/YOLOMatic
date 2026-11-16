@@ -1,5 +1,6 @@
 ---
-description: Reference for YOLOmatic-generated training configuration files, device selection, fine-tuning, and all yolomatic_settings.yaml settings.
+title: "Training configuration YAML reference"
+description: "Reference for YOLOmatic-generated training configuration files, device selection, fine-tuning, and all yolomatic_settings.yaml settings."
 ---
 
 # Configuration

@@ -17,3 +17,9 @@ render hero 1280 560
 render stats 1280 170
 render workflow 1280 440
 render models 1280 450
+
+# GitHub social preview (Settings > General > Social preview): 1280x640, opaque, 1x.
+"$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+  --virtual-time-budget=10000 --window-size=1280,640 \
+  --screenshot="$PWD/.github/social-preview.png" "file://$PWD/$SRC/social.html" >/dev/null 2>&1
+echo ".github/social-preview.png"

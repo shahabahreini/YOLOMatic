@@ -1,10 +1,18 @@
 site_name: YOLOmatic
-site_description: Automated computer-vision training CLI for YOLO26, YOLOv12, YOLO11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, and Detectron2.
+site_description: Terminal app for training computer-vision models. Configure, train, benchmark and export YOLO26, YOLOv12, YOLO11, YOLOv8, RF-DETR, SAM 3.1 and Detectron2 locally.
+site_author: Shahab Bahreini Jangjoo
 site_url: https://shahabahreini.github.io/YOLOMatic/
 repo_url: https://github.com/shahabahreini/YOLOMatic
 repo_name: shahabahreini/YOLOMatic
 edit_uri: edit/main/docs/
 copyright: Copyright &copy; 2026 Shahab Bahreini Jangjoo
+
+# The theme override folder lives inside docs/; keep it out of the published site.
+exclude_docs: |
+  overrides/
+
+hooks:
+  - docs/overrides/hooks.py
 
 theme:
   name: material
@@ -69,12 +77,10 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/shahabahreini/YOLOMatic
   generator: false
+  home_title: "YOLOmatic: YOLO, RF-DETR and SAM 3.1 training in the terminal"
 
 extra_css:
   - assets/stylesheets/extra.css
-
-extra_javascript:
-  - assets/javascripts/schema.js
 
 nav:
   - Home: index.md

@@ -9,5 +9,5 @@ YOLO, RF-DETR, SAM, and Detectron2. https://github.com/shahabahreini/YOLOMatic
 Preferred LLM context:
 
 - https://shahabahreini.github.io/YOLOMatic/
-- https://github.com/shahabahreini/YOLOMatic/blob/main/llms.txt
-- https://github.com/shahabahreini/YOLOMatic/blob/main/llms-full.txt
+- https://shahabahreini.github.io/YOLOMatic/llms.txt
+- https://shahabahreini.github.io/YOLOMatic/llms-full.txt

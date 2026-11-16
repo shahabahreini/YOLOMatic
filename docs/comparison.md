@@ -1,5 +1,6 @@
 ---
-description: Compare YOLOmatic with Ultralytics CLI, Roboflow, and hosted YOLO training platforms.
+title: "Compared with Ultralytics CLI and Roboflow"
+description: "How YOLOmatic compares with the Ultralytics CLI, Roboflow and hosted YOLO training tools: local workflow, model coverage and reports."
 ---
 
 # Comparison

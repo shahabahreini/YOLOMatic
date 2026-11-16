@@ -1,5 +1,6 @@
 ---
-description: Comprehensive YOLOmatic FAQ covering installation, model families, datasets, training, fine-tuning, prediction, benchmarking, integrations, troubleshooting, security, and citation.
+title: "FAQ: install, models, datasets and training"
+description: "Answers on installing YOLOmatic, supported models, datasets, training, fine-tuning, benchmarking, integrations and troubleshooting."
 ---
 
 # FAQ
@@ -8,7 +9,7 @@ description: Comprehensive YOLOmatic FAQ covering installation, model families, 
 
 ### What is YOLOmatic?
 
-YOLOmatic is a Python 3.12 CLI/TUI for configuring, training, fine-tuning,
+YOLOmatic is a Python 3.12 / 3.13 CLI/TUI for configuring, training, fine-tuning,
 predicting, benchmarking, augmenting, converting, monitoring, and uploading
 computer-vision models from a local terminal workflow.
 
@@ -43,14 +44,14 @@ the training lifecycle.
 
 ### What Python version does YOLOmatic require?
 
-YOLOmatic targets Python `>=3.12,<3.13`.
+YOLOmatic supports Python 3.12 and 3.13 (`>=3.12,<3.14`).
 
 ### What is the fastest install path?
 
 For end users:
 
 ```sh
-uv tool install --python 3.12 yolomatic
+uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0
 yolomatic
 ```
 
@@ -76,7 +77,7 @@ CUDA repairs on Windows, prefer `.venv\Scripts\python.exe -m pip ...` instead of
 `uv run pip ...` so `uv` does not resync the environment back to the locked
 state.
 
-For tool installs on Windows, use `uv tool install --python 3.12 yolomatic`.
+For tool installs on Windows, use `uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0`.
 This avoids source-building ONNX dependencies that do not publish Python 3.13
 Windows wheels.
 
@@ -255,7 +256,7 @@ remap class names, and hard-link images where possible.
 Run:
 
 ```sh
-uv run yolomatic
+yolomatic
 ```
 
 Choose **Configure Model**, select a family and variant, select a dataset, review

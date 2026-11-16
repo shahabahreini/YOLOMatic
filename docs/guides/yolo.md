@@ -1,13 +1,14 @@
 ---
-description: Practical YOLOmatic workflow guide for model selection, training configuration, exports, deployment, SAM, augmentation, and NDJSON conversion.
+title: "YOLO workflow guide: training, export, deployment"
+description: "Practical YOLOmatic workflow guide for model selection, training configuration, exports, deployment, SAM, augmentation, and NDJSON conversion."
 ---
 
 # YOLOmatic Integration Guide
 
 > Practical workflow guide — model selection, deployment scenarios, training configuration, export options, and operational reference.
 
-**YOLOmatic Version:** 6.3.0
-**Last Updated:** May 28, 2026
+**YOLOmatic Version:** 7.0.0
+**Last Updated:** November 15, 2026
 **Status:** Fully Supported and Integrated
 
 ---
@@ -288,6 +289,12 @@ roboflow:
 | Pose Estimation | Yes | Yes | Yes | — | — | — |
 | OBB | Yes | Yes | Yes | — | — | — |
 | Open-Vocab Seg | — | — | — | — | Yes | — |
+
+!!! note "What YOLOmatic configures"
+    This table lists what each architecture supports upstream. YOLOmatic's model
+    menu offers **detection, instance segmentation, semantic segmentation
+    (`yolo26-sem`), pose estimation and SAM 3.1 text-prompted segmentation**.
+    Classification and OBB checkpoints are not configured or trained by YOLOmatic.
 
 ### Architecture Comparison
 

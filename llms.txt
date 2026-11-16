@@ -3,20 +3,22 @@
 > Automated computer-vision training CLI/TUI for YOLO26, YOLOv12, YOLO11,
 > YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, SAM 3.1, and Detectron2.
 
-Install:
+Install (latest release, from GitHub; not on PyPI yet):
 
 ```sh
-uv tool install yolomatic
+uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0
 yolomatic
 ```
 
-Full LLM context: [llms-full.txt](llms-full.txt)
+Current version: 7.0.0. Python 3.12 or 3.13 on Linux, macOS or Windows.
+
+Full LLM context: [llms-full.txt](https://shahabahreini.github.io/YOLOMatic/llms-full.txt)
 
 Docs: https://shahabahreini.github.io/YOLOMatic/
 
-YOLOmatic is a Python 3.12 command-line toolkit for object detection, instance
-segmentation, image classification, pose estimation, oriented object detection,
-and open-vocabulary segmentation workflows. It supports Ultralytics YOLO model
+YOLOmatic is a Python terminal application (interactive TUI plus CLI commands)
+for object detection, instance segmentation, semantic segmentation, pose
+estimation, and text-prompted (open-vocabulary) segmentation workflows. It supports Ultralytics YOLO model
 families, native RF-DETR training, Meta SAM 3.1 inference and fine-tuning, and
 Detectron2 training.
 
@@ -35,36 +37,37 @@ Detectron2 training.
 
 ## Important Commands
 
-- `uv sync` — create the project environment.
-- `uv run yolomatic` — launch the main interactive TUI.
-- `uv run yolomatic-train` — train from a saved config (YOLO, RF-DETR, SAM 3.1, or Detectron2).
-- `uv run yolomatic-predict` — run YOLO/RF-DETR prediction workflows.
-- `uv run yolomatic-sam` — run SAM 3.1 segmentation inference.
-- `uv run yolomatic-convert` — convert Labelbox NDJSON to YOLO/COCO formats.
-- `uv run yolomatic-benchmark` — benchmark trained checkpoints with interactive reports.
-- `uv run yolomatic-upload` — upload or deploy trained checkpoints to Roboflow.
-- `uv run yolomatic-tensorboard` — launch TensorBoard for discovered runs.
+- `yolomatic` — launch the main interactive TUI.
+- `yolomatic train --config <file>` — train from a saved config (YOLO, RF-DETR, SAM 3.1, or Detectron2).
+- `yolomatic predict --weight <file> --source <path>` — run prediction on an image or folder.
+- `yolomatic export --weight <file>` — export to ONNX, TensorRT, OpenVINO, CoreML, TFLite and other formats.
+- `yolomatic prepare --source <dir or .ndjson>` — validate, convert and split a dataset.
+- `yolomatic upload` / `yolomatic upload-dataset` — upload weights or datasets to Roboflow.
+- `yolomatic tensorboard` — launch TensorBoard for discovered runs.
+- `yolomatic benchmark`, `yolomatic augment`, `yolomatic convert`, `yolomatic sam` — open that step's interactive wizard.
+- `yolomatic --help` — all commands; exit codes 0 success, 1 failure, 2 usage / no terminal, 130 cancelled.
+- `uv sync` then `uv run yolomatic` — run from a repository checkout.
 - `uv version --bump patch|minor|major` (or `uv version X.Y.Z`) — update the package version.
 
 ## Documentation Map
 
-- [README.md](README.md) — concise project landing page.
+- [README.md](https://github.com/shahabahreini/YOLOMatic/blob/main/README.md) — concise project landing page.
 - [Documentation site](https://shahabahreini.github.io/YOLOMatic/) — rendered guides, reference pages, FAQ, comparison, changelog, and citation.
-- [llms-full.txt](llms-full.txt) — expanded LLM-oriented project context.
+- [llms-full.txt](https://shahabahreini.github.io/YOLOMatic/llms-full.txt) — expanded LLM-oriented project context.
 - [YOLO guide](https://shahabahreini.github.io/YOLOMatic/guides/yolo/) — model-selection guidance, deployment scenarios, export options, and operational notes.
 - [Models guide](https://shahabahreini.github.io/YOLOMatic/guides/models/) — supported model families, benchmark tables, task support, and model recommendations.
-- [pyproject.toml](pyproject.toml) — package metadata, dependencies, Python version, and console scripts.
-- [tests/](tests/) — unit and smoke tests for imports, prediction helpers, config generation, trainer helpers, settings, TUI parameters, and preflight checks.
+- [pyproject.toml](https://github.com/shahabahreini/YOLOMatic/blob/main/pyproject.toml) — package metadata, dependencies, Python version, and console scripts.
+- [tests/](https://github.com/shahabahreini/YOLOMatic/tree/main/tests) — unit and smoke tests for imports, prediction helpers, config generation, trainer helpers, settings, TUI parameters, and preflight checks.
 
 ## Supported Model Families
 
 - RF-DETR detection and segmentation variants: Nano, Small, Medium, Large, XLarge, 2XLarge, plus a preview keypoint/pose model (RFDETRKeypointPreview).
-- YOLO26 detection, segmentation, and pose variants.
+- YOLO26 detection, instance segmentation, semantic segmentation, and pose variants.
 - YOLOv12 detection and segmentation variants.
-- YOLOv11 detection, segmentation, classification, pose, and OBB variants.
+- YOLOv11 detection, segmentation, and pose variants.
 - YOLOv10 detection variants.
 - YOLOv9 detection and segmentation variants.
-- YOLOv8 detection, segmentation, classification, pose, and OBB variants.
+- YOLOv8 detection, segmentation, and pose variants.
 - YOLOX detection variants.
 - SAM 3.1 and SAM 3 open-vocabulary segmentation (HuggingFace, gated model).
 - Detectron2 detection and segmentation configs (Faster R-CNN, RetinaNet, Mask R-CNN).
