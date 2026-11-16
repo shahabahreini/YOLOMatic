@@ -1,13 +1,13 @@
 """AI client utilities for dataset analysis, dynamic model fetching, and TUI recommendation flows."""
 from __future__ import annotations
 
-import io
-import os
-import re
-import json
-import time
 import base64
+import io
+import json
+import os
 import random
+import re
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -15,23 +15,23 @@ from typing import Any
 
 from PIL import Image
 
+from yolomatic.config.settings import load_settings, save_settings
+from yolomatic.datasets.core import summarize_dataset
 from yolomatic.utils.cli import (
-    console,
+    NAV_BACK,
+    NAV_LIST,
+    ParameterDefinition,
+    TUIState,
     clear_screen,
-    get_user_choice,
+    console,
+    expected_error_panel,
     get_parameter_value_input,
+    get_user_choice,
     make_panel,
     print_stylized_header,
     render_summary_panel,
-    expected_error_panel,
     warning_panel,
-    TUIState,
-    ParameterDefinition,
-    NAV_BACK,
-    NAV_LIST,
 )
-from yolomatic.config.settings import load_settings, save_settings
-from yolomatic.datasets.core import summarize_dataset
 
 # Fallback models in case fetching fails
 FALLBACK_MODELS = {
@@ -186,8 +186,8 @@ def _do_single_request(url: str, method: str, headers: dict, data: Any, timeout:
             # Network/transport failure: report it (status 0) instead of raising.
             return 0, {"error": redact_secrets(f"{type(exc).__name__}: {exc}")}
 
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     req = urllib.request.Request(url, method=method)
     for k, v in headers.items():
@@ -1287,7 +1287,11 @@ def run_ai_augmentation_flow(dataset_choice: str) -> str | None:
         
         if choice == "Save Augmentation Profile":
             # Build and save profile
-            from yolomatic.augmentation.profiles import AugmentationProfile, save_profile, PROFILES_DIR
+            from yolomatic.augmentation.profiles import (
+                PROFILES_DIR,
+                AugmentationProfile,
+                save_profile,
+            )
             
             profile = AugmentationProfile(
                 name=profile_name,

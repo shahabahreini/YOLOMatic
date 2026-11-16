@@ -164,6 +164,7 @@ class SanitizeAugmentationTransformsTests(unittest.TestCase):
     def test_every_supported_transform_instantiates(self) -> None:
         """The whole point of the schema fix: sanitized transforms must build."""
         import albumentations as A
+
         from yolomatic.augmentation.transforms import build_albu_kwargs
 
         for name in ac.SUPPORTED_TRANSFORMS:

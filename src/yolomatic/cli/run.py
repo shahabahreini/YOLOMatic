@@ -3,25 +3,31 @@ import os
 import sys
 import time
 import traceback
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any
 
 import yaml
 from rich import box
 from rich.align import Align
 from rich.panel import Panel
 from rich.table import Table
-from yolomatic.ui.theme import CONSOLE
-from yolomatic.cli.result import EXIT_CANCELLED, CommandResult, CommandStatus, coerce_result
 from ruamel.yaml import YAML
 
+from yolomatic.cli.result import EXIT_CANCELLED, CommandResult, CommandStatus, coerce_result
 from yolomatic.config.generator import (
     Detectron2ConfigGenerator,
     RFDETRConfigGenerator,
     SAMConfigGenerator,
     YOLOConfigGenerator,
+)
+
+# Training parameter catalogs live in src/config/parameters.py
+from yolomatic.config.parameters import (  # noqa: E402
+    YOLO_TRAINING_PARAMETERS,
+    parameters_for,
 )
 from yolomatic.config.settings import (
     load_settings,
@@ -32,9 +38,13 @@ from yolomatic.config.settings import (
 )
 from yolomatic.datasets import summarize_dataset
 from yolomatic.models.data import model_data_dict
+
+# Model family descriptions — defined at module level to avoid rebuilding on every wizard entry
+from yolomatic.models.descriptions import MODEL_DESCRIPTIONS as _MODEL_DESCRIPTIONS  # noqa: E402
 from yolomatic.models.detectron2 import get_detectron2_variant, is_detectron2_model
 from yolomatic.models.rfdetr import get_rfdetr_variant, is_rfdetr_model
 from yolomatic.models.sam import is_sam_model
+from yolomatic.ui.theme import CONSOLE
 from yolomatic.utils.cli import (
     ParameterDefinition,
     clear_screen,
@@ -57,15 +67,6 @@ from yolomatic.utils.project import (
     list_config_files,
     list_dataset_directories,
     project_root,
-)
-
-# Model family descriptions — defined at module level to avoid rebuilding on every wizard entry
-from yolomatic.models.descriptions import MODEL_DESCRIPTIONS as _MODEL_DESCRIPTIONS  # noqa: E402
-
-# Training parameter catalogs live in src/config/parameters.py
-from yolomatic.config.parameters import (  # noqa: E402
-    YOLO_TRAINING_PARAMETERS,
-    parameters_for,
 )
 
 _CACHED_DATASETS = None
@@ -212,7 +213,7 @@ def display_configuration_summary(
         console.print("[red]Error: Config file not found![/red]")
         return
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     # Detect device
@@ -595,7 +596,7 @@ def clone_saved_config_flow() -> bool:
                 return False  # user backed out of first step → exit wizard
 
             try:
-                with open(source_path, "r", encoding="utf-8") as file:
+                with open(source_path, encoding="utf-8") as file:
                     source_config = yaml.safe_load(file) or {}
             except yaml.YAMLError as error:
                 console.print(
@@ -913,22 +914,6 @@ def print_summary(model_choice, dataset_choice):
 
     console.print(table)
 
-
-def detect_device():
-    """
-    Detect the appropriate device for training based on system capabilities.
-    Returns 'cuda' for NVIDIA GPUs, 'mps' for Apple Silicon, or 'cpu' as fallback.
-    """
-    try:
-        torch = import_torch()
-    except MLDependencyError:
-        return "cpu"
-
-    if torch.cuda.is_available():
-        return "cuda"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        return "mps"
-    return "cpu"
 
 
 # update_config() return value meaning "go back to model selection".
@@ -2448,16 +2433,20 @@ def settings_credentials_page() -> None:
 
 
 def settings_ai_page() -> None:
-    from yolomatic.utils.tui import (
-        TUI_TERM,
-        TUI_CONSOLE,
-        make_panel,
-        TUIState,
-        is_enter_key,
-        get_gpu_status,
-    )
     from yolomatic.ui.theme import gpu_badge_markup
-    from yolomatic.utils.ai_client import fetch_multimodal_models, FALLBACK_MODELS, is_free_tier_gemini_model
+    from yolomatic.utils.ai_client import (
+        FALLBACK_MODELS,
+        fetch_multimodal_models,
+        is_free_tier_gemini_model,
+    )
+    from yolomatic.utils.tui import (
+        TUI_CONSOLE,
+        TUI_TERM,
+        TUIState,
+        get_gpu_status,
+        is_enter_key,
+        make_panel,
+    )
 
     def _order_models(models: list[str], prov: str) -> list[str]:
         """For Gemini, list free-tier (Flash) models first so the default lands on
@@ -2465,13 +2454,14 @@ def settings_ai_page() -> None:
         if prov == "Gemini":
             return sorted(models, key=lambda m: not is_free_tier_gemini_model(m))
         return list(models)
-    from rich.live import Live
+    import threading
+
+    from rich.console import Group
     from rich.layout import Layout
-    from rich.text import Text
+    from rich.live import Live
     from rich.panel import Panel
     from rich.table import Table
-    from rich.console import Group
-    import threading
+    from rich.text import Text
 
     class AISettingsRenderer:
         """Renderer for the unified dual-panel AI Recommendation Settings screen."""

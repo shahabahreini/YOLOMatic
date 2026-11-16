@@ -5,10 +5,10 @@ import copy
 import getpass
 import hashlib
 import os
-from pathlib import Path
 import platform
-from typing import Any
 import uuid
+from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -65,15 +65,53 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return merged
 
 
+_TRUE = {"true", "1", "yes", "y", "on"}
+_FALSE = {"false", "0", "no", "n", "off", ""}
+
+
+def _coerce_like(default: Any, value: Any) -> Any:
+    """Coerce ``value`` to the type of ``default``; return ``default`` if impossible.
+
+    YAML hand-edits like ``enabled: "no"`` used to be truthy strings.
+    """
+    if isinstance(default, bool):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in _TRUE:
+            return True
+        if text in _FALSE:
+            return False
+        return default
+    if isinstance(default, int):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(default, float):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(default, str):
+        return "" if value is None else str(value)
+    return value
+
+
 def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
-    result = deep_merge(DEFAULT_SETTINGS, settings)
+    result = deep_merge(DEFAULT_SETTINGS, settings if isinstance(settings, dict) else {})
+    for section, defaults in DEFAULT_SETTINGS.items():
+        if not isinstance(result.get(section), dict):
+            result[section] = copy.deepcopy(defaults)
+            continue
+        for key, default in defaults.items():
+            result[section][key] = _coerce_like(default, result[section].get(key, default))
     mode = str(result["narratives"].get("mode", "guided")).lower()
     if mode not in _VALID_NARRATIVE_MODES:
         mode = "guided"
     result["narratives"]["mode"] = mode
-    for section in ("clearml", "roboflow", "ultralytics", "narratives", "ai"):
-        if not isinstance(result.get(section), dict):
-            result[section] = copy.deepcopy(DEFAULT_SETTINGS[section])
     return result
 
 
@@ -143,9 +181,43 @@ def _decrypt_value(cipher_text: str, secret_key: str) -> str:
                 out.append(encrypted_bytes[len(out)] ^ keystream[j])
             i += 1
         return out.decode("utf-8")
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Fall back to empty string or the raw value if decryption fails
         return ""
+
+
+_SECRET_FIELDS = ("gemini_api_key", "openai_api_key")
+
+# Stored values that could not be read back (e.g. an obfuscated key after the
+# machine's MAC address or hostname changed). They are kept verbatim on save
+# instead of being overwritten with an empty string.
+_UNREADABLE_SECRETS: dict[tuple[str, str], str] = {}
+
+
+def _legacy_decrypt(stored: str) -> str | None:
+    if stored.startswith(_ENC_PREFIX):
+        plain = _decrypt_value(stored, _get_machine_secret())
+        return plain or None
+    return stored
+
+
+def _read_secret(path_key: str, name: str, stored: str) -> str:
+    from yolomatic.config.secrets import load_secret
+
+    value = load_secret(stored, fallback=_legacy_decrypt)
+    if value is None:
+        _UNREADABLE_SECRETS[(path_key, name)] = stored
+        return ""
+    _UNREADABLE_SECRETS.pop((path_key, name), None)
+    return value
+
+
+def _write_secret(path_key: str, name: str, value: str) -> str:
+    from yolomatic.config.secrets import store_secret
+
+    if not value and (path_key, name) in _UNREADABLE_SECRETS:
+        return _UNREADABLE_SECRETS[(path_key, name)]
+    return store_secret(name, value, fallback=lambda plain: _encrypt_value(plain, _get_machine_secret()))
 
 
 _SETTINGS_CACHE: dict[tuple[str, str], tuple[int, dict[str, Any]]] = {}
@@ -179,13 +251,12 @@ def load_settings(path: Path | str = SETTINGS_PATH) -> dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
     
-    # Decrypt keys
+    # Resolve stored secrets (OS keyring reference, legacy obfuscation, or plain).
     if "ai" in data and isinstance(data["ai"], dict):
         ai_cfg = data["ai"]
-        if "gemini_api_key" in ai_cfg and isinstance(ai_cfg["gemini_api_key"], str):
-            ai_cfg["gemini_api_key"] = _decrypt_value(ai_cfg["gemini_api_key"], secret_key)
-        if "openai_api_key" in ai_cfg and isinstance(ai_cfg["openai_api_key"], str):
-            ai_cfg["openai_api_key"] = _decrypt_value(ai_cfg["openai_api_key"], secret_key)
+        for name in _SECRET_FIELDS:
+            if isinstance(ai_cfg.get(name), str):
+                ai_cfg[name] = _read_secret(resolved_path, name, ai_cfg[name])
 
     validated = validate_settings(data)
     if mtime_ns != -1:
@@ -198,16 +269,17 @@ def save_settings(settings: dict[str, Any], path: Path | str = SETTINGS_PATH) ->
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     validated = validate_settings(settings)
     
-    # Encrypt keys before writing to YAML file
+    # Secrets go to the OS keyring (the YAML keeps a reference) or, without a
+    # keyring backend, the legacy machine-bound obfuscation.
     to_save = copy.deepcopy(validated)
     secret_key = _get_machine_secret()
-    if "ai" in to_save and isinstance(to_save["ai"], dict):
-        ai_cfg = to_save["ai"]
-        if "gemini_api_key" in ai_cfg and isinstance(ai_cfg["gemini_api_key"], str):
-            ai_cfg["gemini_api_key"] = _encrypt_value(ai_cfg["gemini_api_key"], secret_key)
-        if "openai_api_key" in ai_cfg and isinstance(ai_cfg["openai_api_key"], str):
-            ai_cfg["openai_api_key"] = _encrypt_value(ai_cfg["openai_api_key"], secret_key)
-            
+    path_key = str(settings_path.resolve())
+    ai_cfg = to_save.get("ai")
+    if isinstance(ai_cfg, dict):
+        for name in _SECRET_FIELDS:
+            if isinstance(ai_cfg.get(name), str):
+                ai_cfg[name] = _write_secret(path_key, name, ai_cfg[name])
+
     # Atomic: a crash mid-write used to leave a truncated, unreadable settings file.
     from yolomatic.utils.fs import atomic_write_text
 
@@ -284,6 +356,3 @@ def ultralytics_credential_status() -> dict[str, bool]:
         "api_key": bool(os.getenv("ULTRALYTICS_API_KEY", "").strip()),
     }
 
-
-def narrative_mode(settings: dict[str, Any]) -> str:
-    return settings.get("narratives", {}).get("mode", "guided")

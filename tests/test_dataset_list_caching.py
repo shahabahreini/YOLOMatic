@@ -113,6 +113,7 @@ class DatasetListCachingTest(unittest.TestCase):
         import tempfile
         import time
         from pathlib import Path
+
         from yolomatic.datasets.core import _dataset_signature
 
         with tempfile.TemporaryDirectory() as tmpdir:

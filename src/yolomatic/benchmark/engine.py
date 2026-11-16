@@ -10,19 +10,20 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from yolomatic.utils.semantic import semantic_background_index, semantic_pixel_value
+
 from .config import BenchmarkConfig
 from .metrics import (
     SizeBucketMetrics,
-    _mask_iou_for_pred_gt,
     _box_iou_for_pred_gt,
+    _mask_iou_for_pred_gt,
     _safe_div,
     aggregate_metrics,
-    semantic_metrics,
     greedy_match,
     polygon_to_mask,
+    semantic_metrics,
     size_bucket,
 )
-from yolomatic.utils.semantic import semantic_background_index, semantic_pixel_value
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +215,7 @@ def _load_gt_from_yolo_txt(
 def _load_yolo_data(
     validation_dir: Path,
     all_images: list[Path],
-    log: "Callable[[str], None] | None" = None,
+    log: Callable[[str], None] | None = None,
 ) -> dict[str, list[GTObject]]:
     """Load YOLO .txt labels → filename-keyed GT dict."""
     labels_dir = _find_yolo_labels_dir(validation_dir)
@@ -567,7 +568,7 @@ def _evaluate_model_worker(
     weights: Path,
     all_images: list[Path],
     ann_format: str,
-    annotations_file: "Path | None",
+    annotations_file: Path | None,
     validation_dir: Path,
     conf_threshold: float,
     iou_threshold: float,
@@ -575,7 +576,7 @@ def _evaluate_model_worker(
     batch_size: int,
     split_name: str = "valid",
     expected_task: str | None = None,
-) -> "tuple[ModelMetrics | None, list[str]]":
+) -> tuple[ModelMetrics | None, list[str]]:
     """Evaluate one model over all validation images.
 
     Returns (metrics, log_lines). Re-loads GT data internally so the
@@ -815,9 +816,9 @@ def run_benchmark(
     config: BenchmarkConfig,
     logger_fn: Callable[[str], None] = print,
 ) -> BenchmarkResult:
+    import multiprocessing
     import os
     from concurrent.futures import ProcessPoolExecutor, as_completed
-    import multiprocessing
 
     split_dirs = config.split_dirs or {"valid": config.validation_dir}
     if not split_dirs:

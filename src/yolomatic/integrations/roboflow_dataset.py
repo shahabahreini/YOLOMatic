@@ -10,19 +10,19 @@ Handles:
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import time
 import zipfile
-import logging
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import requests
 from roboflow.adapters import rfapi
 from roboflow.adapters.rfapi import RoboflowError
-
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 class ProgressFileReader:
     """File-like wrapper that reports byte read progress to a callback."""
 
-    def __init__(self, path: Path, progress_callback: Optional[Callable[[int], None]] = None):
+    def __init__(self, path: Path, progress_callback: Callable[[int], None] | None = None):
         self._path = path
         self._f = open(path, "rb")
         self._progress_callback = progress_callback
@@ -64,8 +64,8 @@ class ProgressFileReader:
 @dataclass
 class UploadBatchInfo:
     batch_idx: int
-    images: List[Dict[str, Any]]
-    root_files: List[Path] = field(default_factory=list)
+    images: list[dict[str, Any]]
+    root_files: list[Path] = field(default_factory=list)
     estimated_bytes: int = 0
 
 
@@ -77,7 +77,7 @@ class ServerProcessingError(RoboflowError):
     """
 
 
-def get_dataset_root_files(dataset_path: Path) -> List[Path]:
+def get_dataset_root_files(dataset_path: Path) -> list[Path]:
     """Find dataset-level files every batch archive needs.
 
     That is top-level configuration (data.yaml, dataset.yaml, README, ...) plus
@@ -86,7 +86,7 @@ def get_dataset_root_files(dataset_path: Path) -> List[Path]:
     were previously never packaged so COCO uploads arrived unlabeled.
     """
     dataset_path = dataset_path.resolve()
-    root_files: List[Path] = []
+    root_files: list[Path] = []
     if not dataset_path.is_dir():
         return root_files
 
@@ -102,10 +102,10 @@ def get_dataset_root_files(dataset_path: Path) -> List[Path]:
 
 def partition_dataset_into_batches(
     dataset_path: Path,
-    parsed_images: Sequence[Dict[str, Any]],
+    parsed_images: Sequence[dict[str, Any]],
     max_batch_size_mb: float = 500.0,
     max_images_per_batch: int = 1000,
-) -> List[UploadBatchInfo]:
+) -> list[UploadBatchInfo]:
     """Partition dataset into smaller chunks to prevent GCS gateway timeouts on slow connections."""
     dataset_path = dataset_path.resolve()
     root_files = get_dataset_root_files(dataset_path)
@@ -132,8 +132,8 @@ def partition_dataset_into_batches(
     max_bytes = int(max_batch_size_mb * 1024 * 1024) if max_batch_size_mb > 0 else float("inf")
     max_count = max_images_per_batch if max_images_per_batch > 0 else float("inf")
 
-    batches: List[UploadBatchInfo] = []
-    current_images: List[Dict[str, Any]] = []
+    batches: list[UploadBatchInfo] = []
+    current_images: list[dict[str, Any]] = []
     current_bytes = 0
 
     for img_desc in parsed_images:
@@ -179,7 +179,7 @@ def partition_dataset_into_batches(
 def create_batch_zip_archive(
     dataset_path: Path,
     batch_info: UploadBatchInfo,
-    progress_callback: Optional[Callable[[int], None]] = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> Path:
     """Create a temporary zip archive for a specific batch."""
     dataset_path = dataset_path.resolve()
@@ -188,7 +188,7 @@ def create_batch_zip_archive(
     os.close(fd)
     temp_zip_file = Path(temp_name)
 
-    files_to_zip: List[Tuple[Path, str]] = []
+    files_to_zip: list[tuple[Path, str]] = []
 
     # Ingest top-level files (data.yaml, etc.)
     for rf in batch_info.root_files:
@@ -201,7 +201,7 @@ def create_batch_zip_archive(
             files_to_zip.append((rf, arcname))
 
     # Ingest images and annotations
-    def _archive_name(path: Path) -> Optional[str]:
+    def _archive_name(path: Path) -> str | None:
         """Path relative to the dataset root, or None if it escapes the root."""
         try:
             return str(path.relative_to(dataset_path))
@@ -236,7 +236,7 @@ def create_batch_zip_archive(
 def upload_zip_stream(
     signed_url: str,
     zip_path: Path,
-    progress_callback: Optional[Callable[[int], None]] = None,
+    progress_callback: Callable[[int], None] | None = None,
     timeout_secs: int = 1800,
 ) -> None:
     """Upload a zip file to the GCS signed URL with progress tracking."""
@@ -262,11 +262,11 @@ def poll_zip_status(
     api_key: str,
     workspace_url: str,
     task_id: str,
-    status_callback: Optional[Callable[[str], None]] = None,
+    status_callback: Callable[[str], None] | None = None,
     poll_interval: float = 4.0,
     poll_timeout: float = 3600.0,
     max_poll_errors: int = 5,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Poll Roboflow server for zip unpacking, dataset parsing, and annotation validation."""
     deadline = time.monotonic() + poll_timeout
     last_stage = None

@@ -5,7 +5,6 @@ import subprocess
 import sys
 import unittest
 
-
 MODULES = [
     "yolomatic",
     "yolomatic.cli.run",

@@ -13,7 +13,6 @@ from typing import Any
 
 import yaml
 from rich.panel import Panel
-from rich.table import Column
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -23,6 +22,7 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+from rich.table import Column
 
 from yolomatic.augmentation.engine import (
     AugmentationStats,
@@ -43,28 +43,26 @@ from yolomatic.augmentation.profiles import (
     load_profile,
     save_profile,
 )
-from yolomatic.datasets.validate import validate_dataset
 from yolomatic.augmentation.transforms import (
     TRANSFORM_GROUPS,
     get_params_for_transform,
     get_transform_guidance,
 )
+from yolomatic.datasets.validate import validate_dataset
 from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
+    build_summary_panel,
     clear_screen,
     console,
     get_parameter_value_input,
     get_user_choice,
     get_user_multi_select,
     print_stylized_header,
-    build_summary_panel,
     render_summary_panel,
 )
-
 from yolomatic.utils.jobs import CancelToken, JobCancelled
 from yolomatic.utils.project import format_size, list_dataset_directories
-
 
 # ---------------------------------------------------------------------------
 # Helpers

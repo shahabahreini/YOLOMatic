@@ -44,8 +44,9 @@ class TestBenchmarkModuleImports(unittest.TestCase):
         self.assertTrue(callable(write_benchmark_report))
 
     def test_benchmark_config_defaults(self):
-        from yolomatic.benchmark import BenchmarkConfig
         from pathlib import Path
+
+        from yolomatic.benchmark import BenchmarkConfig
         config = BenchmarkConfig(
             weights=[Path("model.pt")],
             validation_dir=Path("data/valid"),
@@ -196,6 +197,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
 
     def test_progress_renderer_adapts_to_narrow_terminal(self):
         from rich.console import Console
+
         from yolomatic.cli import benchmark
 
         renderable = benchmark._render_benchmark_progress(
@@ -217,6 +219,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
 
     def test_progress_renderer_keeps_full_metrics_on_wide_terminal(self):
         from rich.console import Console
+
         from yolomatic.cli import benchmark
 
         renderable = benchmark._render_benchmark_progress(
@@ -237,6 +240,7 @@ class TestBenchmarkProgressRendering(unittest.TestCase):
 
     def test_live_screen_contains_single_refreshable_dashboard(self):
         from rich.console import Console
+
         from yolomatic.cli import benchmark
 
         renderable = benchmark._render_benchmark_live_screen(

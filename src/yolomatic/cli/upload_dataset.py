@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import getpass
-import logging
 import concurrent.futures
 import contextlib
+import getpass
+import logging
 import os
 import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import requests
 from rich import box
@@ -37,6 +38,7 @@ from roboflow import Roboflow
 from roboflow.adapters import rfapi
 from roboflow.adapters.rfapi import RoboflowError
 
+from yolomatic.cli.result import CommandResult
 from yolomatic.datasets.validate_roboflow import (
     TASK_CLASSIFY,
     TASK_INSTANCE_SEG,
@@ -46,7 +48,6 @@ from yolomatic.datasets.validate_roboflow import (
     RoboflowValidationResult,
     validate_roboflow_dataset,
 )
-from yolomatic.cli.result import CommandResult
 from yolomatic.integrations.roboflow_dataset import (
     ServerProcessingError,
     create_batch_zip_archive,
@@ -74,11 +75,11 @@ logger = logging.getLogger(__name__)
 WIZARD_STEPS = ["Dataset", "Validation", "Workspace", "Project", "Settings", "Upload"]
 
 
-def _wizard_kwargs(step_index: int) -> Dict[str, Any]:
+def _wizard_kwargs(step_index: int) -> dict[str, Any]:
     return {"wizard_steps": WIZARD_STEPS, "wizard_current_step": step_index}
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="yolomatic-upload-dataset", description="Upload dataset to Roboflow with validation and progress tracking.")
     parser.add_argument(
         "--api-key",
@@ -137,7 +138,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def load_env_credentials(root_dir: Path) -> Tuple[str, Optional[str]]:
+def load_env_credentials(root_dir: Path) -> tuple[str, str | None]:
     try:
         from dotenv import load_dotenv
         load_dotenv(root_dir / ".env")
@@ -153,9 +154,9 @@ def prompt_tui_text(
     name: str,
     description: str,
     help_text: str,
-    default: Optional[str] = None,
-    breadcrumbs: Optional[List[str]] = None,
-) -> Optional[str]:
+    default: str | None = None,
+    breadcrumbs: list[str] | None = None,
+) -> str | None:
     param = ParameterDefinition(
         name=name,
         category="Roboflow",
@@ -170,7 +171,7 @@ def prompt_tui_text(
     return str(result)
 
 
-def step_select_dataset(root_dir: Path, requested_dataset: Optional[str]) -> Optional[Path]:
+def step_select_dataset(root_dir: Path, requested_dataset: str | None) -> Path | None:
     if requested_dataset:
         cand = Path(requested_dataset).expanduser()
         if not cand.is_absolute():
@@ -181,8 +182,8 @@ def step_select_dataset(root_dir: Path, requested_dataset: Optional[str]) -> Opt
         return None
 
     discovered = list_dataset_directories(root_dir)
-    options: List[str] = []
-    descriptions: Dict[str, str] = {}
+    options: list[str] = []
+    descriptions: dict[str, str] = {}
 
     for d in discovered:
         label = format_label(d.name)
@@ -241,8 +242,8 @@ def step_select_dataset(root_dir: Path, requested_dataset: Optional[str]) -> Opt
 
 def step_validate_dataset(
     dataset_path: Path,
-    target_task: Optional[str] = None,
-) -> Optional[RoboflowValidationResult]:
+    target_task: str | None = None,
+) -> RoboflowValidationResult | None:
     clear_screen()
     print_stylized_header("Roboflow Dataset Upload")
 
@@ -326,7 +327,7 @@ def step_validate_dataset(
     return result
 
 
-def step_resolve_auth(root_dir: Path, cli_key: Optional[str]) -> Tuple[Roboflow, str]:
+def step_resolve_auth(root_dir: Path, cli_key: str | None) -> tuple[Roboflow, str]:
     env_key, _ = load_env_credentials(root_dir)
     api_key = cli_key or env_key
 
@@ -352,7 +353,7 @@ def step_resolve_auth(root_dir: Path, cli_key: Optional[str]) -> Tuple[Roboflow,
             raise RuntimeError(f"Authentication failed: {exc}") from exc
 
 
-def step_select_workspace(rf: Roboflow, root_dir: Path, cli_ws: Optional[str]) -> Tuple[Any, str]:
+def step_select_workspace(rf: Roboflow, root_dir: Path, cli_ws: str | None) -> tuple[Any, str]:
     _, env_ws = load_env_credentials(root_dir)
     default_ws = cli_ws or getattr(rf, "current_workspace", None) or env_ws
 
@@ -363,8 +364,8 @@ def step_select_workspace(rf: Roboflow, root_dir: Path, cli_ws: Optional[str]) -
         except Exception as exc:
             console.print(expected_error_panel(f"Failed to access workspace '{cli_ws}': {exc}"))
 
-    options: List[str] = []
-    descriptions: Dict[str, str] = {}
+    options: list[str] = []
+    descriptions: dict[str, str] = {}
 
     if default_ws:
         options.append(f"Default: {default_ws}")
@@ -414,16 +415,16 @@ def step_select_or_create_project(
     ws: Any,
     ws_slug: str,
     validation_res: RoboflowValidationResult,
-    cli_project: Optional[str] = None,
-    cli_type: Optional[str] = None,
+    cli_project: str | None = None,
+    cli_type: str | None = None,
     cli_license: str = "private",
-) -> Tuple[str, str, str]:
+) -> tuple[str, str, str]:
     if cli_project and cli_project.strip():
         return cli_project.strip(), cli_type or validation_res.detected_task, cli_license
 
-    options: List[str] = []
-    descriptions: Dict[str, str] = {}
-    project_map: Dict[str, str] = {}
+    options: list[str] = []
+    descriptions: dict[str, str] = {}
+    project_map: dict[str, str] = {}
 
     try:
         raw_projects = ws.projects() or []
@@ -524,7 +525,7 @@ def step_select_or_create_project(
 def step_configure_settings(
     args: argparse.Namespace,
     validation_res: RoboflowValidationResult,
-) -> Tuple[bool, str, float, int, int, int]:
+) -> tuple[bool, str, float, int, int, int]:
     options = [
         "Fast Zip Upload (Recommended)",
         "Concurrent Per-Image Upload",
@@ -569,13 +570,13 @@ def execute_zip_upload(
     ws: Any,
     project: Any,
     dataset_path: Path,
-    parsed_images: Sequence[Dict[str, Any]],
+    parsed_images: Sequence[dict[str, Any]],
     batch_name: str,
     max_batch_size_mb: float,
     chunk_images: int,
     timeout_secs: int,
     max_retries: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     batches = partition_dataset_into_batches(
         dataset_path=dataset_path,
         parsed_images=parsed_images,
@@ -591,14 +592,14 @@ def execute_zip_upload(
         )
 
     uploaded_count = 0
-    server_task_ids: List[str] = []
+    server_task_ids: list[str] = []
     project_slug = project.id.rsplit("/")[-1]
 
     for b_idx, batch_info in enumerate(batches, start=1):
         batch_label = f"[{b_idx}/{total_batches}]" if total_batches > 1 else ""
         batch_tag = f"{batch_name}-part{b_idx}" if total_batches > 1 else batch_name
 
-        temp_zip: Optional[Path] = None
+        temp_zip: Path | None = None
         for attempt in range(1, max_retries + 1):
             try:
                 # 1. Create Zip Archive with Progress
@@ -715,10 +716,10 @@ def execute_zip_upload(
 def execute_per_image_upload(
     ws: Any,
     project: Any,
-    parsed_images: Sequence[Dict[str, Any]],
+    parsed_images: Sequence[dict[str, Any]],
     batch_name: str,
     num_workers: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     total = len(parsed_images)
     stats = {
         "uploaded": 0,
@@ -741,7 +742,7 @@ def execute_per_image_upload(
     ) as progress:
         task = progress.add_task("Uploading images and annotations...", total=total)
 
-        def _worker(imagedesc: Dict[str, Any]) -> None:
+        def _worker(imagedesc: dict[str, Any]) -> None:
             image_path = imagedesc["file"]
             split = imagedesc.get("split", "train")
 
@@ -803,7 +804,7 @@ def display_final_report(
     dataset_name: str,
     mode: str,
     duration: float,
-    stats: Dict[str, Any],
+    stats: dict[str, Any],
 ) -> None:
     dashboard_url = f"https://app.roboflow.com/{ws_name}/{project_name}"
 
@@ -878,7 +879,7 @@ def _split_for(relative_parts: Sequence[str]) -> str:
     return "train"
 
 
-def find_label_for_image(dataset_path: Path, image_path: Path, split: str) -> Optional[Path]:
+def find_label_for_image(dataset_path: Path, image_path: Path, split: str) -> Path | None:
     """Locate the YOLO label for ``image_path`` across the common layouts.
 
     * ``<split>/images/x.jpg`` -> ``<split>/labels/x.txt`` (Roboflow/Ultralytics; was missed)
@@ -886,7 +887,7 @@ def find_label_for_image(dataset_path: Path, image_path: Path, split: str) -> Op
     * ``x.jpg`` -> ``x.txt`` beside the image
     """
     parts = list(image_path.relative_to(dataset_path).parts)
-    candidates: List[Path] = []
+    candidates: list[Path] = []
     for index in range(len(parts) - 2, -1, -1):
         if parts[index].lower() == "images":
             swapped = parts[:index] + ["labels"] + parts[index + 1:]
@@ -899,10 +900,10 @@ def find_label_for_image(dataset_path: Path, image_path: Path, split: str) -> Op
     return next((candidate for candidate in candidates if candidate.is_file()), None)
 
 
-def collect_upload_items(dataset_path: Path, class_names: Sequence[str]) -> List[Dict[str, Any]]:
+def collect_upload_items(dataset_path: Path, class_names: Sequence[str]) -> list[dict[str, Any]]:
     """Build the per-image upload descriptors for a local dataset."""
     classes = {i: name for i, name in enumerate(class_names)}
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     for root_dir_p, dirnames, files in os.walk(dataset_path):
         dirnames[:] = sorted(
             d for d in dirnames if not d.startswith(".") and d.lower() not in _SKIP_DIR_NAMES
@@ -922,7 +923,7 @@ def collect_upload_items(dataset_path: Path, class_names: Sequence[str]) -> List
     return items
 
 
-def main(argv: Optional[Sequence[str]] = None) -> CommandResult:
+def main(argv: Sequence[str] | None = None) -> CommandResult:
     args = parse_args(argv)
     root = project_root()
     if args.api_key:

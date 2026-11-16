@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from yolomatic.benchmark.engine import GTObject, ImageResult, PredObject
 from yolomatic.benchmark.metrics import (
     _safe_div,
     box_iou,
@@ -17,7 +18,6 @@ from yolomatic.benchmark.metrics import (
     polygon_to_mask,
     size_bucket,
 )
-from yolomatic.benchmark.engine import GTObject, ImageResult, PredObject
 
 _HAS_CV2 = importlib.util.find_spec("cv2") is not None
 

@@ -1,7 +1,6 @@
-import os
 import logging
+import os
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -71,10 +70,10 @@ class DatasetAnalyzer:
         if readme_roboflow.exists():
             self.readme_roboflow = self.read_text_file(str(readme_roboflow))
 
-    def read_text_file(self, file_path: str) -> Optional[str]:
+    def read_text_file(self, file_path: str) -> str | None:
         """Read text file content."""
         try:
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            with open(file_path, encoding="utf-8", errors="replace") as f:
                 return f.read()
         except Exception as e:
             logger.error(f"Error reading text file {file_path}: {e}")

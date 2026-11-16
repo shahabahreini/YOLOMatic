@@ -7,14 +7,13 @@ from typing import Any
 
 from rich.panel import Panel
 
+from yolomatic.cli.convert_ndjson import _discover_ndjson_files
 from yolomatic.cli.result import CommandResult
-from yolomatic.utils.jobs import JobStatus, ProgressState, run_with_progress
-from yolomatic.utils.logging_setup import log_exception
 from yolomatic.datasets.prepare import (
     OUTPUT_FORMATS,
+    SPLIT_STRATEGIES,
     PrepareDatasetConfig,
     PrepareSplitConfig,
-    SPLIT_STRATEGIES,
     prepare_dataset,
     resolve_versioned_output,
     slugify,
@@ -22,22 +21,22 @@ from yolomatic.datasets.prepare import (
 from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
+    build_summary_panel,
     clear_screen,
     console,
     format_path,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
-    build_summary_panel,
     render_summary_panel,
 )
+from yolomatic.utils.jobs import JobStatus, ProgressState, run_with_progress
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.project import (
     calculate_folder_size,
     format_size,
     list_dataset_directories,
 )
-from yolomatic.cli.convert_ndjson import _discover_ndjson_files
-
 
 WIZARD_STEPS = ["Source", "Format", "Split", "Strategy", "Output", "Confirm"]
 

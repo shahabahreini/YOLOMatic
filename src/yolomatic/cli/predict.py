@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import argparse
 import time
+from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any
 
 from rich import box
 from rich.console import Console
+from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -19,12 +21,9 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-from rich.panel import Panel
 from rich.table import Column, Table
 
 from yolomatic.cli.result import CommandResult
-from yolomatic.utils.jobs import cancellable_executor
-from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.cli import (
     console,
     get_user_choice,
@@ -32,15 +31,22 @@ from yolomatic.utils.cli import (
     render_summary_panel,
     render_table,
 )
-from yolomatic.utils.ml_dependencies import MLDependencyError, import_detectron2, import_ultralytics_yolo
-from yolomatic.utils.ml_dependencies import import_rfdetr_model_class
+from yolomatic.utils.jobs import cancellable_executor
+from yolomatic.utils.logging_setup import log_exception
+from yolomatic.utils.ml_dependencies import (
+    MLDependencyError,
+    import_cv2,
+    import_detectron2,
+    import_rfdetr_model_class,
+    import_torch,
+    import_ultralytics_yolo,
+)
 from yolomatic.utils.project import (
     find_available_weights,
     format_weight_label,
     project_root,
     render_weight_rows,
 )
-
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 MODE_LABELS: dict[str, str] = {
@@ -130,11 +136,28 @@ def is_rfdetr_weight(weight_path: Path) -> bool:
     return weight_path.suffix.lower() == ".pth" and not is_detectron2_weight(weight_path)
 
 
+def _detectron2_run_dir(weight_path: Path) -> Path | None:
+    """The training run folder (holding YOLOmatic's Detectron2 metadata), if any."""
+    from yolomatic.trainers.detectron2_trainer import RUN_METADATA_FILE
+
+    for folder in (weight_path.parent, weight_path.parent.parent):
+        if (folder / RUN_METADATA_FILE).is_file():
+            return folder
+    return None
+
+
 def is_detectron2_weight(weight_path: Path) -> bool:
     if weight_path.suffix.lower() != ".pth":
         return False
-    text = str(weight_path).lower()
-    return "detectron2" in text or "faster_rcnn" in text or "mask_rcnn" in text or "retinanet" in text
+    if _detectron2_run_dir(weight_path) is not None:
+        return True
+    # Fallback for runs trained before YOLOmatic wrote metadata: whole path
+    # components with Detectron2 naming only, so e.g. "/data/retinanet_notes/"
+    # or an RF-DETR run under such a folder is not enough.
+    import re
+
+    pattern = re.compile(r"^(detectron2|(faster|mask|cascade_mask)_rcnn(_r_\d+.*)?|retinanet(_r_\d+.*)?)$")
+    return any(pattern.match(part.lower()) for part in weight_path.parts)
 
 
 def infer_rfdetr_class_from_weight(weight_path: Path) -> str:
@@ -148,15 +171,45 @@ def load_rfdetr_model(weight_path: Path) -> object:
     return model_class(pretrain_weights=str(weight_path))
 
 
-def load_detectron2_predictor(weight_path: Path) -> object:
+def build_detectron2_predict_cfg(weight_path: Path, conf: float, get_cfg: Any, model_zoo: Any) -> tuple[Any, list[str]]:
+    """Rebuild the training config so trained weights load into the right model."""
+    import json
+
+    from yolomatic.trainers.detectron2_trainer import RUN_METADATA_FILE
+
+    cfg = get_cfg()
+    class_names: list[str] = []
+    run_dir = _detectron2_run_dir(weight_path)
+    if run_dir is not None and (run_dir / "config.yaml").is_file():
+        cfg.merge_from_file(str(run_dir / "config.yaml"))
+        meta = json.loads((run_dir / RUN_METADATA_FILE).read_text(encoding="utf-8"))
+        class_names = [str(name) for name in meta.get("classes", [])]
+    else:
+        raise FileNotFoundError(
+            f"No YOLOmatic Detectron2 metadata (config.yaml, {RUN_METADATA_FILE}) next to {weight_path}. "
+            "Detectron2 checkpoints need their training config to be rebuilt; retrain with this "
+            "version of YOLOmatic or copy the run's config.yaml beside the checkpoint."
+        )
+    cfg.MODEL.WEIGHTS = str(weight_path)
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = float(conf)
+    if hasattr(cfg.MODEL, "RETINANET"):
+        cfg.MODEL.RETINANET.SCORE_THRESH_TEST = float(conf)
+    try:
+        cuda = import_torch().cuda.is_available()
+    except Exception:  # noqa: BLE001
+        cuda = False
+    cfg.MODEL.DEVICE = "cuda" if cuda else "cpu"
+    return cfg, class_names
+
+
+def load_detectron2_predictor(weight_path: Path, conf: float = 0.25) -> tuple[Any, list[str]]:
     import_detectron2()
+    from detectron2 import model_zoo
     from detectron2.config import get_cfg
     from detectron2.engine import DefaultPredictor
 
-    cfg = get_cfg()
-    cfg.MODEL.WEIGHTS = str(weight_path)
-    cfg.MODEL.DEVICE = "cpu"
-    return DefaultPredictor(cfg)
+    cfg, class_names = build_detectron2_predict_cfg(weight_path, conf, get_cfg, model_zoo)
+    return DefaultPredictor(cfg), class_names
 
 
 def select_mode() -> str:
@@ -286,28 +339,60 @@ def run_prediction(weight_path: Path, source_path: Path, conf: float) -> Path | 
     return Path(save_dir)
 
 
+def detectron2_instances_to_records(instances: Any, class_names: Sequence[str]) -> list[dict[str, Any]]:
+    """JSON-friendly predictions (boxes are xyxy pixels)."""
+    boxes = instances.pred_boxes.tensor.tolist() if instances.has("pred_boxes") else []
+    scores = instances.scores.tolist() if instances.has("scores") else []
+    classes = instances.pred_classes.tolist() if instances.has("pred_classes") else []
+    records = []
+    for xyxy, score, cls in zip(boxes, scores, classes, strict=False):
+        cls = int(cls)
+        records.append({
+            "class_id": cls,
+            "class_name": class_names[cls] if 0 <= cls < len(class_names) else str(cls),
+            "score": round(float(score), 4),
+            "box_xyxy": [round(float(v), 2) for v in xyxy],
+        })
+    return records
+
+
 def run_detectron2_prediction(weight_path: Path, source_path: Path, conf: float) -> Path:
-    predictor = load_detectron2_predictor(weight_path)
-    output_dir = Path("runs") / "predict" / "detectron2"
+    """Run a trained Detectron2 model and save annotated images plus JSON.
+
+    The old implementation discarded the predictor output and only wrote a
+    "prediction completed" text file per image.
+    """
+    import json
+    from datetime import datetime
+
+    from detectron2.data import MetadataCatalog
+    from detectron2.utils.visualizer import Visualizer
+
+    cv2 = import_cv2()
+    predictor, class_names = load_detectron2_predictor(weight_path, conf)
+    metadata = MetadataCatalog.get(f"yolomatic_predict_{weight_path.stem}")
+    if class_names:
+        metadata.thing_classes = class_names
+    output_dir = Path("runs") / "predict" / "detectron2" / datetime.now().strftime("%Y%m%d-%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
     sources = [source_path] if source_path.is_file() else discover_images(source_path)
     for image_path in sources:
-        try:
-            from PIL import Image
-            import numpy as np
-
-            image = np.asarray(Image.open(image_path).convert("RGB"))[:, :, ::-1]
-            predictor(image)
-        except ImportError:
-            predictor(str(image_path))
-        marker = output_dir / f"{image_path.stem}.txt"
-        marker.write_text(f"Detectron2 prediction completed for {image_path}\n", encoding="utf-8")
+        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValueError(f"Could not read image: {image_path}")
+        instances = predictor(image)["instances"].to("cpu")
+        drawn = Visualizer(image[:, :, ::-1], metadata=metadata).draw_instance_predictions(instances)
+        cv2.imwrite(str(output_dir / f"{image_path.stem}.jpg"), drawn.get_image()[:, :, ::-1])
+        (output_dir / f"{image_path.stem}.json").write_text(
+            json.dumps({"image": str(image_path), "predictions": detectron2_instances_to_records(instances, class_names)}, indent=2),
+            encoding="utf-8",
+        )
     return output_dir
 
 
 def run_rfdetr_prediction(weight_path: Path, source_path: Path, conf: float) -> Path:
-    from PIL import Image
     import supervision as sv
+    from PIL import Image
 
     model = load_rfdetr_model(weight_path)
     image = Image.open(source_path).convert("RGB")
@@ -348,8 +433,8 @@ def _predict_single_image(
 
 
 def _predict_single_rfdetr_image(model: object, image_path: Path, conf: float) -> Path:
-    from PIL import Image
     import supervision as sv
+    from PIL import Image
 
     image = Image.open(image_path).convert("RGB")
     detections = model.predict(image, threshold=conf)
@@ -377,7 +462,7 @@ def _initialize_prediction_worker(weight_path: str, conf: float) -> None:
 
     if Path(weight_path).suffix.lower() == ".pth":
         _WORKER_MODEL = load_rfdetr_model(Path(weight_path))
-        setattr(_WORKER_MODEL, "_yolomatic_rfdetr", True)
+        _WORKER_MODEL._yolomatic_rfdetr = True
     else:
         yolo_class = import_ultralytics_yolo()
         _WORKER_MODEL = yolo_class(weight_path)
@@ -482,10 +567,22 @@ def run_folder_prediction(
     if not image_paths:
         raise ValueError("No supported image files found in the selected folder.")
 
+    if is_detectron2_weight(weight_path):
+        # Detectron2 runs in-process (one model, sequential images); it used to
+        # be loaded as YOLO (workers=1) or as RF-DETR (workers>1).
+        results: list[BatchPredictionResult] = []
+        for image_path in image_paths:
+            try:
+                output_dir = run_detectron2_prediction(weight_path, image_path, conf)
+                results.append(BatchPredictionResult(image_path=image_path, output_dir=output_dir))
+            except Exception as error:  # noqa: BLE001 - per-image failure is reported
+                results.append(BatchPredictionResult(image_path=image_path, output_dir=None, error=str(error)))
+        return results
+
     if workers == 1:
         if is_rfdetr_weight(weight_path):
             model = load_rfdetr_model(weight_path)
-            setattr(model, "_yolomatic_rfdetr", True)
+            model._yolomatic_rfdetr = True
         else:
             yolo_class = import_ultralytics_yolo()
             model = yolo_class(str(weight_path))

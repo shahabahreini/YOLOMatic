@@ -1,5 +1,5 @@
-import unittest
 import tempfile
+import unittest
 from pathlib import Path
 
 from yolomatic.augmentation.profiles import AugmentationProfile

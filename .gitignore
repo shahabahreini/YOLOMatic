@@ -156,3 +156,10 @@ promo/showreel/node_modules/
 promo/*
 plans/*
 .DS_Store
+
+# Local agent tooling and working notes (kept on disk, not published)
+.agents/
+skills-lock.json
+audits/
+docs/superpowers/
+plans/

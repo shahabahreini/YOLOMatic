@@ -7,7 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
 from yolomatic.cli import upload_dataset
 from yolomatic.cli.upload_dataset import parse_args
 

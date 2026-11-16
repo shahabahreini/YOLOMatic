@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 import numpy as np
 import yaml
@@ -13,10 +13,8 @@ from torch.utils.tensorboard import SummaryWriter
 from yolomatic.config.generator import RFDETRConfigGenerator, YOLOConfigGenerator
 from yolomatic.utils.ml_dependencies import MLDependencyError
 from yolomatic.utils.project import (
-    find_finetune_candidates,
-    resolve_dataset_root,
-    write_resolved_data_yaml,
     find_available_weights,
+    find_finetune_candidates,
     find_run_directories,
     format_size,
     format_weight_label,
@@ -24,7 +22,9 @@ from yolomatic.utils.project import (
     list_dataset_directories,
     load_dataset_config,
     project_root,
+    resolve_dataset_root,
     verify_dataset_directories,
+    write_resolved_data_yaml,
 )
 from yolomatic.utils.tensorboard import (
     backfill_ultralytics_tensorboard,

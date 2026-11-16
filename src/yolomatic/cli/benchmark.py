@@ -14,20 +14,20 @@ from rich.table import Table
 from rich.text import Text
 
 from yolomatic.cli.result import CommandResult
-from yolomatic.utils.jobs import CancelToken, JobCancelled
-from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.cli import (
     NAV_BACK,
     TUI_TERM,
     ParameterDefinition,
+    build_summary_panel,
     clear_screen,
     console,
     expected_error_panel,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
-    build_summary_panel,
 )
+from yolomatic.utils.jobs import CancelToken, JobCancelled
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.project import (
     format_size,
     format_weight_label,
@@ -392,86 +392,6 @@ def _collect_val_candidates(root: Path) -> list[Path]:
 
     return candidates
 
-
-def _select_validation_dir() -> Path | str:
-    root = project_root()
-
-    candidates = _collect_val_candidates(root)
-
-    labels = [
-        str(p.relative_to(root)) if p.is_relative_to(root) else str(p)
-        for p in candidates
-    ]
-    labels.append("Enter custom path...")
-
-    descriptions: dict[str, str] = {}
-    for label, path in zip(labels[:-1], candidates):
-        descriptions[label] = _val_dir_description(path, root)
-    descriptions["Enter custom path..."] = (
-        "Type a custom path to a validation directory.\n"
-        "It must contain images and a COCO annotation JSON file."
-    )
-
-    choice = get_user_choice(
-        labels,
-        allow_back=True,
-        title="Select Validation Dataset Directory",
-        text="Choose the directory containing validation images and annotations:",
-        descriptions=descriptions,
-        breadcrumbs=["YOLOmatic", "Benchmark", "Validation Dir"],
-    )
-    if choice in (NAV_BACK, "Back"):
-        return NAV_BACK
-
-    if choice == "Enter custom path...":
-        raw = get_parameter_value_input(
-            ParameterDefinition(
-                name="validation_dir",
-                category="benchmark",
-                default=str(root / _DEFAULT_VAL_DIR),
-                value_type="str",
-                description="Path to validation images + annotation JSON",
-                help_text="Use an absolute path or a path relative to the project root.",
-            ),
-            current_value=str(root / _DEFAULT_VAL_DIR),
-        )
-        if raw is None or raw == NAV_BACK:
-            return NAV_BACK
-        path = Path(str(raw))
-    else:
-        idx = labels.index(choice)
-        path = candidates[idx]
-
-    if not path.exists():
-        console.print(
-            Panel(
-                f"[bold red]Directory not found:[/bold red] {path}",
-                border_style="red",
-                padding=(1, 2),
-            )
-        )
-        input("\nPress Enter to return...")
-        return NAV_BACK
-
-    from yolomatic.benchmark.engine import detect_annotation_format
-
-    ann_fmt = detect_annotation_format(path)
-    if ann_fmt == "coco":
-        ann_candidates = list(path.glob("_annotations.coco.json")) + list(
-            path.glob("*.json")
-        )
-        console.print(
-            f"[dim]  Auto-detected COCO annotation file: {ann_candidates[0].name}[/dim]\n"
-        )
-    elif ann_fmt == "yolo":
-        console.print("[dim]  Auto-detected YOLO label format.[/dim]\n")
-    else:
-        console.print(
-            "[yellow]  Warning: No annotations detected in this directory. "
-            "You will be asked to provide a COCO annotation path.[/yellow]\n"
-        )
-
-    return path
 
 
 def _select_dataset_splits(task: str) -> dict[str, Path] | str:
@@ -1026,7 +946,10 @@ def main() -> CommandResult:
     if weights == NAV_BACK or not isinstance(weights, list):
         return CommandResult.cancelled()
 
-    from yolomatic.benchmark.planning import BenchmarkCompatibilityError, resolve_selected_model_task
+    from yolomatic.benchmark.planning import (
+        BenchmarkCompatibilityError,
+        resolve_selected_model_task,
+    )
 
     try:
         task = resolve_selected_model_task(weights)

@@ -20,7 +20,6 @@ from yolomatic.config.generator import YOLOConfigGenerator
 from yolomatic.datasets.core import convert_coco_to_yolo, convert_yolo_to_coco, summarize_dataset
 from yolomatic.models.data import model_data_dict
 
-
 POSE_FAMILIES = ("yolo26-pose", "yolov11-pose", "yolov8-pose")
 
 

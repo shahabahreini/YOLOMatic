@@ -7,7 +7,6 @@ from typing import Any
 
 from yolomatic.datasets.core import SplitSummary, summarize_dataset
 
-
 SUPPORTED_TASKS = frozenset({"detection", "segmentation", "pose", "semantic"})
 _TASK_ALIASES = {
     "detect": "detection",

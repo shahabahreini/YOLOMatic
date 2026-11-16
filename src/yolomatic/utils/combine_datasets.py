@@ -1,7 +1,9 @@
 import os
 import shutil
-import yaml
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+import yaml
 from rich.markup import escape
 from rich.panel import Panel
 from rich.progress import (
@@ -11,13 +13,12 @@ from rich.progress import (
     TaskProgressColumn,
     TextColumn,
 )
-from yolomatic.ui.theme import CONSOLE
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from yolomatic.cli.result import CommandResult
-from yolomatic.utils.logging_setup import log_exception
-from yolomatic.utils.cli import NAV_BACK, get_user_choice, get_parameter_value_input
+from yolomatic.ui.theme import CONSOLE
+from yolomatic.utils.cli import NAV_BACK, get_parameter_value_input, get_user_choice
 from yolomatic.utils.fs import UnsafePathError, ensure_safe_destructive_target, staging_dir
+from yolomatic.utils.logging_setup import log_exception
 
 console = CONSOLE
 
@@ -33,7 +34,7 @@ def find_datasets(root_dir: str = ".") -> list:
         yaml_path = item / "data.yaml"
         if yaml_path.exists():
             try:
-                with open(yaml_path, "r", encoding="utf-8") as f:
+                with open(yaml_path, encoding="utf-8") as f:
                     data = yaml.safe_load(f)
                 if isinstance(data, dict) and "names" in data and isinstance(data["names"], list):
                     datasets.append({
@@ -110,7 +111,7 @@ def process_single_image(task: tuple) -> tuple[bool, str]:
         # Process label
         label_file = label_dir / (img_file.stem + ".txt")
         if label_file.exists():
-            with open(label_file, "r", encoding="utf-8") as f:
+            with open(label_file, encoding="utf-8") as f:
                 lines = f.readlines()
 
             new_lines = []
@@ -185,7 +186,7 @@ def _merge_into(selected_datasets: list, output_path: Path, final_path: Path, no
     # === Build unified class list (with optional normalization) ===
     class_set = {}
     for ds in selected_datasets:
-        for idx, name in enumerate(ds["classes"]):
+        for _idx, name in enumerate(ds["classes"]):
             key = name.strip().lower() if normalize_classes else name.strip()
             if key not in class_set:
                 class_set[key] = name.strip()  # keep original casing of first occurrence

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from yolomatic.utils.tui import (
+    NAV_BACK,
+    NAV_LIST,
     TUI_CONSOLE,
     TUI_TERM,
     ParameterDefinition,
-    NAV_BACK,
-    NAV_LIST,
     TUIState,
+    build_summary_panel,
     build_summary_table,
     clear_screen,
     expected_error_panel,
@@ -18,11 +19,10 @@ from yolomatic.utils.tui import (
     make_panel,
     make_table,
     print_header,
-    build_summary_panel,
     render_summary_panel,
     render_table,
-    warning_panel,
     shorten_middle,
+    warning_panel,
 )
 
 console = TUI_CONSOLE

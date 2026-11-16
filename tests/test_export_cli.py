@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import patch
 
-from yolomatic.utils.export_config import build_export_kwargs
 from yolomatic.utils.export_config import (
     ExportModelDetails,
+    build_export_kwargs,
     extract_model_details,
     filter_export_defaults,
     filter_export_definitions,
@@ -172,7 +172,8 @@ class ExportCliTests(unittest.TestCase):
         import tempfile
         from pathlib import Path
         from unittest.mock import MagicMock
-        from yolomatic.cli.export import main, ExportModelDetails
+
+        from yolomatic.cli.export import ExportModelDetails, main
 
         with tempfile.TemporaryDirectory() as tmp:
             fake_weight = Path(tmp) / "best.pt"

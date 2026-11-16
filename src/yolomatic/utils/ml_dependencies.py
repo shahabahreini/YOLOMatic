@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import importlib
-from importlib import metadata
 import os
 import platform
 import sys
 import threading
+from importlib import metadata
 from pathlib import Path
 from typing import TypeVar
 
@@ -218,7 +218,7 @@ def import_torch() -> _T:
 def import_ultralytics_yolo() -> object:
     ultralytics_module = import_module_or_raise("ultralytics")
     try:
-        return getattr(ultralytics_module, "YOLO")
+        return ultralytics_module.YOLO
     except AttributeError as error:
         raise MLDependencyError(
             "ultralytics.YOLO is not available in the installed package."
@@ -228,7 +228,7 @@ def import_ultralytics_yolo() -> object:
 def import_ultralytics_settings() -> object:
     ultralytics_module = import_module_or_raise("ultralytics")
     try:
-        return getattr(ultralytics_module, "settings")
+        return ultralytics_module.settings
     except AttributeError as error:
         raise MLDependencyError(
             "ultralytics.settings is not available in the installed package."
@@ -275,6 +275,14 @@ def import_detectron2() -> object:
         ) from error
 
 
+def extra_install_hint(extra: str) -> str:
+    """How to install one of YOLOmatic's optional dependency groups."""
+    return (
+        f"Install it with `uv tool install 'yolomatic[{extra}]'` "
+        f"(or `uv sync --extra {extra}` in a source checkout)."
+    )
+
+
 def import_sam_transformers() -> object:
     """Import transformers, validating that Sam3TrackerModel (added in 5.8) is present."""
     try:
@@ -288,7 +296,7 @@ def import_sam_transformers() -> object:
     except MLDependencyError as error:
         raise MLDependencyError(
             f"{error}\nSAM 3.1 requires transformers>=5.8 and accelerate>=0.26. "
-            "Run `uv sync` to update dependencies."
+            + extra_install_hint("sam")
         ) from error
 
 
@@ -347,6 +355,12 @@ def check_hf_auth() -> str | None:
 
 def _patch_tensorrt_compatibility() -> None:
     """Apply a patch for TensorRT 10/11 compatibility where BuilderFlag.FP16 and INT8 are removed."""
+    import importlib.util
+
+    # Only worth doing (and only safe to pay for an eager torch import) when
+    # TensorRT is installed; this runs on every YOLOmatic start-up.
+    if importlib.util.find_spec("tensorrt") is None:
+        return
     try:
         prepare_ml_runtime()
         import torch

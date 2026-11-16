@@ -1,0 +1,32 @@
+# Install once with:  uvx pre-commit install
+# Run on everything:  uvx pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+        exclude: ^uv\.lock$
+      - id: check-merge-conflict
+      - id: check-yaml
+        exclude: ^mkdocs\.yml$   # uses !!python/name tags
+      - id: check-toml
+      - id: end-of-file-fixer
+        exclude: ^(docs/assets/|uv\.lock$)
+      - id: trailing-whitespace
+        exclude: ^(docs/assets/|uv\.lock$)
+
+  - repo: local
+    hooks:
+      # Same ruff version as uv.lock / CI.
+      - id: ruff
+        name: ruff
+        entry: uvx ruff@0.16.9 check --fix
+        language: system
+        types: [python]
+      - id: uv-lock-check
+        name: uv.lock is up to date
+        entry: uv lock --check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock)$

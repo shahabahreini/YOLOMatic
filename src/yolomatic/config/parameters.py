@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from yolomatic.utils.cli import ParameterDefinition
 
-
 # Comprehensive YOLO training parameter definitions for fully customized config
 YOLO_TRAINING_PARAMETERS: list[ParameterDefinition] = [
     # Core Training Parameters

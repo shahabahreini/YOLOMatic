@@ -26,7 +26,7 @@ _HAS_CV2 = importlib.util.find_spec("cv2") is not None
 def _write_coco(path: Path, images, annotations, categories=None):
     cats = categories or [{"id": 0, "name": "object", "supercategory": "none"}]
     coco = {"images": images, "annotations": annotations, "categories": cats}
-    path.write_text(json.dumps(coco))
+    path.write_text(json.dumps(coco), encoding="utf-8")
 
 
 class TestAutoDetectAnnotations(unittest.TestCase):
@@ -151,8 +151,9 @@ class TestDominantBucket(unittest.TestCase):
 class TestEvaluateModelWorker(unittest.TestCase):
     def test_logs_model_name_on_load_failure(self):
         """Worker must log 'Loading model: <name>' even when YOLO load fails."""
-        from yolomatic.benchmark.engine import _evaluate_model_worker
         import tempfile
+
+        from yolomatic.benchmark.engine import _evaluate_model_worker
         with tempfile.TemporaryDirectory() as tmp:
             fake_weights = Path(tmp) / "my_model.pt"
             fake_weights.touch()
@@ -206,11 +207,12 @@ class TestResolveWorkers(unittest.TestCase):
 
 class TestRunBenchmarkSequential(unittest.TestCase):
     def test_sequential_path_single_weight(self):
-        from unittest.mock import patch
-        from yolomatic.benchmark.config import BenchmarkConfig
-        from yolomatic.benchmark.engine import run_benchmark, ModelMetrics, BenchmarkResult
-        from yolomatic.benchmark.metrics import SizeBucketMetrics
         import tempfile
+        from unittest.mock import patch
+
+        from yolomatic.benchmark.config import BenchmarkConfig
+        from yolomatic.benchmark.engine import BenchmarkResult, ModelMetrics, run_benchmark
+        from yolomatic.benchmark.metrics import SizeBucketMetrics
 
         called: list[Path] = []
 
@@ -241,10 +243,11 @@ class TestRunBenchmarkSequential(unittest.TestCase):
         self.assertEqual(len(result.models), 1)
 
     def test_raises_clear_error_when_all_models_fail(self):
+        import tempfile
         from unittest.mock import patch
+
         from yolomatic.benchmark.config import BenchmarkConfig
         from yolomatic.benchmark.engine import BenchmarkRunError, run_benchmark
-        import tempfile
 
         def fake_worker(weights, **_kwargs):
             return None, [f"  [ERROR] Failed to load {weights.name}"]

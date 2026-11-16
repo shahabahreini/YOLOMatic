@@ -10,8 +10,8 @@ from typing import Any
 
 import yaml
 
-from yolomatic.utils.project import project_root
 from yolomatic.datasets.cache import is_dataset_runtime_cache
+from yolomatic.utils.project import project_root
 
 IMAGE_EXTENSIONS = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 SPLIT_ALIASES = {
@@ -22,7 +22,7 @@ SPLIT_ALIASES = {
 
 
 def read_yaml_file(file_path: str | Path) -> dict[str, Any] | None:
-    with open(file_path, "r", encoding="utf-8") as file:
+    with open(file_path, encoding="utf-8") as file:
         payload = yaml.safe_load(file)
     return payload if isinstance(payload, dict) else None
 
@@ -95,13 +95,13 @@ class DatasetValidationError(ValueError):
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+    with open(path, encoding="utf-8", errors="replace") as handle:
         loaded = yaml.safe_load(handle) or {}
     return loaded if isinstance(loaded, dict) else {}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+    with open(path, encoding="utf-8", errors="replace") as handle:
         loaded = json.load(handle)
     return loaded if isinstance(loaded, dict) else {}
 
@@ -457,7 +457,7 @@ def _dataset_signature(root: Path) -> str:
                     try:
                         stat = entry.stat()
                         if entry.is_dir():
-                            hasher.update(f"dir:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8"))
+                            hasher.update(f"dir:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode())
                             if entry.name.lower() in {"images", "labels"}:
                                 # Check top-level split directories (train/val/test) mtimes and sizes quickly
                                 try:
@@ -466,7 +466,7 @@ def _dataset_signature(root: Path) -> str:
                                             if not sub_entry.name.startswith("."):
                                                 try:
                                                     sub_stat = sub_entry.stat()
-                                                    hasher.update(f"subdir:{sub_entry.path}:{sub_stat.st_mtime_ns}:{sub_stat.st_size}".encode("utf-8"))
+                                                    hasher.update(f"subdir:{sub_entry.path}:{sub_stat.st_mtime_ns}:{sub_stat.st_size}".encode())
                                                 except OSError:
                                                     pass
                                 except OSError:
@@ -475,7 +475,7 @@ def _dataset_signature(root: Path) -> str:
                                 queue.append((Path(entry.path), depth + 1))
                         elif entry.is_file():
                             if entry.name.lower().endswith((".yaml", ".yml", ".json")):
-                                hasher.update(f"file:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8"))
+                                hasher.update(f"file:{entry.path}:{stat.st_mtime_ns}:{stat.st_size}".encode())
                     except OSError:
                         pass
         except OSError:
@@ -506,7 +506,7 @@ def summarize_dataset(dataset_path: str | Path, *, sample_limit: int = 5000) -> 
 
     if cache_path.exists():
         try:
-            with open(cache_path, "r", encoding="utf-8") as f:
+            with open(cache_path, encoding="utf-8") as f:
                 cached_data = json.load(f)
             cached_summary = dataset_summary_from_dict(cached_data)
             cached_summary.path = str(root)

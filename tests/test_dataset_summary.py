@@ -116,6 +116,7 @@ class DatasetSummaryTest(unittest.TestCase):
 
     def test_summary_and_size_without_os_fwalk(self) -> None:
         import os
+
         from yolomatic.datasets.core import _stat_aggregate
         from yolomatic.utils.project import calculate_folder_size
 

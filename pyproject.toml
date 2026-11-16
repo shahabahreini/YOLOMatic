@@ -7,41 +7,30 @@ authors = [
   {name = "Shahab Bahreini Jangjoo", email = "shahabahreini@hotmail.com"},
 ]
 dependencies = [
-  "ultralytics",
-  "clearml",
-  "pyyaml",
-  "opencv-python-headless>=4.10,<6",
-  "numpy>=1.24.4",
-  "torch",
-  "torchvision",
-  "tensorboard",
-  "tensorflow>=2.16,<2.22; sys_platform != 'win32'",
-  "onnx",
-  "onnxslim>=0.1.71",
-  "onnxruntime",
-  "tabulate",
-  "termcolor",
-  "ruamel.yaml",
-  "terminaltables",
-  "blessed",
-  "rich",
-  "python-dotenv",
-  "roboflow",
-  "rfdetr[train,onnx,loggers,plus]>=1.6.5.post0",
-  "packaging",
-  "psutil",
+  # Core: configure, train (YOLO/RF-DETR), predict, prepare, augment, benchmark, TUI.
+  "ultralytics>=8.4,<9",
+  "torch>=2.4,<3",
+  "torchvision>=0.19,<1",
+  "rfdetr[train,loggers,plus]>=1.6.5.post0,<2",
   "pycocotools>=2.0.11",
-  "transformers>=5.8,<6",
-  "accelerate>=0.26",
-  "plotly>=5.0",
-  "umap-learn>=0.5",
+  "opencv-python-headless>=4.10,<6",
+  "numpy>=1.24.4,<3",
   "Pillow>=9.0",
-  "albumentations>=1.4",
-  "openvino>=2024.0.0",
-  "coremltools>=7.1.0; sys_platform != 'win32'",
-  "ncnn>=1.0.3",
-  "tensorrt-cu12==11.1.0.106; sys_platform != 'darwin'",
+  "albumentations>=1.4,<3",
+  "scikit-learn>=1.3,<2",
+  "plotly>=5.0,<8",
+  "tensorboard>=2.16,<3",
+  "roboflow>=1.1,<2",
+  "requests>=2.31,<3",
+  "pyyaml>=6.0",
+  "ruamel.yaml>=0.18",
+  "rich>=13.7",
+  "blessed>=1.20",
+  "python-dotenv>=1.0",
+  "packaging>=23",
+  "psutil>=5.9",
   "platformdirs>=4.2",
+  "keyring>=25",
 ]
 description = "Automated object-detection training utilities and CLI — configure, train, predict, benchmark, and upload YOLO26, YOLOv12, YOLOv11, YOLOv10, YOLOv9, YOLOv8, YOLOX, RF-DETR, and SAM 3.1 models with an interactive terminal interface."
 keywords = [
@@ -93,6 +82,7 @@ classifiers = [
   "Operating System :: Microsoft :: Windows",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Scientific/Engineering :: Image Recognition",
   "Topic :: Software Development :: Libraries :: Python Modules",
@@ -101,7 +91,7 @@ classifiers = [
 license = "Apache-2.0"
 name = "yolomatic"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 version = "6.4.0"
 
 [project.urls]
@@ -113,6 +103,38 @@ Issues = "https://github.com/shahabahreini/YOLOMatic/issues"
 Repository = "https://github.com/shahabahreini/YOLOMatic"
 
 [project.optional-dependencies]
+# Extra export formats (ONNX/TensorFlow/CoreML/OpenVINO/NCNN). Ultralytics
+# needs these only for the matching `export(format=...)`.
+export = [
+  "onnx>=1.16,<2",
+  "onnxslim>=0.1.71",
+  "onnxruntime>=1.18,<2",
+  "rfdetr[onnx]>=1.6.5.post0,<2",
+  "openvino>=2024.0.0",
+  "ncnn>=1.0.3",
+  "tensorflow>=2.16,<2.22; sys_platform != 'win32'",
+  "coremltools>=7.1.0; sys_platform != 'win32'",
+]
+# TensorRT engines (NVIDIA GPUs on Linux/Windows).
+tensorrt = [
+  "tensorrt-cu12==11.1.0.106; sys_platform != 'darwin'",
+]
+# ClearML experiment tracking.
+clearml = [
+  "clearml>=1.16,<3",
+]
+# UMAP embeddings in benchmark reports (falls back to PCA without it).
+viz = [
+  "umap-learn>=0.5",
+]
+# SAM 3.1 fine-tuning and segmentation.
+sam = [
+  "transformers>=5.8,<6",
+  "accelerate>=0.26",
+]
+all = [
+  "yolomatic[export,tensorrt,clearml,viz,sam]",
+]
 docs = [
   "mkdocs>=1.6",
   "mkdocs-material[imaging]>=9.5",
@@ -134,6 +156,7 @@ dev = [
   "pytest>=8.3",
   "pytest-cov>=6.0",
   "ruff>=0.12",
+  "pyrefly>=0.30",
 ]
 
 [tool.ruff]
@@ -141,8 +164,30 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F"]
-ignore = ["E501"]
+# Preview is enabled only for explicitly selected preview rules (PLW1514).
+preview = true
+explicit-preview-rules = true
+select = [
+  "E", "F",      # pycodestyle errors, pyflakes
+  "B",           # bugbear: likely bugs and design problems
+  "UP",          # pyupgrade: modern syntax for the supported Python
+  "I",           # import sorting
+  "S306",        # tempfile.mktemp (race condition)
+  "PLW1514",     # open()/read_text() without an explicit encoding
+]
+ignore = [
+  "E501",        # line length is handled by review, not lint
+  "B023",        # closures over loop vars: all current uses run inside the iteration
+  "B905",        # zip(strict=...): many call sites intentionally zip unequal lengths
+  "UP042",       # StrEnum changes str() semantics of existing enums
+  "UP046", "UP047",  # PEP 695 generics: style only
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B017"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["yolomatic"]
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
@@ -212,7 +257,5 @@ yolomatic-export = "yolomatic.cli.entrypoints:export"
 yolomatic-augment = "yolomatic.cli.entrypoints:augment"
 
 [tool.pyrefly]
-project-includes = [
-    "**/*.py*",
-    "**/*.ipynb",
-]
+project-includes = ["src/yolomatic"]
+search-path = ["src"]

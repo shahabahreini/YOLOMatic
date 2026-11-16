@@ -2,13 +2,21 @@ import logging
 import math
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import psutil
 import yaml
 
-from yolomatic.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
-from yolomatic.datasets import prepare_dataset_for_family, prepared_format_for_family, summarize_dataset
+from yolomatic.config.settings import (
+    load_settings,
+    snapshot_clearml_settings,
+    snapshot_roboflow_settings,
+)
+from yolomatic.datasets import (
+    prepare_dataset_for_family,
+    prepared_format_for_family,
+    summarize_dataset,
+)
 from yolomatic.datasets.cache import is_dataset_runtime_cache
 from yolomatic.models.data import model_data_dict
 from yolomatic.models.detectron2 import get_detectron2_variant
@@ -147,7 +155,7 @@ class BaseConfigGenerator:
 
         if data_yaml_path:
             try:
-                with open(data_yaml_path, "r", encoding="utf-8", errors="replace") as f:
+                with open(data_yaml_path, encoding="utf-8", errors="replace") as f:
                     self.data_yaml = yaml.safe_load(f)
                     logger.info(f"Loaded YAML content: {self.data_yaml}")
 
@@ -344,7 +352,7 @@ class BaseConfigGenerator:
                     break
                 file_had_label = False
                 try:
-                    with open(label_file, "r", encoding="utf-8", errors="replace") as handle:
+                    with open(label_file, encoding="utf-8", errors="replace") as handle:
                         for line_index, line in enumerate(handle):
                             if line_index >= MAX_LINES_PER_FILE:
                                 break
@@ -1009,7 +1017,7 @@ class RFDETRConfigGenerator(BaseConfigGenerator):
         model_choice: str,
         finetune_source: str | None = None,
         finetune_strategy: str | None = None,
-    ) -> Dict:
+    ) -> dict:
         self.extract_dataset_info()
         variant = get_rfdetr_variant(model_choice)
         system_metrics = self._collect_system_metrics()
@@ -1099,7 +1107,7 @@ class Detectron2ConfigGenerator(BaseConfigGenerator):
         model_choice: str,
         finetune_source: str | None = None,
         finetune_strategy: str | None = None,
-    ) -> Dict:
+    ) -> dict:
         self.extract_dataset_info()
         variant = get_detectron2_variant(model_choice)
         system_metrics = self._collect_system_metrics()
@@ -1149,7 +1157,7 @@ class YOLOConfigGenerator(BaseConfigGenerator):
         profile_context: dict[str, Any] | None = None,
         finetune_source: str | None = None,
         finetune_strategy: str | None = None,
-    ) -> Dict:
+    ) -> dict:
         """Generate YOLO specific configuration."""
         if profile_context is None:
             profile_context = self.get_regular_yolo_profile_context(model_choice)
@@ -1297,6 +1305,7 @@ class SAMConfigGenerator(BaseConfigGenerator):
         finetune_source: str | None = None,
     ) -> dict[str, Any]:
         from datetime import datetime
+
         from yolomatic.models.sam import get_sam_variant
 
         variant = get_sam_variant(model_choice)
@@ -1311,7 +1320,11 @@ class SAMConfigGenerator(BaseConfigGenerator):
         )
 
         try:
-            from yolomatic.config.settings import load_settings, snapshot_clearml_settings, snapshot_roboflow_settings
+            from yolomatic.config.settings import (
+                load_settings,
+                snapshot_clearml_settings,
+                snapshot_roboflow_settings,
+            )
             integration_settings = load_settings()
             clearml_cfg = snapshot_clearml_settings(integration_settings, "SAM", model_choice)
             roboflow_cfg = snapshot_roboflow_settings(integration_settings)

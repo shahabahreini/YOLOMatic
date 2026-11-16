@@ -1,11 +1,10 @@
 """Pure metric computation — no ML framework imports."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Geometry helpers
@@ -50,15 +49,6 @@ def box_iou(pred: tuple[float, float, float, float],
     union = pred_area + gt_area - inter
     return float(inter / union) if union > 0 else 0.0
 
-
-def mask_to_box(mask: np.ndarray) -> tuple[int, int, int, int]:
-    rows = np.any(mask, axis=1)
-    cols = np.any(mask, axis=0)
-    if not rows.any():
-        return (0, 0, 0, 0)
-    y1, y2 = int(np.argmax(rows)), int(len(rows) - 1 - np.argmax(rows[::-1]))
-    x1, x2 = int(np.argmax(cols)), int(len(cols) - 1 - np.argmax(cols[::-1]))
-    return (x1, y1, x2, y2)
 
 
 # ---------------------------------------------------------------------------

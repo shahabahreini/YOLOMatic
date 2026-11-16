@@ -9,7 +9,6 @@ from typing import Any
 
 import plotly.graph_objects as go
 
-
 FONT_FAMILY = "'Inter', system-ui, -apple-system, sans-serif"
 PAPER_BG = "#ffffff"
 PLOT_BG = "#f9fafb"
@@ -70,13 +69,6 @@ def _interpolate_color(v: float, min_v: float, max_v: float, is_highlight: bool 
     
     return f"rgb({r},{g},{b})"
 
-
-def _model_counts(model: Any) -> tuple[int, int, int]:
-    return (
-        sum(r.tp for r in model.per_image),
-        sum(r.fp for r in model.per_image),
-        sum(r.fn for r in model.per_image),
-    )
 
 
 def _shorten(value: str, max_chars: int = 72) -> str:
@@ -228,7 +220,7 @@ def _comparison_table(result: Any, names: dict[Path, str]) -> go.Figure:
         ["#ffffff"] * len(models),
     ]
     
-    for label, vals, highlight, inverse in metrics_data:
+    for _label, vals, highlight, inverse in metrics_data:
         values.append([_fmt(v) for v in vals])
         if not vals or len(vals) < 2:
             fills.append(["#ffffff"] * len(models))

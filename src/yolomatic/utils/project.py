@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import yaml
 
@@ -212,7 +213,7 @@ def list_dataset_directories(
 
 
 def load_yaml_file(file_path: str | Path) -> dict[str, Any]:
-    with open(file_path, "r", encoding="utf-8") as file:
+    with open(file_path, encoding="utf-8") as file:
         loaded = yaml.safe_load(file) or {}
     if not isinstance(loaded, dict):
         raise ValueError(f"Expected mapping in YAML file: {file_path}")
