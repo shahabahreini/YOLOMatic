@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/yolomatic/"><img alt="PyPI" src="https://img.shields.io/pypi/v/yolomatic?label=pypi&color=0b5ff0"></a>
+  <a href="https://github.com/shahabahreini/YOLOMatic/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/shahabahreini/YOLOMatic?label=release&color=0b5ff0"></a>
   <a href="https://www.python.org/"><img alt="Python 3.12 and 3.13" src="https://img.shields.io/badge/python-3.12%20%7C%203.13-0b5ff0"></a>
   <a href="https://github.com/shahabahreini/YOLOMatic/actions"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shahabahreini/YOLOMatic/ci.yml?branch=main&label=ci&color=0b5ff0"></a>
   <a href="https://github.com/shahabahreini/YOLOMatic/blob/main/LICENSE.md"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-0b5ff0"></a>
@@ -28,11 +28,11 @@ A terminal app for the whole computer-vision training loop. Pick a model from a 
 ### Start here
 
 ```sh
-uv tool install --python 3.12 yolomatic
+uv tool install --python 3.12 git+https://github.com/shahabahreini/YOLOMatic@v7.0.0
 yolomatic
 ```
 
-That opens the interactive wizard. Use the arrow keys and Enter; every screen explains its options before you pick one. New to it? The [first training run guide](https://shahabahreini.github.io/YOLOMatic/getting-started/first-training-run/) walks through a complete run, from dataset to exported model.
+This installs the latest release from GitHub and puts `yolomatic` on your PATH. Running it opens the interactive wizard. Use the arrow keys and Enter; every screen explains its options before you pick one. New to it? The [first training run guide](https://shahabahreini.github.io/YOLOMatic/getting-started/first-training-run/) walks through a complete run, from dataset to exported model.
 
 ## Watch the showreel
 
@@ -75,7 +75,7 @@ Pretrained weights download on first use. The [models guide](https://shahabahrei
 The base install trains, predicts and benchmarks. Add extras for the features you need:
 
 ```sh
-uv tool install --python 3.12 "yolomatic[export,sam]"
+uv tool install --python 3.12 "yolomatic[export,sam] @ git+https://github.com/shahabahreini/YOLOMatic@v7.0.0"
 ```
 
 | Extra | Adds |
@@ -176,7 +176,7 @@ uv run yolomatic
 
 See [CONTRIBUTING.md](https://github.com/shahabahreini/YOLOMatic/blob/main/CONTRIBUTING.md) for tests and style.
 
-**Release.** Bump the version with `uv version --bump patch` (or `minor` / `major`), then push a `vX.Y.Z` tag that points to a commit already on `main`. GitHub Actions checks that the tag matches the package version before publishing to PyPI.
+**Release.** Bump the version with `uv version --bump patch` (or `minor` / `major`), then push a `vX.Y.Z` tag that points to a commit already on `main`. GitHub Actions checks that the tag matches the package version, then publishes the wheel and source archive to a GitHub release. PyPI publishing is opt-in: set the repository variable `PUBLISH_TO_PYPI=true` after adding a PyPI trusted publisher.
 
 **README images.** The panels above are HTML in [`.github/readme/`](https://github.com/shahabahreini/YOLOMatic/tree/main/.github/readme), rendered to PNG with `.github/readme/render.sh`.
 
