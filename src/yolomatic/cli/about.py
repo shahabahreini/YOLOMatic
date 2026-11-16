@@ -14,11 +14,13 @@ from yolomatic.utils.tui import get_gpu_status
 
 def render_about_page() -> None:
     clear_screen()
-    from yolomatic.__version__ import __version__
-    import platform
     import os
+    import platform
+
     from rich.console import Group
     from rich.text import Text
+
+    from yolomatic.__version__ import __version__
     from yolomatic.utils.ml_dependencies import check_hf_auth
 
     # --- Terminal Width ---

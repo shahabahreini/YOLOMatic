@@ -4,8 +4,9 @@ import argparse
 import json
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from rich.panel import Panel
 from rich.progress import (
@@ -17,11 +18,16 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
+from yolomatic.cli.result import CommandResult, coerce_result
 from yolomatic.config.settings import load_settings, ultralytics_credential_status
 from yolomatic.datasets.archive import DEFAULT_MAX_ARCHIVE_GIB, package_dataset_archives
+from yolomatic.datasets.prepare import (
+    PrepareDatasetConfig,
+    PrepareSplitConfig,
+    prepare_dataset,
+    slugify,
+)
 from yolomatic.datasets.validate import validate_dataset
-from yolomatic.datasets.prepare import PrepareDatasetConfig, PrepareSplitConfig, prepare_dataset, slugify
-from yolomatic.cli.result import CommandResult, coerce_result
 from yolomatic.integrations.ultralytics_platform import (
     DEFAULT_BASE_URL,
     UltralyticsPlatformClient,
@@ -41,7 +47,6 @@ from yolomatic.utils.cli import (
     render_table,
 )
 from yolomatic.utils.project import calculate_folder_size, format_size, list_dataset_directories
-
 
 WIZARD_STEPS = ["Action", "Select", "Configure", "Run"]
 

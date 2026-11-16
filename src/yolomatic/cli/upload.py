@@ -7,15 +7,17 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 from urllib.parse import urlparse
 
 import yaml
 from rich.panel import Panel
 
+from yolomatic.cli.result import CommandResult, coerce_result
 from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
@@ -26,10 +28,12 @@ from yolomatic.utils.cli import (
     print_stylized_header,
     render_table,
 )
-from yolomatic.cli.result import CommandResult, coerce_result
 from yolomatic.utils.logging_setup import log_exception
-from yolomatic.utils.ml_dependencies import MLDependencyError, import_torch
-from yolomatic.utils.ml_dependencies import import_rfdetr_model_class
+from yolomatic.utils.ml_dependencies import (
+    MLDependencyError,
+    import_rfdetr_model_class,
+    import_torch,
+)
 from yolomatic.utils.project import (
     find_available_weights,
     format_weight_label,
@@ -168,7 +172,7 @@ def read_args_metadata(weight_path: Path) -> dict[str, Any]:
     args_path = weight_path.parent.parent / "args.yaml"
     if not args_path.exists():
         return {}
-    with open(args_path, "r", encoding="utf-8") as file:
+    with open(args_path, encoding="utf-8") as file:
         loaded = yaml.safe_load(file) or {}
     if isinstance(loaded, dict):
         return loaded

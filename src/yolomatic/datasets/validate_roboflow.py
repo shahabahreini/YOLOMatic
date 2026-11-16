@@ -12,14 +12,15 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any
 
 import yaml
 
-IMAGE_EXTENSIONS: Set[str] = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
-ANNOTATION_EXTENSIONS: Set[str] = {".txt", ".json", ".xml", ".csv", ".jsonl"}
+IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
+ANNOTATION_EXTENSIONS: set[str] = {".txt", ".json", ".xml", ".csv", ".jsonl"}
 
 # Roboflow / Ultralytics tasks
 TASK_INSTANCE_SEG = "instance-segmentation"
@@ -64,10 +65,10 @@ class RoboflowValidationResult:
     dataset_path: Path
     detected_task: str
     num_classes: int
-    class_names: List[str] = field(default_factory=list)
-    splits: Dict[str, SplitStats] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    class_names: list[str] = field(default_factory=list)
+    splits: dict[str, SplitStats] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def is_valid(self) -> bool:
@@ -95,9 +96,9 @@ class RoboflowValidationResult:
 class _IssueCollector:
     """Collects validation messages with duplicate suppression."""
 
-    def __init__(self, sink: List[str]) -> None:
+    def __init__(self, sink: list[str]) -> None:
         self._sink = sink
-        self._counts: Dict[str, int] = {}
+        self._counts: dict[str, int] = {}
 
     def add(self, rule: str, message: str) -> None:
         seen = self._counts.get(rule, 0)
@@ -156,7 +157,7 @@ def _check_label_row(
     num_classes: int,
     line_no: int,
     filename: str,
-) -> Optional[str]:
+) -> str | None:
     """Validate a single YOLO annotation row."""
     if not fields:
         return None
@@ -207,7 +208,7 @@ def _check_json_annotation(
     content: str,
     num_classes: int,
     filename: str,
-) -> Tuple[bool, Optional[str]]:
+) -> tuple[bool, str | None]:
     """Validate JSON format annotations (e.g. LabelMe / Labelbox / COCO)."""
     try:
         data = json.loads(content)
@@ -274,7 +275,7 @@ def map_yolo_task_to_roboflow(task_name: str) -> str:
 
 def validate_roboflow_dataset(
     dataset_path: Path | str,
-    target_task: Optional[str] = None,
+    target_task: str | None = None,
 ) -> RoboflowValidationResult:
     """Pre-flight check of a dataset before uploading to Roboflow."""
     dataset_path = Path(dataset_path).resolve()
@@ -294,7 +295,7 @@ def validate_roboflow_dataset(
         dataset_path / "dataset.yaml",
         dataset_path / "data.yml",
     ]
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     for ypath in yaml_candidates:
         if ypath.is_file():
             try:
@@ -311,7 +312,7 @@ def validate_roboflow_dataset(
 
     # Class mappings
     raw_names = meta.get("names")
-    class_names: List[str] = []
+    class_names: list[str] = []
     if isinstance(raw_names, list):
         class_names = [str(n) for n in raw_names]
     elif isinstance(raw_names, dict):
@@ -363,9 +364,9 @@ def validate_roboflow_dataset(
         )
 
     # 2. Fast single-pass file inventory
-    all_images: List[Path] = []
-    annot_by_dir_stem: Dict[Tuple[str, str], Path] = {}
-    annot_by_split_stem: Dict[Tuple[str, str], Path] = {}
+    all_images: list[Path] = []
+    annot_by_dir_stem: dict[tuple[str, str], Path] = {}
+    annot_by_split_stem: dict[tuple[str, str], Path] = {}
 
     for root, _, files in os.walk(dataset_path):
         root_p = Path(root)

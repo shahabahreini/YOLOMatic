@@ -9,7 +9,6 @@ import yaml
 
 from yolomatic.utils.ml_dependencies import import_module_or_raise, import_torch
 
-
 ARTIFACT_IMAGE_NAMES: dict[str, tuple[str, ...]] = {
     "confusion": ("confusion_matrix.png", "confusion_matrix_normalized.png"),
     "curves": ("PR_curve.png", "F1_curve.png", "P_curve.png", "R_curve.png"),
@@ -266,7 +265,7 @@ def backfill_ultralytics_tensorboard(
         logger.log_metadata(metadata)
         results_csv = run_path / "results.csv"
         if results_csv.is_file():
-            with open(results_csv, "r", encoding="utf-8", newline="") as file:
+            with open(results_csv, encoding="utf-8", newline="") as file:
                 reader = csv.DictReader(file)
                 for index, row in enumerate(reader):
                     epoch_value = row.get("epoch", index)

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import argparse
 import time
+from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from rich import box
 from rich.console import Console
+from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -19,12 +21,9 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
-from rich.panel import Panel
 from rich.table import Column, Table
 
 from yolomatic.cli.result import CommandResult
-from yolomatic.utils.jobs import cancellable_executor
-from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.cli import (
     console,
     get_user_choice,
@@ -32,21 +31,22 @@ from yolomatic.utils.cli import (
     render_summary_panel,
     render_table,
 )
+from yolomatic.utils.jobs import cancellable_executor
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.ml_dependencies import (
     MLDependencyError,
     import_cv2,
     import_detectron2,
+    import_rfdetr_model_class,
     import_torch,
     import_ultralytics_yolo,
 )
-from yolomatic.utils.ml_dependencies import import_rfdetr_model_class
 from yolomatic.utils.project import (
     find_available_weights,
     format_weight_label,
     project_root,
     render_weight_rows,
 )
-
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 MODE_LABELS: dict[str, str] = {
@@ -391,8 +391,8 @@ def run_detectron2_prediction(weight_path: Path, source_path: Path, conf: float)
 
 
 def run_rfdetr_prediction(weight_path: Path, source_path: Path, conf: float) -> Path:
-    from PIL import Image
     import supervision as sv
+    from PIL import Image
 
     model = load_rfdetr_model(weight_path)
     image = Image.open(source_path).convert("RGB")
@@ -433,8 +433,8 @@ def _predict_single_image(
 
 
 def _predict_single_rfdetr_image(model: object, image_path: Path, conf: float) -> Path:
-    from PIL import Image
     import supervision as sv
+    from PIL import Image
 
     image = Image.open(image_path).convert("RGB")
     detections = model.predict(image, threshold=conf)
@@ -462,7 +462,7 @@ def _initialize_prediction_worker(weight_path: str, conf: float) -> None:
 
     if Path(weight_path).suffix.lower() == ".pth":
         _WORKER_MODEL = load_rfdetr_model(Path(weight_path))
-        setattr(_WORKER_MODEL, "_yolomatic_rfdetr", True)
+        _WORKER_MODEL._yolomatic_rfdetr = True
     else:
         yolo_class = import_ultralytics_yolo()
         _WORKER_MODEL = yolo_class(weight_path)
@@ -582,7 +582,7 @@ def run_folder_prediction(
     if workers == 1:
         if is_rfdetr_weight(weight_path):
             model = load_rfdetr_model(weight_path)
-            setattr(model, "_yolomatic_rfdetr", True)
+            model._yolomatic_rfdetr = True
         else:
             yolo_class = import_ultralytics_yolo()
             model = yolo_class(str(weight_path))

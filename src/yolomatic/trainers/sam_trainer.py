@@ -9,11 +9,15 @@ from typing import Any
 import numpy as np
 import torch
 from rich.panel import Panel
-from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.cli.result import CommandResult
+from yolomatic.ui.theme import CONSOLE
 from yolomatic.utils.logging_setup import log_exception
-from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
+from yolomatic.utils.ml_dependencies import (
+    MLDependencyError,
+    check_hf_auth,
+    import_sam_transformers,
+)
 
 console = CONSOLE
 logger = logging.getLogger(__name__)

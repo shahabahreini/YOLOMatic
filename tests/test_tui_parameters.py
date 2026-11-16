@@ -7,8 +7,8 @@ from yolomatic.utils.tui import (
     convert_and_validate_parameter_value,
     expected_error_panel,
     format_path,
-    render_hints,
     parse_parameter_value,
+    render_hints,
     resolve_back_option,
     resolve_finish_option,
     shorten_middle,
@@ -179,8 +179,9 @@ class TUIParameterValidationTest(unittest.TestCase):
         self.assertNotIn("Option 00", output)
 
     def test_menu_renderer_does_not_leak_markup_in_checked_labels(self) -> None:
-        from rich.console import Console
         from unittest.mock import patch
+
+        from rich.console import Console
 
         with patch("yolomatic.utils.tui.TUI_TERM") as mock_term:
             mock_term.width = 80

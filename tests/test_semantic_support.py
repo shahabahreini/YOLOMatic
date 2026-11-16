@@ -9,8 +9,8 @@ import yaml
 from yolomatic.cli.run import _base_model_name
 from yolomatic.config.parameters import parameters_for
 from yolomatic.utils.export_config import (
-    ExportModelDetails,
     TASK_LIMITED_FORMATS,
+    ExportModelDetails,
     supported_formats_for_model,
 )
 from yolomatic.utils.project import infer_ultralytics_task_from_name

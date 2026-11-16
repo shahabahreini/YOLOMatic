@@ -4,7 +4,6 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-
 # Tasks whose exports carry an NMS stage. Semantic segmentation is deliberately
 # excluded: it emits a dense class map with no boxes to suppress.
 DETECTION_LIKE_TASKS = frozenset({"detect", "segment", "pose", "obb"})

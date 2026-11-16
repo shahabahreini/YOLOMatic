@@ -5,13 +5,13 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from yolomatic.config.generator import YOLOConfigGenerator
 from yolomatic.datasets.cache import (
     clean_dataset_image_cache,
     inspect_dataset_cache,
     normalize_yolo_cache_setting,
 )
 from yolomatic.datasets.core import summarize_dataset
-from yolomatic.config.generator import YOLOConfigGenerator
 from yolomatic.utils.project import list_dataset_directories
 
 

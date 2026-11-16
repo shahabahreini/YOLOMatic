@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import torch
 
-
 # ---------------------------------------------------------------------------
 # Detectron2 (detectron2 itself is not installed in CI; use small fakes)
 # ---------------------------------------------------------------------------

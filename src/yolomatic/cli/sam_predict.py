@@ -12,20 +12,25 @@ import torch
 from rich.markup import escape
 from rich.panel import Panel
 
+from yolomatic.cli.result import CommandResult
 from yolomatic.utils.cli import (
     NAV_BACK,
+    build_summary_panel,
     clear_screen,
     console,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
-    build_summary_panel,
 )
-from yolomatic.cli.result import CommandResult
 from yolomatic.utils.fs import atomic_write_text
 from yolomatic.utils.jobs import CancelToken, JobStatus, run_with_progress
 from yolomatic.utils.logging_setup import log_exception
-from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_cv2, import_sam_transformers
+from yolomatic.utils.ml_dependencies import (
+    MLDependencyError,
+    check_hf_auth,
+    import_cv2,
+    import_sam_transformers,
+)
 from yolomatic.utils.project import is_sam_checkpoint, project_root
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}

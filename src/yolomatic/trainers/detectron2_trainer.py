@@ -8,12 +8,16 @@ from typing import Any
 import yaml
 from rich.panel import Panel
 from rich.table import Table
-from yolomatic.ui.theme import CONSOLE
 
 from yolomatic.cli.result import CommandResult
+from yolomatic.trainers.common import (
+    effective_clearml_settings,
+    maybe_upload_clearml_checkpoint,
+    timestamp_for_run,
+    unique_run_dir,
+)
+from yolomatic.ui.theme import CONSOLE
 from yolomatic.utils.logging_setup import log_exception
-from yolomatic.trainers.common import timestamp_for_run, unique_run_dir
-from yolomatic.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_detectron2
 from yolomatic.utils.training_preflight import resolve_training_device
 
@@ -260,7 +264,7 @@ def print_config_summary(config: dict[str, Any]) -> None:
 
 
 def train_from_config(config_file: str | Path) -> Path | None:
-    with open(config_file, "r", encoding="utf-8") as file:
+    with open(config_file, encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}
     print_config_summary(config)
     device = resolve_training_device(config.get("training", {}).get("device", "cpu"))

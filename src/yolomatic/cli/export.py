@@ -2,27 +2,21 @@ from __future__ import annotations
 
 import argparse
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence, Any
+from typing import Any
 
 from rich import box
 from rich.panel import Panel
 
+from yolomatic.cli.result import CommandResult
 from yolomatic.utils.cli import (
+    NAV_BACK,
+    ParameterDefinition,
     console,
     get_user_choice,
     get_user_multi_select,
-    ParameterDefinition,
-    NAV_BACK,
 )
-from yolomatic.utils.project import (
-    find_available_weights,
-    format_weight_label,
-    project_root,
-)
-from yolomatic.cli.result import CommandResult
-from yolomatic.utils.logging_setup import log_exception
-from yolomatic.utils.ml_dependencies import import_torch, import_ultralytics_yolo
 from yolomatic.utils.export_config import (
     ExportModelDetails,
     build_export_kwargs,
@@ -31,7 +25,17 @@ from yolomatic.utils.export_config import (
     filter_export_definitions,
     supported_formats_for_model,
 )
-
+from yolomatic.utils.logging_setup import log_exception
+from yolomatic.utils.ml_dependencies import (
+    extra_install_hint,
+    import_torch,
+    import_ultralytics_yolo,
+)
+from yolomatic.utils.project import (
+    find_available_weights,
+    format_weight_label,
+    project_root,
+)
 
 SUPPORTED_FORMATS = {
     "TensorRT (engine)": "engine",
@@ -417,9 +421,10 @@ def get_renamed_path(original_path: Path, format_ext: str, params: dict[str, Any
 
 
 def run_post_export_benchmark(original_path: Path, exported_path: Path, imgsz: int, format_label: str, batch: int = 1, dynamic: bool = False) -> None:
-    from rich.table import Table
-    from rich.rule import Rule
     import time
+
+    from rich.rule import Rule
+    from rich.table import Table
 
     choice = get_user_choice(
         ["Yes, run benchmark", "No, skip"],
@@ -975,7 +980,10 @@ def _run_export(args: argparse.Namespace, root: Path) -> CommandResult:
         log_exception(e, f"Export to {format_label}")
         return CommandResult.failed(
             f"Export failed: {e}",
-            hint="Check that the format's dependencies are installed (tensorrt, onnx, openvino, ...).",
+            hint=(
+                "Export formats beyond PyTorch need optional packages. "
+                + extra_install_hint("tensorrt" if target_format == "engine" else "export")
+            ),
         )
 
 if __name__ == "__main__":

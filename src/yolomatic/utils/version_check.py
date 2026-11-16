@@ -9,16 +9,15 @@ patch releases.
 from __future__ import annotations
 
 import json
-import socket
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, version as installed_version
-from typing import Sequence
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as installed_version
 
 from packaging.version import InvalidVersion, Version
-
 
 PYPI_TIMEOUT_SECONDS = 4.0
 PYPI_JSON_URL = "https://pypi.org/pypi/{name}/json"
@@ -182,7 +181,7 @@ def _get_latest_pypi_version(
         return None, f"HTTP {error.code}"
     except urllib.error.URLError as error:
         return None, f"network ({error.reason})"
-    except socket.timeout:
+    except TimeoutError:
         return None, "network (timeout)"
     except json.JSONDecodeError as error:
         return None, f"parse ({error.msg})"

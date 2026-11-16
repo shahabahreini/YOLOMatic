@@ -1,13 +1,14 @@
 import json
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import shutil
-import tempfile
+
 import yaml
 
 from yolomatic.cli import convert_ndjson
-from yolomatic.cli.convert_ndjson import convert_ndjson_to_format, _discover_ndjson_files
+from yolomatic.cli.convert_ndjson import _discover_ndjson_files, convert_ndjson_to_format
 from yolomatic.datasets.core import summarize_dataset
 
 
@@ -69,7 +70,7 @@ class TestConvertNDJSON(unittest.TestCase):
             self.assertTrue((output_dir / "conversion_manifest.json").exists())
             self.assertTrue((output_dir / "images" / "test.jpg").exists())
             
-            with open(output_dir / "annotations.json") as f:
+            with open(output_dir / "annotations.json", encoding="utf-8") as f:
                 data = json.load(f)
                 self.assertEqual(len(data["images"]), 1)
                 self.assertEqual(len(data["annotations"]), 2)

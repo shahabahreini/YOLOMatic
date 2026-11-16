@@ -43,7 +43,7 @@ def load_profile(name: str, profiles_dir: Path = PROFILES_DIR) -> AugmentationPr
     """Load a profile from disk, falling back to built-ins if not on disk."""
     path = profile_path(name, profiles_dir)
     if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return AugmentationProfile(
             name=data.get("name", name),

@@ -13,17 +13,17 @@ import yaml
 
 from yolomatic.cli.prepare_dataset import _discover_ndjson_files
 from yolomatic.datasets.core import DatasetValidationError
-from yolomatic.utils.fs import UnsafePathError
 from yolomatic.datasets.prepare import (
+    Annotation,
+    ImageRecord,
     PrepareDatasetConfig,
     PrepareSplitConfig,
+    object_size_bucket,
     prepare_dataset,
     resolve_versioned_output,
     split_records,
-    ImageRecord,
-    Annotation,
-    object_size_bucket,
 )
+from yolomatic.utils.fs import UnsafePathError
 
 
 class PrepareDatasetTest(unittest.TestCase):

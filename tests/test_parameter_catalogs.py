@@ -10,7 +10,6 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-
 from yolomatic.config.parameters import (
     DETECTRON2_TRAINING_PARAMETERS,
     RFDETR_TRAINING_PARAMETERS,

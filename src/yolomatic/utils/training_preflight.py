@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
-from yolomatic.ui.theme import CONSOLE
 
+from yolomatic.ui.theme import CONSOLE
 from yolomatic.utils.cli import get_user_choice
-from yolomatic.utils.ml_dependencies import prepare_ml_runtime
+from yolomatic.utils.ml_dependencies import extra_install_hint, prepare_ml_runtime
 
 console = CONSOLE
 _TORCH_INSPECTION_TIMEOUT_SECONDS = 120
@@ -825,7 +825,9 @@ def _missing_export_runtime_requirements(format_type: str) -> list[str]:
     return [
         "ONNX export dependencies are missing: "
         + ", ".join(missing)
-        + ". Run `uv sync` before training so export does not try to install packages after training."
+        + ". "
+        + extra_install_hint("export")
+        + " Do this before training so export does not fail after training."
     ]
 
 

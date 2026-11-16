@@ -14,25 +14,25 @@ import yaml
 from rich.markup import escape
 from rich.panel import Panel
 
+from yolomatic.cli.result import CommandResult
 from yolomatic.datasets.ndjson import pose_metadata_from_rows
 from yolomatic.datasets.prepare import slugify
-from yolomatic.utils.fs import UnsafePathError, ensure_overwritable_dir, staging_dir
-from yolomatic.cli.result import CommandResult
-from yolomatic.utils.jobs import JobStatus, ProgressState, cancellable_executor, run_with_progress
-from yolomatic.utils.logging_setup import log_exception
-from yolomatic.utils.project import project_root
 from yolomatic.utils.cli import (
     NAV_BACK,
     ParameterDefinition,
+    build_summary_panel,
     clear_screen,
     console,
     format_path,
     get_parameter_value_input,
     get_user_choice,
     print_stylized_header,
-    build_summary_panel,
     render_summary_panel,
 )
+from yolomatic.utils.fs import UnsafePathError, ensure_overwritable_dir, staging_dir
+from yolomatic.utils.jobs import JobStatus, ProgressState, cancellable_executor, run_with_progress
+from yolomatic.utils.logging_setup import log_exception
+from yolomatic.utils.project import project_root
 
 OUTPUT_FORMATS = ("YOLO Detection", "YOLO Segmentation", "YOLO Pose", "COCO", "COCO Pose")
 WIZARD_STEPS = ["Source", "Format", "Output", "Confirm", "Convert"]

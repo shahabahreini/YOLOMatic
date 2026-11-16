@@ -12,9 +12,9 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 # Already-compressed payloads dominate a dataset by volume, and deflating them
 # spends minutes to save almost nothing. Storing them keeps the size predictable,

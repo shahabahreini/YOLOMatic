@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -48,15 +49,6 @@ def load_api_key(env_path: Path | None = None) -> str:
         )
     return api_key
 
-
-def credential_status(env_path: Path | None = None) -> dict[str, bool]:
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(env_path or Path(".env"))
-    except ImportError:
-        pass
-    return {"api_key": bool(os.getenv(ENV_API_KEY, "").strip())}
 
 
 class UltralyticsPlatformClient:

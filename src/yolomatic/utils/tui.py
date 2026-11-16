@@ -3,8 +3,9 @@ from __future__ import annotations
 import signal
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 from blessed import Terminal
 from rich import box
@@ -43,8 +44,8 @@ if hasattr(signal, "SIGWINCH"):
 _refresh_term_size()
 
 # Module-level imports — avoid repeated sys.modules lookups inside render methods
-from yolomatic.models.data import model_data_dict  # noqa: E402
 from yolomatic.__version__ import __version__  # noqa: E402
+from yolomatic.models.data import model_data_dict  # noqa: E402
 
 # Layout geometry constants — named to make intent clear and simplify resize tuning
 # header(3-5) + footer(3) + panel_border(2) + padding_buffer(2) = ~10-12
@@ -654,7 +655,7 @@ class MenuRenderer:
         hints.append(("?", "Help"))
         if getattr(self, "allow_refresh", False):
             insert_idx = len(hints)
-            for idx, (k, a) in enumerate(hints):
+            for idx, (k, _a) in enumerate(hints):
                 if k == "Q":
                     insert_idx = idx
                     break

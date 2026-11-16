@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 from yolomatic.benchmark.config import BenchmarkConfig
 from yolomatic.benchmark.engine import BenchmarkResult, ImageResult, ModelMetrics
 from yolomatic.benchmark.metrics import SizeBucketMetrics

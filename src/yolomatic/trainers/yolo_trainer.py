@@ -1,9 +1,9 @@
 import argparse
-from collections.abc import Callable
-from typing import Any
 import os
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Ultralytics snapshots this environment variable when its utils module is first
 # imported. Keep package installation under YOLOmatic's dependency manager
@@ -13,10 +13,8 @@ os.environ["YOLO_AUTOINSTALL"] = "false"
 import yaml
 from rich.panel import Panel
 from rich.table import Table
-from yolomatic.ui.theme import CONSOLE, safe
-from yolomatic.cli.result import CommandResult, coerce_result
-from yolomatic.utils.logging_setup import log_exception
 
+from yolomatic.cli.result import CommandResult, coerce_result
 from yolomatic.cli.upload import (
     build_candidate,
     infer_model_type_from_text,
@@ -27,11 +25,15 @@ from yolomatic.cli.upload import (
     upload_model,
 )
 from yolomatic.config.settings import DEFAULT_SETTINGS
+from yolomatic.datasets.cache import clean_dataset_image_cache, normalize_yolo_cache_setting
+from yolomatic.models.rfdetr import is_rfdetr_model
 from yolomatic.trainers.common import effective_clearml_settings
-
+from yolomatic.ui.theme import CONSOLE, safe
 from yolomatic.utils.cli import NAV_BACK, get_user_choice
+from yolomatic.utils.logging_setup import log_exception
 from yolomatic.utils.ml_dependencies import (
     MLDependencyError,
+    extra_install_hint,
     import_ultralytics_settings,
     import_ultralytics_yolo,
 )
@@ -43,7 +45,6 @@ from yolomatic.utils.project import (
     verify_dataset_directories,
     write_resolved_data_yaml,
 )
-from yolomatic.datasets.cache import clean_dataset_image_cache, normalize_yolo_cache_setting
 from yolomatic.utils.project import (
     load_dataset_config as load_project_dataset_config,
 )
@@ -54,7 +55,6 @@ from yolomatic.utils.tensorboard import (
     validate_tensorboard_run,
 )
 from yolomatic.utils.training_preflight import resolve_training_device, validate_export_config
-from yolomatic.models.rfdetr import is_rfdetr_model
 
 # Initialize Rich console
 console = CONSOLE
@@ -313,7 +313,13 @@ def initialize_clearml_task(project_name, task_name, tags, clearml_settings=None
         return None
     try:
         from clearml import Task
-
+    except ImportError:
+        if clearml_settings.get("require_configured", False):
+            console.print(f"[bold red]ClearML is required but not installed. {extra_install_hint('clearml')}[/bold red]")
+            return False
+        console.print(f"[dim]ClearML is not installed; continuing without it. {extra_install_hint('clearml')}[/dim]")
+        return None
+    try:
         return Task.init(
             project_name=project_name,
             task_name=task_name,
@@ -517,7 +523,7 @@ def main() -> CommandResult:
             return CommandResult.cancelled("No configuration selected.")
 
         # Load configuration from selected YAML file
-        with open(config_file, "r", encoding="utf-8") as file:
+        with open(config_file, encoding="utf-8") as file:
             config = yaml.safe_load(file)
 
         if "experiment" in config:

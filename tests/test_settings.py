@@ -8,6 +8,7 @@ import yaml
 
 from yolomatic.config.settings import (
     DEFAULT_SETTINGS,
+    clear_settings_cache,
     load_settings,
     reset_settings,
     save_settings,
@@ -109,6 +110,7 @@ class SettingsTests(unittest.TestCase):
     def test_settings_mtime_caching(self) -> None:
         import time
         from unittest.mock import patch
+
         from yolomatic.config.settings import clear_settings_cache
 
         clear_settings_cache()
@@ -137,6 +139,71 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual(loaded3["narratives"]["mode"], "concise")
                 self.assertEqual(mock_yaml.call_count, 1)
 
+
+
+class SecretStorageTest(unittest.TestCase):
+    def test_keys_go_to_the_os_keyring_and_yaml_keeps_a_reference(self) -> None:
+        import sys
+        import types
+        from unittest import mock
+
+        store: dict[tuple[str, str], str] = {}
+        fake = types.ModuleType("keyring")
+        fake.set_password = lambda service, name, value: store.__setitem__((service, name), value)
+        fake.get_password = lambda service, name: store.get((service, name))
+        fake.delete_password = lambda service, name: store.pop((service, name), None)
+        fake.get_keyring = lambda: object()
+        backends = types.ModuleType("keyring.backends")
+        fail = types.ModuleType("keyring.backends.fail")
+        fail.Keyring = type("FailKeyring", (), {})
+        backends.fail = fail
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(
+            sys.modules, {"keyring": fake, "keyring.backends": backends, "keyring.backends.fail": fail}
+        ), mock.patch.dict("os.environ", {"YOLOMATIC_KEYRING": "1"}):
+            path = Path(temp_dir) / "settings.yaml"
+            settings = load_settings(path)
+            settings["ai"]["gemini_api_key"] = "real-gemini-key"
+            save_settings(settings, path)
+            persisted = yaml.safe_load(path.read_text(encoding="utf-8"))
+            self.assertEqual(persisted["ai"]["gemini_api_key"], "keyring:gemini_api_key")
+            self.assertEqual(store[("yolomatic", "gemini_api_key")], "real-gemini-key")
+            clear_settings_cache()
+            self.assertEqual(load_settings(path)["ai"]["gemini_api_key"], "real-gemini-key")
+
+    def test_unreadable_keys_are_preserved_not_wiped(self) -> None:
+        # Regression: when the machine-derived key changed, decryption returned ""
+        # and the next save permanently replaced the stored key with "".
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "settings.yaml"
+            settings = load_settings(path)
+            settings["ai"]["openai_api_key"] = "sk-original"
+            save_settings(settings, path)
+            stored = yaml.safe_load(path.read_text(encoding="utf-8"))["ai"]["openai_api_key"]
+            clear_settings_cache()
+            with mock.patch("yolomatic.config.settings._get_machine_secret", return_value="renamed-machine"):
+                loaded = load_settings(path)
+                self.assertEqual(loaded["ai"]["openai_api_key"], "")
+                loaded["ai"]["provider"] = "OpenAI"
+                save_settings(loaded, path)
+            self.assertEqual(yaml.safe_load(path.read_text(encoding="utf-8"))["ai"]["openai_api_key"], stored)
+            clear_settings_cache()
+            self.assertEqual(load_settings(path)["ai"]["openai_api_key"], "sk-original")
+
+    def test_values_are_coerced_to_the_default_types(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "settings.yaml"
+            path.write_text(
+                "clearml:\n  enabled: 'no'\n  upload_artifacts: 'yes'\n"
+                "roboflow:\n  rfdetr_project_version: '3'\n  auto_upload_after_training: 'maybe'\n",
+                encoding="utf-8",
+            )
+            settings = load_settings(path)
+        self.assertIs(settings["clearml"]["enabled"], False)
+        self.assertIs(settings["clearml"]["upload_artifacts"], True)
+        self.assertEqual(settings["roboflow"]["rfdetr_project_version"], 3)
+        self.assertIs(settings["roboflow"]["auto_upload_after_training"], False)
 
 if __name__ == "__main__":
     unittest.main()

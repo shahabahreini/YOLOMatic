@@ -1,4 +1,2 @@
-# utility modules
-from .combine_datasets import merge_datasets, find_datasets  # export commonly used functions
-
-__all__ = ["merge_datasets", "find_datasets"]
+"""Shared utilities. Import submodules directly (e.g. ``yolomatic.utils.fs``);
+nothing is imported eagerly here so ``import yolomatic.utils`` stays cheap."""
