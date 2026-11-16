@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,7 @@ from yolomatic.utils.logging_setup import log_exception
 from yolomatic.trainers.common import timestamp_for_run, unique_run_dir
 from yolomatic.trainers.common import effective_clearml_settings, maybe_upload_clearml_checkpoint
 from yolomatic.utils.ml_dependencies import MLDependencyError, import_detectron2
+from yolomatic.utils.training_preflight import resolve_training_device
 
 console = CONSOLE
 
@@ -21,15 +24,67 @@ def _import_detectron2_training_symbols() -> dict[str, Any]:
     import_detectron2()
     from detectron2 import model_zoo
     from detectron2.config import get_cfg
+    from detectron2.data import DatasetCatalog, MetadataCatalog
     from detectron2.data.datasets import register_coco_instances
     from detectron2.engine import DefaultTrainer
+
+    try:
+        from detectron2.evaluation import COCOEvaluator
+    except ImportError:  # pragma: no cover - very old detectron2
+        COCOEvaluator = None
 
     return {
         "model_zoo": model_zoo,
         "get_cfg": get_cfg,
         "register_coco_instances": register_coco_instances,
         "DefaultTrainer": DefaultTrainer,
+        "DatasetCatalog": DatasetCatalog,
+        "MetadataCatalog": MetadataCatalog,
+        "COCOEvaluator": COCOEvaluator,
     }
+
+
+RUN_METADATA_FILE = "yolomatic_detectron2.json"
+
+
+def make_trainer_class(symbols: dict[str, Any]) -> Any:
+    """DefaultTrainer with a COCO evaluator.
+
+    Plain DefaultTrainer has no ``build_evaluator``, so ``TEST.EVAL_PERIOD``
+    only logged a warning and never evaluated anything.
+    """
+    base = symbols["DefaultTrainer"]
+    evaluator_cls = symbols.get("COCOEvaluator")
+
+    class YolomaticTrainer(base):  # type: ignore[misc, valid-type]
+        @classmethod
+        def build_evaluator(cls, cfg, dataset_name, output_folder=None):
+            if evaluator_cls is None:
+                raise NotImplementedError("detectron2.evaluation.COCOEvaluator is unavailable")
+            folder = output_folder or str(Path(cfg.OUTPUT_DIR) / "inference")
+            return evaluator_cls(dataset_name, output_dir=folder)
+
+    return YolomaticTrainer
+
+
+def write_run_metadata(run_dir: Path, cfg: Any, config: dict[str, Any]) -> None:
+    """Save what prediction needs to rebuild this exact model.
+
+    ``config.yaml`` is detectron2's own full dump (architecture, class count,
+    input sizes); the JSON adds class names and the task. Prediction used to
+    start from a bare ``get_cfg()`` and load trained weights into the wrong
+    architecture.
+    """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "config.yaml").write_text(cfg.dump(), encoding="utf-8")
+    dataset = config.get("dataset", {})
+    payload = {
+        "classes": list(dataset.get("classes", [])),
+        "task": config.get("settings", {}).get("task", "detection"),
+        "config_path": config.get("detectron2", {}).get("config_path"),
+        "meta_architecture": str(getattr(getattr(cfg, "MODEL", None), "META_ARCHITECTURE", "")),
+    }
+    (run_dir / RUN_METADATA_FILE).write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def find_detectron2_checkpoint(run_dir: Path | None) -> Path | None:
@@ -85,7 +140,17 @@ def _register_datasets(config: dict[str, Any], symbols: dict[str, Any]) -> tuple
         image_root = split_info.get("image_root") or split_info.get("images_path") or split_info.get("images")
         if not image_root:
             image_root = str(prepared_dir / split / "images")
-        name = f"yolomatic_{dataset.get('name', prepared_dir.name)}_{split}_{abs(hash(str(prepared_dir))) % 100000}"
+        # Stable name (hash() is salted per process) and idempotent registration:
+        # training the same dataset twice in one TUI session used to raise
+        # "dataset ... is already registered".
+        digest = hashlib.sha1(str(prepared_dir.resolve()).encode("utf-8")).hexdigest()[:8]
+        name = f"yolomatic_{dataset.get('name', prepared_dir.name)}_{split}_{digest}"
+        catalog = symbols.get("DatasetCatalog")
+        if catalog is not None and name in catalog.list():
+            catalog.remove(name)
+            metadata_catalog = symbols.get("MetadataCatalog")
+            if metadata_catalog is not None and name in metadata_catalog.list():
+                metadata_catalog.remove(name)
         symbols["register_coco_instances"](name, {}, str(ann), str(image_root))
         registered[split] = name
     if "train" not in registered:
@@ -107,11 +172,16 @@ def build_detectron2_cfg(config: dict[str, Any]) -> Any:
     cfg.SOLVER.IMS_PER_BATCH = int(training.get("ims_per_batch", 2))
     cfg.SOLVER.BASE_LR = float(training.get("base_lr", 0.00025))
     cfg.SOLVER.MAX_ITER = int(training.get("max_iter", 3000))
-    cfg.TEST.EVAL_PERIOD = int(training.get("eval_period", 500))
+    # Evaluation needs a validation split; without one EVAL_PERIOD is disabled.
+    cfg.TEST.EVAL_PERIOD = int(training.get("eval_period", 500)) if val_name else 0
     cfg.SOLVER.CHECKPOINT_PERIOD = int(training.get("checkpoint_period", 1000))
     cfg.MODEL.DEVICE = str(training.get("device", "cpu"))
     cfg.OUTPUT_DIR = str(training.get("output_dir") or "runs/detectron2")
-    cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(config.get("dataset", {}).get("classes", []))
+    num_classes = len(config.get("dataset", {}).get("classes", []))
+    cfg.MODEL.ROI_HEADS.NUM_CLASSES = num_classes
+    if str(cfg.MODEL.META_ARCHITECTURE) == "RetinaNet":
+        # RetinaNet reads its own head config (default 80 COCO classes).
+        cfg.MODEL.RETINANET.NUM_CLASSES = num_classes
 
     # Optional solver/input overrides exposed through the interactive configurator.
     if "momentum" in training:
@@ -131,6 +201,8 @@ def build_detectron2_cfg(config: dict[str, Any]) -> Any:
         cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = int(training["roi_batch_size_per_image"])
     if "score_thresh_test" in training:
         cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = float(training["score_thresh_test"])
+        if str(cfg.MODEL.META_ARCHITECTURE) == "RetinaNet":
+            cfg.MODEL.RETINANET.SCORE_THRESH_TEST = float(training["score_thresh_test"])
     if "min_size_train" in training:
         cfg.INPUT.MIN_SIZE_TRAIN = (int(training["min_size_train"]),)
     if "max_size_train" in training:
@@ -191,17 +263,23 @@ def train_from_config(config_file: str | Path) -> Path | None:
     with open(config_file, "r", encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}
     print_config_summary(config)
+    device = resolve_training_device(config.get("training", {}).get("device", "cpu"))
+    if device.cancelled:
+        raise KeyboardInterrupt
+    if device.device:
+        config.setdefault("training", {})["device"] = device.device
     cfg = build_detectron2_cfg(config)
     run_dir = unique_run_dir(Path(cfg.OUTPUT_DIR), timestamp_for_run())
     run_name = run_dir.name
     cfg.OUTPUT_DIR = str(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
+    write_run_metadata(run_dir, cfg, config)
     task = initialize_clearml_task(config, run_name)
     if task is not None and effective_clearml_settings(config).get("log_hyperparameters", True):
         task.connect({"settings": config.get("settings", {}), "dataset": config.get("dataset", {}), "training": config.get("training", {})})
     symbols = _import_detectron2_training_symbols()
     try:
-        trainer = symbols["DefaultTrainer"](cfg)
+        trainer = make_trainer_class(symbols)(cfg)
         trainer.resume_or_load(resume=False)
         console.print("\n[bold green]Starting Detectron2 training...[/bold green]")
         trainer.train()

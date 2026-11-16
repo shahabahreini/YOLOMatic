@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -21,9 +22,10 @@ from yolomatic.utils.cli import (
     build_summary_panel,
 )
 from yolomatic.cli.result import CommandResult
+from yolomatic.utils.fs import atomic_write_text
 from yolomatic.utils.jobs import CancelToken, JobStatus, run_with_progress
 from yolomatic.utils.logging_setup import log_exception
-from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_sam_transformers
+from yolomatic.utils.ml_dependencies import MLDependencyError, check_hf_auth, import_cv2, import_sam_transformers
 from yolomatic.utils.project import is_sam_checkpoint, project_root
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
@@ -309,96 +311,141 @@ def _configure_output() -> Path | None:
 # Output saving
 # ---------------------------------------------------------------------------
 
-def _masks_to_yolo_txt(masks: list[np.ndarray], img_w: int, img_h: int) -> list[str]:
-    """Convert binary masks to YOLO segmentation polygon lines (class 0)."""
+def _mask_polygons(mask: np.ndarray) -> list[np.ndarray]:
+    """External contours of a binary mask as ``(K, 2)`` pixel arrays (K >= 3)."""
+    cv2 = import_cv2()
+    contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return [c.reshape(-1, 2) for c in contours if len(c) >= 3]
+
+
+def _masks_to_yolo_txt(
+    masks: list[np.ndarray], img_w: int, img_h: int, class_ids: list[int] | None = None
+) -> list[str]:
+    """Convert binary masks to YOLO segmentation polygon lines (largest contour)."""
     lines: list[str] = []
-    for mask in masks:
-        try:
-            from yolomatic.utils.ml_dependencies import import_cv2
-            cv2 = import_cv2()
-            contours, _ = cv2.findContours(
-                mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-            if not contours:
-                continue
-            pts = max(contours, key=cv2.contourArea).reshape(-1, 2)
-            if len(pts) < 3:
-                continue
-            norm = [f"{x / img_w:.6f} {y / img_h:.6f}" for x, y in pts]
-            lines.append("0 " + " ".join(norm))
-        except ImportError:
-            pass
+    for index, mask in enumerate(masks):
+        polygons = _mask_polygons(mask)
+        if not polygons:
+            continue
+        pts = max(polygons, key=len)
+        cls = class_ids[index] if class_ids and index < len(class_ids) else 0
+        norm = [f"{x / img_w:.6f} {y / img_h:.6f}" for x, y in pts]
+        lines.append(f"{cls} " + " ".join(norm))
     return lines
+
+
+def _class_names_for(mode: str, mode_config: object) -> dict[int, str]:
+    """Class names for COCO categories: from the detections' data.yaml in box mode."""
+    if mode.startswith("Box-prompted") and isinstance(mode_config, Path):
+        import yaml
+
+        for folder in (mode_config, *mode_config.parents[:3]):
+            for name in ("data.yaml", "dataset.yaml"):
+                candidate = folder / name
+                if candidate.is_file():
+                    try:
+                        names = (yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}).get("names")
+                    except (OSError, yaml.YAMLError):
+                        continue
+                    if isinstance(names, dict):
+                        return {int(k): str(v) for k, v in names.items()}
+                    if isinstance(names, list):
+                        return {i: str(v) for i, v in enumerate(names)}
+    return {}
+
+
+class SamOutputWriter:
+    """Collects SAM results and writes one valid COCO file at the end.
+
+    The old writer re-read and rewrote the whole JSON after every image
+    (quadratic, and a crash mid-write corrupted it), restarted annotation ids
+    at 1 for each image, used filename stems as image ids, wrote empty
+    ``segmentation`` lists, used category 0 and let same-named images from
+    different subfolders overwrite each other.
+    """
+
+    def __init__(self, output_dir: Path, source_root: Path, class_names: dict[int, str] | None = None) -> None:
+        self.output_dir = output_dir
+        self.source_root = source_root if source_root.is_dir() else source_root.parent
+        self.class_names = dict(class_names or {})
+        self.images: list[dict[str, Any]] = []
+        self.annotations: list[dict[str, Any]] = []
+        self.used_categories: set[int] = set()
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    def stem_for(self, image_path: Path) -> str:
+        try:
+            relative = image_path.resolve().relative_to(self.source_root.resolve())
+        except ValueError:
+            relative = Path(image_path.name)
+        return "__".join(relative.with_suffix("").parts)
+
+    def add(self, image_path: Path, masks: list[np.ndarray], class_ids: list[int] | None, img_w: int, img_h: int) -> str:
+        image_id = len(self.images) + 1
+        stem = self.stem_for(image_path)
+        self.images.append({"id": image_id, "file_name": str(image_path), "width": img_w, "height": img_h})
+        for index, mask in enumerate(masks):
+            mask_bool = mask.astype(bool)
+            ys, xs = np.where(mask_bool)
+            if len(xs) == 0:
+                continue
+            polygons = _mask_polygons(mask_bool)
+            if not polygons:
+                continue
+            cls = int(class_ids[index]) if class_ids and index < len(class_ids) else 0
+            self.used_categories.add(cls)
+            x1, y1, x2, y2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+            self.annotations.append({
+                "id": len(self.annotations) + 1,
+                "image_id": image_id,
+                "category_id": cls + 1,  # COCO categories are 1-based
+                "bbox": [x1, y1, x2 - x1 + 1, y2 - y1 + 1],
+                "area": int(mask_bool.sum()),
+                "iscrowd": 0,
+                "segmentation": [poly.astype(float).flatten().round(2).tolist() for poly in polygons],
+            })
+        return stem
+
+    def close(self) -> Path:
+        categories = [
+            {"id": cls + 1, "name": self.class_names.get(cls, "object" if cls == 0 else f"class_{cls}")}
+            for cls in sorted(self.used_categories | ({0} if not self.used_categories else set()))
+        ]
+        payload = {"images": self.images, "annotations": self.annotations, "categories": categories}
+        target = self.output_dir / "annotations.coco.json"
+        atomic_write_text(target, json.dumps(payload, indent=2))
+        return target
 
 
 def _save_outputs(
     image_path: Path,
     masks: list[np.ndarray],
-    output_dir: Path,
+    writer: SamOutputWriter,
     texts: list[str] | None = None,
+    class_ids: list[int] | None = None,
 ) -> None:
-    """Save PNG overlay, append to COCO JSON, write YOLO .txt."""
+    """Save the PNG overlay and YOLO .txt, and record the masks for COCO."""
     from PIL import Image as PILImage
 
-    output_dir.mkdir(parents=True, exist_ok=True)
     img = PILImage.open(image_path).convert("RGB")
     img_w, img_h = img.size
+    valid = [(m.astype(bool) if m.dtype == bool else m > 0.5) for m in masks]
+    keep = [index for index, mask in enumerate(valid) if mask.any()]
+    valid = [valid[index] for index in keep]
+    kept_classes = [class_ids[index] for index in keep] if class_ids else None
 
-    coco_anns: list[dict] = []
-    for i, mask in enumerate(masks):
-        if mask.dtype != bool:
-            mask = mask > 0.5
-        mask_bool = mask.astype(bool)
-        ys, xs = np.where(mask_bool)
-        if len(xs) == 0:
-            continue
-
-        # Build overlay layer
-        colour = (50, 205, 50, 80) if texts is None else (30, 144, 255, 80)
-        overlay = PILImage.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
+    colour = (50, 205, 50, 80) if texts is None else (30, 144, 255, 80)
+    if valid:
         ov_arr = np.zeros((img_h, img_w, 4), dtype=np.uint8)
-        ov_arr[ys, xs] = colour
-        overlay = PILImage.fromarray(ov_arr, "RGBA")
-        img = img.convert("RGBA")
-        img = PILImage.alpha_composite(img, overlay).convert("RGB")
+        for mask in valid:
+            ov_arr[mask] = colour
+        img = PILImage.alpha_composite(img.convert("RGBA"), PILImage.fromarray(ov_arr, "RGBA")).convert("RGB")
 
-        area = int(mask_bool.sum())
-        x1, y1, x2, y2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
-        coco_anns.append({
-            "id": i + 1,
-            "image_id": image_path.stem,
-            "category_id": 0,
-            "bbox": [x1, y1, x2 - x1, y2 - y1],
-            "area": area,
-            "iscrowd": 0,
-            "segmentation": [],
-        })
-
-    stem = image_path.stem
-    img.save(output_dir / f"{stem}_sam.png")
-
-    # Append to COCO JSON
-    coco_file = output_dir / "annotations.coco.json"
-    if coco_file.exists():
-        existing = json.loads(coco_file.read_text())
-    else:
-        existing = {
-            "images": [],
-            "annotations": [],
-            "categories": [{"id": 0, "name": "object"}],
-        }
-    existing["images"].append({
-        "id": image_path.stem, "file_name": image_path.name,
-        "width": img_w, "height": img_h,
-    })
-    existing["annotations"].extend(coco_anns)
-    coco_file.write_text(json.dumps(existing, indent=2))
-
-    # YOLO txt
-    valid_masks = [m.astype(bool) for m in masks if m.astype(bool).sum() > 0]
-    yolo_lines = _masks_to_yolo_txt(valid_masks, img_w, img_h)
+    stem = writer.add(image_path, valid, kept_classes, img_w, img_h)
+    img.save(writer.output_dir / f"{stem}_sam.png")
+    yolo_lines = _masks_to_yolo_txt(valid, img_w, img_h, kept_classes)
     if yolo_lines:
-        (output_dir / f"{stem}.txt").write_text("\n".join(yolo_lines))
+        (writer.output_dir / f"{stem}.txt").write_text("\n".join(yolo_lines), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -418,7 +465,7 @@ def _load_model_and_processor(model_id: str, token: str):
     return model, processor, device
 
 
-def _run_auto(image_path: Path, model, processor, device: str, output_dir: Path) -> int:
+def _run_auto(image_path: Path, model, processor, device: str, writer: SamOutputWriter) -> int:
     from transformers import pipeline as hf_pipeline
     generator = hf_pipeline(
         "mask-generation",
@@ -428,11 +475,11 @@ def _run_auto(image_path: Path, model, processor, device: str, output_dir: Path)
     )
     outputs = generator(str(image_path), points_per_batch=64)
     masks = [np.array(m) for m in outputs.get("masks", [])]
-    _save_outputs(image_path, masks, output_dir)
+    _save_outputs(image_path, masks, writer)
     return len(masks)
 
 
-def _run_text(image_path: Path, texts: list[str], model, processor, device: str, output_dir: Path) -> int:
+def _run_text(image_path: Path, texts: list[str], model, processor, device: str, writer: SamOutputWriter) -> int:
     from PIL import Image as PILImage
     img = PILImage.open(image_path).convert("RGB")
     inputs = processor(images=img, text=texts, return_tensors="pt").to(device)
@@ -448,29 +495,28 @@ def _run_text(image_path: Path, texts: list[str], model, processor, device: str,
         for obj_idx in range(m.shape[0]):
             best = int(scores[0, obj_idx].argmax()) if scores.ndim >= 3 else 0
             masks.append(m[obj_idx, best].numpy().astype(bool))
-    _save_outputs(image_path, masks, output_dir, texts=texts)
+    _save_outputs(image_path, masks, writer, texts=texts)
     return len(masks)
 
 
-def _load_yolo_boxes(txt_path: Path, img_w: int, img_h: int) -> list[list[float]]:
-    """Load YOLO detection .txt and return xyxy pixel boxes."""
+def _load_yolo_boxes_with_classes(txt_path: Path, img_w: int, img_h: int) -> tuple[list[list[float]], list[int]]:
+    """Load a YOLO detection .txt as xyxy pixel boxes plus their class ids."""
     boxes: list[list[float]] = []
+    classes: list[int] = []
     if not txt_path.exists():
-        return boxes
+        return boxes, classes
     for line in txt_path.read_text(encoding="utf-8").splitlines():
         parts = line.strip().split()
         if len(parts) < 5:
             continue
         try:
+            cls = int(float(parts[0]))
             cx, cy, bw, bh = float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4])
-            x1 = (cx - bw / 2) * img_w
-            y1 = (cy - bh / 2) * img_h
-            x2 = (cx + bw / 2) * img_w
-            y2 = (cy + bh / 2) * img_h
-            boxes.append([x1, y1, x2, y2])
         except ValueError:
             continue
-    return boxes
+        boxes.append([(cx - bw / 2) * img_w, (cy - bh / 2) * img_h, (cx + bw / 2) * img_w, (cy + bh / 2) * img_h])
+        classes.append(cls)
+    return boxes, classes
 
 
 def _run_box(
@@ -479,13 +525,15 @@ def _run_box(
     model,
     processor,
     device: str,
-    output_dir: Path,
+    writer: SamOutputWriter,
 ) -> int:
     from PIL import Image as PILImage
     img = PILImage.open(image_path).convert("RGB")
     img_w, img_h = img.size
     txt_path = detections_dir / (image_path.stem + ".txt")
-    boxes = _load_yolo_boxes(txt_path, img_w, img_h)
+    # Keep each box's class: box-prompted mode upgrades a detection dataset to
+    # segmentation, and used to write every mask as class 0.
+    boxes, box_classes = _load_yolo_boxes_with_classes(txt_path, img_w, img_h)
     if not boxes:
         return 0
     inputs = processor(images=img, input_boxes=[[boxes]], return_tensors="pt").to(device)
@@ -501,7 +549,7 @@ def _run_box(
         for obj_idx in range(m.shape[0]):
             best = int(scores[0, obj_idx].argmax()) if scores.ndim >= 3 else 0
             masks.append(m[obj_idx, best].numpy().astype(bool))
-    _save_outputs(image_path, masks, output_dir)
+    _save_outputs(image_path, masks, writer, class_ids=box_classes[: len(masks)])
     return len(masks)
 
 
@@ -525,6 +573,7 @@ def _run_batch(
         return CommandResult.failed(f"No images found in {source}.")
 
     model, processor, device = _load_model_and_processor(model_id, token)
+    writer = SamOutputWriter(output_dir, source, _class_names_for(mode, mode_config))
     total = len(images)
     counters = {"masks": 0, "errors": 0, "done": 0}
     log_lines: list[str] = []
@@ -536,11 +585,11 @@ def _run_batch(
             cancel.raise_if_cancelled()
             try:
                 if mode == "Auto (segment everything)":
-                    n = _run_auto(img_path, model, processor, device, output_dir)
+                    n = _run_auto(img_path, model, processor, device, writer)
                 elif mode == "Text-prompted":
-                    n = _run_text(img_path, mode_config, model, processor, device, output_dir)
+                    n = _run_text(img_path, mode_config, model, processor, device, writer)
                 else:
-                    n = _run_box(img_path, mode_config, model, processor, device, output_dir)
+                    n = _run_box(img_path, mode_config, model, processor, device, writer)
                 counters["masks"] += n
                 log_lines.append(f"  [{i}/{total}] {escape(img_path.name)} → {n} masks")
             except Exception as exc:  # noqa: BLE001 - per-image failures are reported, not fatal
@@ -557,6 +606,8 @@ def _run_batch(
         )
 
     outcome = run_with_progress(job, render=render, console=console, refresh_per_second=4)
+    # Written once (also after a cancel, so the partial run is a valid COCO file).
+    coco_path = writer.close()
     summary = (
         f"{counters['masks']} masks across {counters['done']}/{total} images, "
         f"{counters['errors']} errors."
@@ -567,7 +618,7 @@ def _run_batch(
         assert outcome.error is not None
         log_exception(outcome.error, "SAM inference")
         return CommandResult.failed(str(outcome.error))
-    return CommandResult.ok(summary, outputs={"Outputs": output_dir})
+    return CommandResult.ok(summary, outputs={"Outputs": output_dir, "COCO annotations": coco_path})
 
 
 # ---------------------------------------------------------------------------
