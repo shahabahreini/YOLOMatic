@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and sys_platform == 'win32'",
@@ -470,7 +470,7 @@ wheels = [
 
 [[package]]
 name = "clearml"
-version = "2.1.12"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
@@ -490,7 +490,7 @@ dependencies = [
     { name = "urllib3" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/b2/97968fa5455ec7a5371aedd2e334927a0144248c932bf4515ac90f9a5696/clearml-2.1.12-py2.py3-none-any.whl", hash = "sha256:3387cd6af16950b735857bcd275d40dd5d59b4aa63684d9fdf763d978b038e04", size = 1411744, upload-time = "2026-08-19T11:20:18.647Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/68/544aa81664d57eca0c0869e3dbba04522681ee00196825f9191cd7b19e0f/clearml-2.2.0-py2.py3-none-any.whl", hash = "sha256:b71bd4e4ffd5a6174f66bff0c4d4ce18055d912efa1d63e698e95da1b0dd7cad", size = 1419919, upload-time = "2026-11-03T17:30:55.824Z" },
 ]
 
 [[package]]
